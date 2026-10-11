@@ -21,6 +21,8 @@ defmodule Localize.Data.Collation do
     "ducet" => "ducet"
   }
 
+  @latin_limit 0x0180
+
   @doc """
   Generates collation tailoring data from CLDR XML collation files.
 
@@ -170,8 +172,6 @@ defmodule Localize.Data.Collation do
     end)
     |> Map.new(fn {cp, lengths} -> {cp, MapSet.to_list(lengths)} end)
   end
-
-  @latin_limit 0x0180
 
   defp build_fast_latin(entries, contractions) do
     for cp <- 0..(@latin_limit - 1) do

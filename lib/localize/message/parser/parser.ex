@@ -7,6 +7,12 @@ defmodule Localize.Message.Parser do
 
   import Localize.Message.Parser.Helpers
 
+  # Maximum byte length accepted by `parse/1` and `parse!/1`. Caps the
+  # parser's CPU exposure on hostile or accidentally-huge messages.
+  # Override with `config :localize, :max_message_bytes, n` (default
+  # 65 536 — generous for any human-authored message).
+  @default_max_message_bytes 65_536
+
   @doc """
   Parses a MessageFormat 2 message string.
 
@@ -46,12 +52,6 @@ defmodule Localize.Message.Parser do
 
   def parse(input),
     do: {:error, Localize.Utils.Helpers.invalid_value(input, "an MF2 message string")}
-
-  # Maximum byte length accepted by `parse/1` and `parse!/1`. Caps the
-  # parser's CPU exposure on hostile or accidentally-huge messages.
-  # Override with `config :localize, :max_message_bytes, n` (default
-  # 65 536 — generous for any human-authored message).
-  @default_max_message_bytes 65_536
 
   @doc false
   def max_message_bytes do

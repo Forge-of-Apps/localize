@@ -23,6 +23,12 @@ defmodule Localize.Inflection.Locale do
                 ja kk kn ko lt ml mr ms nb nl or pa pl pt ro ru sk sr sv ta
                 te th tr uk ur vi yue zh)
 
+  # A locale is subtags of letters and digits joined by hyphens or
+  # underscores. The internal form becomes a data file name, so anything
+  # else names no locale: "../" in it reached files outside the data
+  # directory, and each spelling of such a path minted a fresh atom.
+  @locale_pattern ~r/\A[A-Za-z0-9]{1,8}(?:[-_][A-Za-z0-9]{1,8})*\z/
+
   @doc """
   Normalizes a locale atom, binary or `Localize.LanguageTag` to
   the internal underscore string form, without extensions:
@@ -32,12 +38,6 @@ defmodule Localize.Inflection.Locale do
   def normalize(%Localize.LanguageTag{} = language_tag) do
     normalize(Localize.LanguageTag.to_string(language_tag))
   end
-
-  # A locale is subtags of letters and digits joined by hyphens or
-  # underscores. The internal form becomes a data file name, so anything
-  # else names no locale: "../" in it reached files outside the data
-  # directory, and each spelling of such a path minted a fresh atom.
-  @locale_pattern ~r/\A[A-Za-z0-9]{1,8}(?:[-_][A-Za-z0-9]{1,8})*\z/
 
   # Extensions (`-u-`, `-t-`, private use `-x-`) begin at the first
   # singleton subtag. They name no inflection data, and keeping them

@@ -68,371 +68,6 @@ defmodule Mix.Tasks.Localize.Unit.GenConversions do
   # given `OptionParser`'s bare "unknown option".
   @retired_switches ~w(--types --units --list)
 
-  @impl Mix.Task
-  def run(argv) do
-    Mix.Task.run("app.start")
-
-    case Enum.filter(@retired_switches, &(&1 in argv)) do
-      [] -> :ok
-      retired -> Mix.raise(retirement_message(retired))
-    end
-
-    {options, _argv} = OptionParser.parse!(argv, strict: @switches)
-
-    generate(options)
-  end
-
-  defp retirement_message(retired) do
-    "#{Enum.join(retired, " and ")} #{if match?([_], retired), do: "is", else: "are"} no longer " <>
-      "needed. The generated module accepts every unit Localize.Unit accepts — defined, " <>
-      "prefixed, powered and compound — so there is nothing to select. Run the task with no " <>
-      "arguments, or with --module to name the module."
-  end
-
-  defp generate(options) do
-    module = options[:module] || "Units"
-    output = options[:output] || default_output(module)
-    aliases = alias_table()
-
-    contents = render(module, aliases)
-
-    File.mkdir_p!(Path.dirname(output))
-    File.write!(output, contents)
-
-    Mix.shell().info([:green, "* creating ", :reset, output])
-
-    Mix.shell().info(
-      "  #{map_size(Map.new(Data.conversions()))} units, #{map_size(aliases)} spellings, " <>
-        "every prefixed and compound form of them"
-    )
-  end
-
-  defp default_output(module) do
-    path =
-      module
-      |> String.split(".")
-      |> Enum.map_join("/", &Macro.underscore/1)
-
-    Path.join("lib", path <> ".ex")
-  end
-
-  # ── Parser generation ────────────────────────────────────────────
-
-  # The emitted module must accept every identifier Localize accepts. Rather
-  # than maintain a second parser, Localize's own is inlined: it is already
-  # written as a NimbleParsec template (the `# parsec:` markers), and
-  # `mix nimble_parsec.compile` expands it into plain functions with no
-  # runtime dependency. Parity is therefore structural, not maintained.
-  #
-  # The helpers keep their own module, as they do in Localize. Folding them
-  # into the parser would let the compiler see that a post-traverse callback
-  # never returns a two-element tuple and warn about the clauses NimbleParsec
-  # generates for one — warnings in a file the caller is expected to commit
-  # and compile with `--warnings-as-errors`.
-  #
-  # Sources are located through `module_info/1` rather than a path, so this
-  # works whether Localize is the current project or a dependency.
-  defp parser_source(module) do
-    parser_module = module <> ".Parser"
-
-    helpers_module(parser_module) <> "\n" <> compiled_parser(parser_module)
-  end
-
-  defp compiled_parser(parser_module) do
-    # `nimble_parsec.compile` has to evaluate the template to expand the
-    # combinators, which defines the template's module in this VM. Naming it
-    # after the caller's module would leave a namesake behind carrying
-    # different code, so it is built under a scratch name and renamed in the
-    # text afterwards.
-    scratch = "Localize.Unit.GenConversions.Scratch.Parser"
-
-    template =
-      Localize.Unit.Parser
-      |> source_path()
-      |> File.read!()
-      |> String.replace("defmodule Localize.Unit.Parser do", "defmodule #{scratch} do")
-      |> String.replace("# parsec:Localize.Unit.Parser", "# parsec:#{scratch}")
-
-    directory =
-      Path.join(
-        System.tmp_dir!(),
-        "localize_gen_conversions_#{System.unique_integer([:positive])}"
-      )
-
-    File.mkdir_p!(directory)
-    File.write!(Path.join(directory, "parser.ex.exs"), template)
-
-    # `nimble_parsec.compile` narrates the file it writes, which is a
-    # temporary path the caller has no interest in. The caller's own shell is
-    # put back afterwards rather than assumed to be the default one.
-    shell = Mix.shell()
-    Mix.shell(Mix.Shell.Quiet)
-    Mix.Task.rerun("nimble_parsec.compile", [Path.join(directory, "parser.ex.exs")])
-    Mix.shell(shell)
-
-    compiled = File.read!(Path.join(directory, "parser.ex"))
-    File.rm_rf!(directory)
-
-    compiled
-    |> String.replace(scratch, parser_module)
-    |> strip_generator_banner()
-    |> localize_free(parser_module)
-    |> quiet_generated_warnings()
-  end
-
-  defp source_path(module) do
-    module.module_info(:compile)[:source] |> to_string()
-  end
-
-  # `nimble_parsec.compile` stamps the source path and the time of the run into
-  # the file it writes. Both are noise here — the path is a temporary directory
-  # that no longer exists, and a timestamp would make two runs of this task on
-  # the same CLDR data produce different files, which the header promises they
-  # do not.
-  defp strip_generator_banner(source) do
-    String.replace(source, ~r/^# Generated (from|at) .*\n/m, "")
-  end
-
-  # Everything the parser reaches for outside itself. `parse/1` builds a
-  # `Localize.ParseError` on failure, which the generated module has no use for
-  # — it discards the reason and reports `{:unknown_unit, _}` — so the
-  # constructor becomes a plain tagged tuple. Custom units are registered at
-  # runtime against Localize; a generated module has no registry, so no name
-  # can be one. The byte cap is inlined at its default, there being no
-  # `:localize` application to configure it through.
-  defp localize_free(source, parser_module) do
-    source
-    |> String.replace(
-      "  import Localize.Unit.Parser.Helpers\n",
-      "  import #{parser_module}.Helpers\n"
-    )
-    |> String.replace("Localize.ParseError.exception(", "parse_error(")
-    # The constructor above no longer returns an exception, so the spec
-    # written for Localize's parser is false here. Left uncorrected,
-    # dialyzer takes `Exception.t()` at its word, decides the error branch
-    # cannot produce what the callers match on, and reports an unreachable
-    # clause in `parse_identifier/1` — in a file the caller is told to
-    # commit and may compile with `--warnings-as-errors`.
-    |> String.replace(
-      "@spec parse(String.t()) :: {:ok, tuple()} | {:error, Exception.t()}",
-      "@spec parse(String.t()) :: {:ok, tuple()} | {:error, {:parse_error, keyword()}}"
-    )
-    # Input that is not a string is refused before parsing, and the generated
-    # module reports that as it reports any other failure to parse.
-    |> String.replace(
-      ~s|Localize.Utils.Helpers.invalid_value(input, "a unit identifier string")|,
-      "parse_error(input: input)"
-    )
-    |> String.replace("Localize.Unit.CustomRegistry.registered?(", "custom_unit?(")
-    |> String.replace(
-      "Application.get_env(:localize, :max_unit_bytes, @default_max_unit_bytes)",
-      "@default_max_unit_bytes"
-    )
-    |> strip_docs()
-    |> append_to_module("""
-        defp parse_error(bindings), do: {:parse_error, bindings}
-    """)
-  end
-
-  # The parser's documentation is written about `Localize.Unit.Parser` — its
-  # name appears in every doctest — and the generated module is not it. The
-  # module is internal, so the docs go rather than being rewritten.
-  defp strip_docs(source) do
-    source
-    |> String.replace(~r/^[ \t]*@(module)?doc[ \t]+"""\n.*?^[ \t]*"""\n/ms, "")
-    |> String.replace(~r/^[ \t]*@(module)?doc[ \t]+(false|"[^\n]*")\n/m, "")
-  end
-
-  # NimbleParsec generates code for the general case, so parts of it are
-  # unreachable for this particular grammar: entry points for sub-combinators
-  # nothing calls, an error binding nothing reads, and a compatibility clause
-  # for a post-traverse return shape none of these callbacks use. None is a
-  # defect. Compiled from AST, as NimbleParsec normally is, all three are
-  # marked generated and the compiler stays quiet; written out as source that
-  # marking is lost and they warn — in a file the caller commits.
-  defp quiet_generated_warnings(source) do
-    source
-    |> String.replace(
-      ~r/\n[ \t]*\{acc, context\} ->\n[ \t]*IO\.warn\(.*?\)\n\n[ \t]*\{rest, acc, context\}\n/s,
-      "\n"
-    )
-    # Drop the binding only where the clause body does not go on to return it;
-    # the lookahead is what tells those two shapes apart.
-    |> String.replace(~r/\} = error ->\n(?![ \t]*error\n)/, "} ->\n")
-    |> String.replace(
-      ~r/^  defp (\w+)\(binary, opts \\\\ \[\]\) when is_binary\(binary\) do$/m,
-      "  @doc false\n  def \\1(binary, opts \\\\\\\\ []) when is_binary(binary) do"
-    )
-  end
-
-  # The helpers Localize's parser imports, lifted into the generated file. Only
-  # the SI prefix lookup reaches outside the module; it is replaced by a table.
-  defp helpers_module(parser_module) do
-    body =
-      Localize.Unit.Parser.Helpers
-      |> source_path()
-      |> File.read!()
-      |> body_of_module()
-      |> strip_docs()
-      |> String.replace("Localize.Unit.Data.si_prefix_atom(value)", "si_prefix_atom(value)")
-
-    """
-    defmodule #{parser_module}.Helpers do
-      @moduledoc false
-
-      # Runtime helpers called by the pre-compiled parser, and the post-traverse
-      # callbacks its grammar refers to by name.
-    #{body}
-      @si_prefix_atoms %{#{si_prefix_atom_pairs()}}
-
-      defp si_prefix_atom(name), do: Map.get(@si_prefix_atoms, name)
-
-      @reserved_categories MapSet.new(#{inspect(Data.categories())})
-
-      def reject_categories(rest, [name] = args, context, _line, _offset) do
-        if MapSet.member?(@reserved_categories, name) do
-          {:error, "\#{name} is a reserved category name"}
-        else
-          {rest, args, context}
-        end
-      end
-
-      # Custom units are registered at runtime against Localize, and a generated
-      # module has no registry, so this set is permanently empty. It stays a set
-      # rather than becoming a literal `false` because the compiler would then
-      # see every branch guarding on it as unreachable and warn — in a file the
-      # caller is expected to commit and compile with `--warnings-as-errors`.
-      @custom_units MapSet.new()
-
-      def custom_unit?(name), do: MapSet.member?(@custom_units, name)
-
-      def validate_prefixed_custom_unit(rest, args, context, _line, _offset) do
-        case List.keyfind(args, :base, 0) do
-          {:base, base} when base != nil ->
-            if custom_unit?(base) do
-              {rest, args, context}
-            else
-              {:error, "\#{base} is not a registered custom unit"}
-            end
-
-          _other ->
-            {:error, "no base unit found"}
-        end
-      end
-    end
-    """
-  end
-
-  # Insert before a module's final `end`. `:binary.matches/2` reports byte
-  # offsets and the source is not ASCII, so the cut must be a binary operation —
-  # `String.slice/3` counts graphemes and would land past that `end`.
-  defp append_to_module(source, addition) do
-    index = source |> String.trim_trailing() |> :binary.matches("\nend") |> List.last() |> elem(0)
-
-    binary_part(source, 0, index) <> "\n" <> addition <> "end\n"
-  end
-
-  defp si_prefix_atom_pairs do
-    Data.si_prefix_names()
-    |> Enum.map_join(", ", fn name ->
-      "#{inspect(name)} => #{inspect(Data.si_prefix_atom(name))}"
-    end)
-  end
-
-  defp body_of_module(source) do
-    source
-    |> String.split("\n")
-    |> Enum.drop_while(&(not String.starts_with?(&1, "defmodule")))
-    |> Enum.drop(1)
-    |> Enum.reverse()
-    |> Enum.drop_while(&(String.trim(&1) != "end"))
-    |> Enum.drop(1)
-    |> Enum.reverse()
-    |> Enum.join("\n")
-  end
-
-  # ── Spellings ────────────────────────────────────────────────────
-
-  # The parser reads CLDR identifiers, but people write "km/h" and
-  # "kilometers per hour". Those spellings are mapped onto the identifier
-  # before parsing, which is the one thing the generated module cannot derive
-  # from the parser alone.
-  #
-  # The set covered is every unit CLDR gives a display form for: the 155 it
-  # defines a conversion for, plus the compounds its preference data lists.
-  # Compounds outside that set — `newton-meter-second-per-radian` — still
-  # convert, but only under their CLDR identifier, because CLDR gives no
-  # symbol or plural for them to be spelled with.
-  defp alias_table do
-    spelled_units()
-    |> Enum.flat_map(fn name -> Enum.map(aliases(name), &{&1, name}) end)
-    |> Enum.reduce(%{}, fn {spelling, name}, acc ->
-      # First writer wins: a spelling shared by two units keeps the one that
-      # sorts first, so the table does not depend on traversal order.
-      Map.put_new(acc, spelling, name)
-    end)
-  end
-
-  defp spelled_units do
-    compound =
-      Data.unit_preferences()
-      |> Enum.flat_map(& &1.preferences)
-      |> Enum.map(& &1.unit)
-
-    simple = Localize.Unit.known_units_by_category() |> Map.values() |> List.flatten()
-
-    # "foot-and-inch" is a formatting construct, not a convertible unit.
-    (simple ++ compound)
-    |> Enum.uniq()
-    |> Enum.reject(&String.contains?(&1, "-and-"))
-    |> Enum.sort()
-  end
-
-  # Every spelling the generated parser should accept for a unit: the
-  # CLDR identifier, its space-separated form, the English long and
-  # short forms, and the plural display name. Localize renders a
-  # quantity of 1 to obtain the singular, so the leading "1" is stripped.
-  defp aliases(name) do
-    localized =
-      case Localize.Unit.new(1, name) do
-        {:ok, unit} ->
-          [:long, :short, :narrow]
-          |> Enum.flat_map(&rendered(unit, &1))
-          |> Enum.concat(display_name(unit))
-
-        {:error, _} ->
-          []
-      end
-
-    [name, String.replace(name, "-", " ")]
-    |> Enum.concat(localized)
-    |> Enum.map(&String.downcase(String.trim(&1)))
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  defp rendered(unit, format) do
-    case Localize.Unit.to_string(unit, format: format, locale: :en) do
-      {:ok, string} -> [strip_leading_one(string)]
-      {:error, _} -> []
-    end
-  end
-
-  defp display_name(unit) do
-    case Localize.Unit.display_name(unit, locale: :en) do
-      {:ok, name} -> [name]
-      {:error, _} -> []
-    end
-  end
-
-  defp strip_leading_one(string) do
-    string
-    |> String.replace(~r/^\s*1\s*/u, "")
-    |> String.trim()
-  end
-
-  # ── Rendering ────────────────────────────────────────────────────
-
   # The runtime half of the generated module is fixed — only the tables
   # vary — so it is a literal rather than something assembled.
   @runtime_body ~S'''
@@ -803,6 +438,371 @@ defmodule Mix.Tasks.Localize.Unit.GenConversions do
     defp power_exponent(:cubic), do: 3
     defp power_exponent({:pow, n}), do: n
   '''
+
+  @impl Mix.Task
+  def run(argv) do
+    Mix.Task.run("app.start")
+
+    case Enum.filter(@retired_switches, &(&1 in argv)) do
+      [] -> :ok
+      retired -> Mix.raise(retirement_message(retired))
+    end
+
+    {options, _argv} = OptionParser.parse!(argv, strict: @switches)
+
+    generate(options)
+  end
+
+  defp retirement_message(retired) do
+    "#{Enum.join(retired, " and ")} #{if match?([_], retired), do: "is", else: "are"} no longer " <>
+      "needed. The generated module accepts every unit Localize.Unit accepts — defined, " <>
+      "prefixed, powered and compound — so there is nothing to select. Run the task with no " <>
+      "arguments, or with --module to name the module."
+  end
+
+  defp generate(options) do
+    module = options[:module] || "Units"
+    output = options[:output] || default_output(module)
+    aliases = alias_table()
+
+    contents = render(module, aliases)
+
+    File.mkdir_p!(Path.dirname(output))
+    File.write!(output, contents)
+
+    Mix.shell().info([:green, "* creating ", :reset, output])
+
+    Mix.shell().info(
+      "  #{map_size(Map.new(Data.conversions()))} units, #{map_size(aliases)} spellings, " <>
+        "every prefixed and compound form of them"
+    )
+  end
+
+  defp default_output(module) do
+    path =
+      module
+      |> String.split(".")
+      |> Enum.map_join("/", &Macro.underscore/1)
+
+    Path.join("lib", path <> ".ex")
+  end
+
+  # ── Parser generation ────────────────────────────────────────────
+
+  # The emitted module must accept every identifier Localize accepts. Rather
+  # than maintain a second parser, Localize's own is inlined: it is already
+  # written as a NimbleParsec template (the `# parsec:` markers), and
+  # `mix nimble_parsec.compile` expands it into plain functions with no
+  # runtime dependency. Parity is therefore structural, not maintained.
+  #
+  # The helpers keep their own module, as they do in Localize. Folding them
+  # into the parser would let the compiler see that a post-traverse callback
+  # never returns a two-element tuple and warn about the clauses NimbleParsec
+  # generates for one — warnings in a file the caller is expected to commit
+  # and compile with `--warnings-as-errors`.
+  #
+  # Sources are located through `module_info/1` rather than a path, so this
+  # works whether Localize is the current project or a dependency.
+  defp parser_source(module) do
+    parser_module = module <> ".Parser"
+
+    helpers_module(parser_module) <> "\n" <> compiled_parser(parser_module)
+  end
+
+  defp compiled_parser(parser_module) do
+    # `nimble_parsec.compile` has to evaluate the template to expand the
+    # combinators, which defines the template's module in this VM. Naming it
+    # after the caller's module would leave a namesake behind carrying
+    # different code, so it is built under a scratch name and renamed in the
+    # text afterwards.
+    scratch = "Localize.Unit.GenConversions.Scratch.Parser"
+
+    template =
+      Localize.Unit.Parser
+      |> source_path()
+      |> File.read!()
+      |> String.replace("defmodule Localize.Unit.Parser do", "defmodule #{scratch} do")
+      |> String.replace("# parsec:Localize.Unit.Parser", "# parsec:#{scratch}")
+
+    directory =
+      Path.join(
+        System.tmp_dir!(),
+        "localize_gen_conversions_#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(directory)
+    File.write!(Path.join(directory, "parser.ex.exs"), template)
+
+    # `nimble_parsec.compile` narrates the file it writes, which is a
+    # temporary path the caller has no interest in. The caller's own shell is
+    # put back afterwards rather than assumed to be the default one.
+    shell = Mix.shell()
+    Mix.shell(Mix.Shell.Quiet)
+    Mix.Task.rerun("nimble_parsec.compile", [Path.join(directory, "parser.ex.exs")])
+    Mix.shell(shell)
+
+    compiled = File.read!(Path.join(directory, "parser.ex"))
+    File.rm_rf!(directory)
+
+    compiled
+    |> String.replace(scratch, parser_module)
+    |> strip_generator_banner()
+    |> localize_free(parser_module)
+    |> quiet_generated_warnings()
+  end
+
+  defp source_path(module) do
+    module.module_info(:compile)[:source] |> to_string()
+  end
+
+  # `nimble_parsec.compile` stamps the source path and the time of the run into
+  # the file it writes. Both are noise here — the path is a temporary directory
+  # that no longer exists, and a timestamp would make two runs of this task on
+  # the same CLDR data produce different files, which the header promises they
+  # do not.
+  defp strip_generator_banner(source) do
+    String.replace(source, ~r/^# Generated (from|at) .*\n/m, "")
+  end
+
+  # Everything the parser reaches for outside itself. `parse/1` builds a
+  # `Localize.ParseError` on failure, which the generated module has no use for
+  # — it discards the reason and reports `{:unknown_unit, _}` — so the
+  # constructor becomes a plain tagged tuple. Custom units are registered at
+  # runtime against Localize; a generated module has no registry, so no name
+  # can be one. The byte cap is inlined at its default, there being no
+  # `:localize` application to configure it through.
+  defp localize_free(source, parser_module) do
+    source
+    |> String.replace(
+      "  import Localize.Unit.Parser.Helpers\n",
+      "  import #{parser_module}.Helpers\n"
+    )
+    |> String.replace("Localize.ParseError.exception(", "parse_error(")
+    # The constructor above no longer returns an exception, so the spec
+    # written for Localize's parser is false here. Left uncorrected,
+    # dialyzer takes `Exception.t()` at its word, decides the error branch
+    # cannot produce what the callers match on, and reports an unreachable
+    # clause in `parse_identifier/1` — in a file the caller is told to
+    # commit and may compile with `--warnings-as-errors`.
+    |> String.replace(
+      "@spec parse(String.t()) :: {:ok, tuple()} | {:error, Exception.t()}",
+      "@spec parse(String.t()) :: {:ok, tuple()} | {:error, {:parse_error, keyword()}}"
+    )
+    # Input that is not a string is refused before parsing, and the generated
+    # module reports that as it reports any other failure to parse.
+    |> String.replace(
+      ~s|Localize.Utils.Helpers.invalid_value(input, "a unit identifier string")|,
+      "parse_error(input: input)"
+    )
+    |> String.replace("Localize.Unit.CustomRegistry.registered?(", "custom_unit?(")
+    |> String.replace(
+      "Application.get_env(:localize, :max_unit_bytes, @default_max_unit_bytes)",
+      "@default_max_unit_bytes"
+    )
+    |> strip_docs()
+    |> append_to_module("""
+        defp parse_error(bindings), do: {:parse_error, bindings}
+    """)
+  end
+
+  # The parser's documentation is written about `Localize.Unit.Parser` — its
+  # name appears in every doctest — and the generated module is not it. The
+  # module is internal, so the docs go rather than being rewritten.
+  defp strip_docs(source) do
+    source
+    |> String.replace(~r/^[ \t]*@(module)?doc[ \t]+"""\n.*?^[ \t]*"""\n/ms, "")
+    |> String.replace(~r/^[ \t]*@(module)?doc[ \t]+(false|"[^\n]*")\n/m, "")
+  end
+
+  # NimbleParsec generates code for the general case, so parts of it are
+  # unreachable for this particular grammar: entry points for sub-combinators
+  # nothing calls, an error binding nothing reads, and a compatibility clause
+  # for a post-traverse return shape none of these callbacks use. None is a
+  # defect. Compiled from AST, as NimbleParsec normally is, all three are
+  # marked generated and the compiler stays quiet; written out as source that
+  # marking is lost and they warn — in a file the caller commits.
+  defp quiet_generated_warnings(source) do
+    source
+    |> String.replace(
+      ~r/\n[ \t]*\{acc, context\} ->\n[ \t]*IO\.warn\(.*?\)\n\n[ \t]*\{rest, acc, context\}\n/s,
+      "\n"
+    )
+    # Drop the binding only where the clause body does not go on to return it;
+    # the lookahead is what tells those two shapes apart.
+    |> String.replace(~r/\} = error ->\n(?![ \t]*error\n)/, "} ->\n")
+    |> String.replace(
+      ~r/^  defp (\w+)\(binary, opts \\\\ \[\]\) when is_binary\(binary\) do$/m,
+      "  @doc false\n  def \\1(binary, opts \\\\\\\\ []) when is_binary(binary) do"
+    )
+  end
+
+  # The helpers Localize's parser imports, lifted into the generated file. Only
+  # the SI prefix lookup reaches outside the module; it is replaced by a table.
+  defp helpers_module(parser_module) do
+    body =
+      Localize.Unit.Parser.Helpers
+      |> source_path()
+      |> File.read!()
+      |> body_of_module()
+      |> strip_docs()
+      |> String.replace("Localize.Unit.Data.si_prefix_atom(value)", "si_prefix_atom(value)")
+
+    """
+    defmodule #{parser_module}.Helpers do
+      @moduledoc false
+
+      # Runtime helpers called by the pre-compiled parser, and the post-traverse
+      # callbacks its grammar refers to by name.
+    #{body}
+      @si_prefix_atoms %{#{si_prefix_atom_pairs()}}
+
+      defp si_prefix_atom(name), do: Map.get(@si_prefix_atoms, name)
+
+      @reserved_categories MapSet.new(#{inspect(Data.categories())})
+
+      def reject_categories(rest, [name] = args, context, _line, _offset) do
+        if MapSet.member?(@reserved_categories, name) do
+          {:error, "\#{name} is a reserved category name"}
+        else
+          {rest, args, context}
+        end
+      end
+
+      # Custom units are registered at runtime against Localize, and a generated
+      # module has no registry, so this set is permanently empty. It stays a set
+      # rather than becoming a literal `false` because the compiler would then
+      # see every branch guarding on it as unreachable and warn — in a file the
+      # caller is expected to commit and compile with `--warnings-as-errors`.
+      @custom_units MapSet.new()
+
+      def custom_unit?(name), do: MapSet.member?(@custom_units, name)
+
+      def validate_prefixed_custom_unit(rest, args, context, _line, _offset) do
+        case List.keyfind(args, :base, 0) do
+          {:base, base} when base != nil ->
+            if custom_unit?(base) do
+              {rest, args, context}
+            else
+              {:error, "\#{base} is not a registered custom unit"}
+            end
+
+          _other ->
+            {:error, "no base unit found"}
+        end
+      end
+    end
+    """
+  end
+
+  # Insert before a module's final `end`. `:binary.matches/2` reports byte
+  # offsets and the source is not ASCII, so the cut must be a binary operation —
+  # `String.slice/3` counts graphemes and would land past that `end`.
+  defp append_to_module(source, addition) do
+    index = source |> String.trim_trailing() |> :binary.matches("\nend") |> List.last() |> elem(0)
+
+    binary_part(source, 0, index) <> "\n" <> addition <> "end\n"
+  end
+
+  defp si_prefix_atom_pairs do
+    Data.si_prefix_names()
+    |> Enum.map_join(", ", fn name ->
+      "#{inspect(name)} => #{inspect(Data.si_prefix_atom(name))}"
+    end)
+  end
+
+  defp body_of_module(source) do
+    source
+    |> String.split("\n")
+    |> Enum.drop_while(&(not String.starts_with?(&1, "defmodule")))
+    |> Enum.drop(1)
+    |> Enum.reverse()
+    |> Enum.drop_while(&(String.trim(&1) != "end"))
+    |> Enum.drop(1)
+    |> Enum.reverse()
+    |> Enum.join("\n")
+  end
+
+  # ── Spellings ────────────────────────────────────────────────────
+
+  # The parser reads CLDR identifiers, but people write "km/h" and
+  # "kilometers per hour". Those spellings are mapped onto the identifier
+  # before parsing, which is the one thing the generated module cannot derive
+  # from the parser alone.
+  #
+  # The set covered is every unit CLDR gives a display form for: the 155 it
+  # defines a conversion for, plus the compounds its preference data lists.
+  # Compounds outside that set — `newton-meter-second-per-radian` — still
+  # convert, but only under their CLDR identifier, because CLDR gives no
+  # symbol or plural for them to be spelled with.
+  defp alias_table do
+    spelled_units()
+    |> Enum.flat_map(fn name -> Enum.map(aliases(name), &{&1, name}) end)
+    |> Enum.reduce(%{}, fn {spelling, name}, acc ->
+      # First writer wins: a spelling shared by two units keeps the one that
+      # sorts first, so the table does not depend on traversal order.
+      Map.put_new(acc, spelling, name)
+    end)
+  end
+
+  defp spelled_units do
+    compound =
+      Data.unit_preferences()
+      |> Enum.flat_map(& &1.preferences)
+      |> Enum.map(& &1.unit)
+
+    simple = Localize.Unit.known_units_by_category() |> Map.values() |> List.flatten()
+
+    # "foot-and-inch" is a formatting construct, not a convertible unit.
+    (simple ++ compound)
+    |> Enum.uniq()
+    |> Enum.reject(&String.contains?(&1, "-and-"))
+    |> Enum.sort()
+  end
+
+  # Every spelling the generated parser should accept for a unit: the
+  # CLDR identifier, its space-separated form, the English long and
+  # short forms, and the plural display name. Localize renders a
+  # quantity of 1 to obtain the singular, so the leading "1" is stripped.
+  defp aliases(name) do
+    localized =
+      case Localize.Unit.new(1, name) do
+        {:ok, unit} ->
+          [:long, :short, :narrow]
+          |> Enum.flat_map(&rendered(unit, &1))
+          |> Enum.concat(display_name(unit))
+
+        {:error, _} ->
+          []
+      end
+
+    [name, String.replace(name, "-", " ")]
+    |> Enum.concat(localized)
+    |> Enum.map(&String.downcase(String.trim(&1)))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp rendered(unit, format) do
+    case Localize.Unit.to_string(unit, format: format, locale: :en) do
+      {:ok, string} -> [strip_leading_one(string)]
+      {:error, _} -> []
+    end
+  end
+
+  defp display_name(unit) do
+    case Localize.Unit.display_name(unit, locale: :en) do
+      {:ok, name} -> [name]
+      {:error, _} -> []
+    end
+  end
+
+  defp strip_leading_one(string) do
+    string
+    |> String.replace(~r/^\s*1\s*/u, "")
+    |> String.trim()
+  end
+
+  # ── Rendering ────────────────────────────────────────────────────
 
   # The generated file records how it was produced, so a regeneration after a
   # CLDR update reproduces exactly the same table.

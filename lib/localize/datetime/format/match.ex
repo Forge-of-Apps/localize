@@ -145,6 +145,54 @@ defmodule Localize.DateTime.Format.Match do
                       end
                     )
 
+  @zone_symbols ["z", "Z", "v", "V", "O", "X", "x"]
+
+  # The order CLDR writes a skeleton's fields in, as the ids of its
+  # `availableFormats` and interval formats have them: `GyMMMEd`, `yw`,
+  # `MMMMW`, `EBhm`, `Hmsv`.
+  @skeleton_order ~w(G y Y u U r Q q M L l w W E e c D F g d a b B h H K k j J C m s S A z Z O v V X x)
+
+  # The interval table is keyed by skeleton, with two siblings that are not
+  # skeletons: the fallback pattern and the range separator patterns.
+  @non_skeleton_interval_keys [:interval_format_fallback, :interval_format_ranges]
+
+  # Numeric widths differ by digit count. Text widths do not run in letter
+  # order: CLDR's reference pattern generator places narrow (five letters)
+  # beside short (six), short beside abbreviated (three), and abbreviated
+  # beside wide (four), so a narrow request prefers an abbreviated format to
+  # a wide one. `ja` answers `EEEEEd` from `Ed`'s "d日(E)", not `EEEEd`'s
+  # "d日EEEE".
+  #
+  # TR35: the length of a year is "the minimum number of digits to display
+  # … However, "yy" requests just the two low-order digits of the year". A
+  # year of two letters is another thing than the whole year at any width,
+  # so the two are further apart than two widths of the whole year: `yyyy`
+  # takes `en`'s `y` and not its `yy`, "’yy", whose apostrophe stands for
+  # the digits left out and which CLDR's reference generator widens to
+  # "’2024". The week-based year `Y` is cut to two digits the same way; the
+  # extended and the related year are not.
+  @two_digit_year_distance 4
+
+  # The widths of a number and a name, the first the candidate's and the
+  # second the request's. TR35 says only that the two kinds are "a larger
+  # distance from each other", which left `GyMMMd` and `GyMMMMd` equally far
+  # from `GyMd` in a calendar with no numeric format for those fields, and
+  # the wide month won on the order of the two ids. CLDR's reference pattern
+  # generator, and ICU's, measure a name from the abbreviated width where a
+  # number is asked for, and a number by its digits where a name is: `GyMd`
+  # for a Chinese date in `en` is `GyMMMd`'s "MMM d, r", "Mo6 1, 2024", as
+  # CLDR's own conformance data has it.
+  @abbreviated 3
+
+  # The fields spelled by more than one symbol: month, quarter and weekday.
+  @related_symbol_fields @month ++ @quarter ++ @day_of_week
+
+  # TR35's zone symbols stand in for one another, the ISO 8601 `X` and `x`
+  # as well as the named forms: `jmX` matched to `hmv` renders `h:mm a X`.
+  @substitutable_zone_fields ["v", "V", "O", "z", "Z", "X", "x"]
+
+  @hms_fields ["H", "h", "K", "k", "m", "s", "S"]
+
   @spec best_match(atom() | String.t(), Localize.locale(), atom()) ::
           {:ok, atom()} | {:ok, {atom(), atom()}} | {:error, Exception.t()}
   def best_match(original_skeleton, locale_id, calendar_type \\ :gregorian)
@@ -510,8 +558,6 @@ defmodule Localize.DateTime.Format.Match do
 
   # ── Token helpers ──────────────────────────────────────────
 
-  @zone_symbols ["z", "Z", "v", "V", "O", "X", "x"]
-
   @doc """
   Returns true when a skeleton names only time zone fields.
 
@@ -556,11 +602,6 @@ defmodule Localize.DateTime.Format.Match do
     |> Enum.map(fn chars -> {hd(chars), length(chars)} end)
     |> then(&{:ok, &1})
   end
-
-  # The order CLDR writes a skeleton's fields in, as the ids of its
-  # `availableFormats` and interval formats have them: `GyMMMEd`, `yw`,
-  # `MMMMW`, `EBhm`, `Hmsv`.
-  @skeleton_order ~w(G y Y u U r Q q M L l w W E e c D F g d a b B h H K k j J C m s S A z Z O v V X x)
 
   @doc false
   # The fields a pattern writes, as a skeleton: each at the width the
@@ -621,10 +662,6 @@ defmodule Localize.DateTime.Format.Match do
         end
     end
   end
-
-  # The interval table is keyed by skeleton, with two siblings that are not
-  # skeletons: the fallback pattern and the range separator patterns.
-  @non_skeleton_interval_keys [:interval_format_fallback, :interval_format_ranges]
 
   defp interval_format_tokens(locale, calendar_type) do
     case Format.interval_format_tokens(locale, calendar_type) do
@@ -786,23 +823,6 @@ defmodule Localize.DateTime.Format.Match do
   defp text_field?(symbol, _count) when symbol in @always_numeric, do: false
   defp text_field?(_symbol, count), do: count > 2
 
-  # Numeric widths differ by digit count. Text widths do not run in letter
-  # order: CLDR's reference pattern generator places narrow (five letters)
-  # beside short (six), short beside abbreviated (three), and abbreviated
-  # beside wide (four), so a narrow request prefers an abbreviated format to
-  # a wide one. `ja` answers `EEEEEd` from `Ed`'s "d日(E)", not `EEEEd`'s
-  # "d日EEEE".
-  #
-  # TR35: the length of a year is "the minimum number of digits to display
-  # … However, "yy" requests just the two low-order digits of the year". A
-  # year of two letters is another thing than the whole year at any width,
-  # so the two are further apart than two widths of the whole year: `yyyy`
-  # takes `en`'s `y` and not its `yy`, "’yy", whose apostrophe stands for
-  # the digits left out and which CLDR's reference generator widens to
-  # "’2024". The week-based year `Y` is cut to two digits the same way; the
-  # extended and the related year are not.
-  @two_digit_year_distance 4
-
   defp width_distance(sym_a, count_a, sym_b, count_b) do
     cond do
       text_field?(sym_a, count_a) and text_field?(sym_b, count_b) ->
@@ -818,17 +838,6 @@ defmodule Localize.DateTime.Format.Match do
 
   defp two_digit_year?(symbol, 2) when symbol in ["y", "Y"], do: true
   defp two_digit_year?(_symbol, _count), do: false
-
-  # The widths of a number and a name, the first the candidate's and the
-  # second the request's. TR35 says only that the two kinds are "a larger
-  # distance from each other", which left `GyMMMd` and `GyMMMMd` equally far
-  # from `GyMd` in a calendar with no numeric format for those fields, and
-  # the wide month won on the order of the two ids. CLDR's reference pattern
-  # generator, and ICU's, measure a name from the abbreviated width where a
-  # number is asked for, and a number by its digits where a name is: `GyMd`
-  # for a Chinese date in `en` is `GyMMMd`'s "MMM d, r", "Mo6 1, 2024", as
-  # CLDR's own conformance data has it.
-  @abbreviated 3
 
   defp mixed_width_distance(candidate_symbol, candidate_count, requested_count) do
     if text_field?(candidate_symbol, candidate_count),
@@ -973,13 +982,6 @@ defmodule Localize.DateTime.Format.Match do
   end
 
   # ── Field length adjustment ─────────────────────────────────
-
-  # The fields spelled by more than one symbol: month, quarter and weekday.
-  @related_symbol_fields @month ++ @quarter ++ @day_of_week
-  # TR35's zone symbols stand in for one another, the ISO 8601 `X` and `x`
-  # as well as the named forms: `jmX` matched to `hmv` renders `h:mm a X`.
-  @substitutable_zone_fields ["v", "V", "O", "z", "Z", "X", "x"]
-  @hms_fields ["H", "h", "K", "k", "m", "s", "S"]
 
   defp adjust_field_length({:literal, text}, acc, _skeleton_tokens, _id_tokens) do
     [text | acc]

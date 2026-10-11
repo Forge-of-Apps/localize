@@ -43,6 +43,8 @@ defmodule Localize.Number.PluralRule.Cardinal do
 
   @rules_at_compile Localize.Number.PluralRule.Loader.load_plural_rules(:cardinal)
 
+  @default_substitution :other
+
   @doc """
   Returns the locale names for which cardinal plural rules
   are defined.
@@ -113,7 +115,6 @@ defmodule Localize.Number.PluralRule.Cardinal do
       "other"
 
   """
-  @default_substitution :other
 
   @spec pluralize(
           number() | Decimal.t(),

@@ -33,6 +33,11 @@ defmodule Localize.Unit.FormatterPropertyTest do
   # "months" → `month`), matching ICU.
   @round_trip_excluded ~w(foodcalorie year-person month-person week-person day-person)
 
+  # SI-prefixed units with no precomposed CLDR pattern, composed from the
+  # prefix pattern + base noun.
+  @prefixed_units ~w(megajoule gigajoule nanogram kilobecquerel megabecquerel
+                     terawatt microsecond nanometer picofarad femtometer)
+
   # ── Generators ──────────────────────────────────────────────
 
   defp base_unit_gen, do: member_of(@base_units)
@@ -50,11 +55,6 @@ defmodule Localize.Unit.FormatterPropertyTest do
       "#{a}-per-#{b}"
     end
   end
-
-  # SI-prefixed units with no precomposed CLDR pattern, composed from the
-  # prefix pattern + base noun.
-  @prefixed_units ~w(megajoule gigajoule nanogram kilobecquerel megabecquerel
-                     terawatt microsecond nanometer picofarad femtometer)
 
   defp prefixed_unit_gen, do: member_of(@prefixed_units)
 

@@ -103,6 +103,19 @@ defmodule Localize.Unit.Preference do
     kelvin: :kelvin
   }
 
+  # Intern an atom for every usage the preference data defines. The data is
+  # keyed by usage *string*, so nothing else creates these atoms, and
+  # `normalize_usage/1` would then fail `String.to_existing_atom/1` for a
+  # perfectly valid usage and silently fall back to `:default` — CLDR's
+  # `fluid` usage returned cubic inches for `en-GB` instead of imperial
+  # gallons. `String.to_atom/1` is safe here: it runs at compile time over
+  # a closed set from CLDR data, never over caller input.
+  @known_usages @unit_preferences
+                |> Enum.flat_map(fn {_category, by_usage} -> Map.keys(by_usage) end)
+                |> Enum.uniq()
+                |> Enum.map(&(&1 |> String.replace("-", "_") |> String.to_atom()))
+                |> Enum.sort()
+
   @doc """
   Returns the preferred units for a given unit, territory, and usage.
 
@@ -236,23 +249,6 @@ defmodule Localize.Unit.Preference do
     |> Kernel.||(base)
   end
 
-  # Usage may be supplied via the options keyword list (atom or string) or
-  # carried on the struct's `:usage` field (set at `Localize.Unit.new/3` time
-  # as a CLDR-style hyphenated string, e.g. `"person-height"`). Options win;
-  # the struct field is the fallback; `:default` covers the no-info case.
-  # Intern an atom for every usage the preference data defines. The data is
-  # keyed by usage *string*, so nothing else creates these atoms, and
-  # `normalize_usage/1` would then fail `String.to_existing_atom/1` for a
-  # perfectly valid usage and silently fall back to `:default` — CLDR's
-  # `fluid` usage returned cubic inches for `en-GB` instead of imperial
-  # gallons. `String.to_atom/1` is safe here: it runs at compile time over
-  # a closed set from CLDR data, never over caller input.
-  @known_usages @unit_preferences
-                |> Enum.flat_map(fn {_category, by_usage} -> Map.keys(by_usage) end)
-                |> Enum.uniq()
-                |> Enum.map(&(&1 |> String.replace("-", "_") |> String.to_atom()))
-                |> Enum.sort()
-
   @doc """
   Returns the unit usages CLDR defines preferences for.
 
@@ -276,6 +272,10 @@ defmodule Localize.Unit.Preference do
   @spec known_usages() :: [atom(), ...]
   def known_usages, do: @known_usages
 
+  # Usage may be supplied via the options keyword list (atom or string) or
+  # carried on the struct's `:usage` field (set at `Localize.Unit.new/3` time
+  # as a CLDR-style hyphenated string, e.g. `"person-height"`). Options win;
+  # the struct field is the fallback; `:default` covers the no-info case.
   defp resolve_usage(options, %Unit{usage: struct_usage}) do
     case Keyword.get(options, :usage) do
       nil -> normalize_usage(struct_usage) || :default

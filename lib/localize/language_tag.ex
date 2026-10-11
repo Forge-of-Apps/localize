@@ -205,6 +205,14 @@ defmodule Localize.LanguageTag do
             canonical_locale_id: nil,
             cldr_locale_id: nil
 
+  # Maximum byte length accepted by `parse/1` and `new/1`. Even the
+  # most extravagant well-formed BCP-47 tag fits in well under this
+  # bound; the cap prevents unbounded grammar work on hostile input.
+  # Override with `config :localize, :max_locale_id_bytes, n`.
+  @default_max_locale_id_bytes 256
+
+  @default_distance 80
+
   @type t :: %__MODULE__{
           language: Locale.language(),
           language_subtags: [String.t()],
@@ -268,12 +276,6 @@ defmodule Localize.LanguageTag do
   end
 
   def parse(locale_id), do: {:error, Localize.InvalidLocaleError.exception(locale_id: locale_id)}
-
-  # Maximum byte length accepted by `parse/1` and `new/1`. Even the
-  # most extravagant well-formed BCP-47 tag fits in well under this
-  # bound; the cap prevents unbounded grammar work on hostile input.
-  # Override with `config :localize, :max_locale_id_bytes, n`.
-  @default_max_locale_id_bytes 256
 
   @doc false
   def max_locale_id_bytes do
@@ -798,8 +800,6 @@ defmodule Localize.LanguageTag do
       |> MapSet.new()
     end)
   end
-
-  @default_distance 80
 
   @doc false
   def default_distance, do: @default_distance

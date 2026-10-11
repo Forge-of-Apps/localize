@@ -9,6 +9,13 @@ defmodule Localize.Unit.Parser do
 
   import Localize.Unit.Parser.Helpers
 
+  # Maximum byte length accepted by `parse/1`/`parse!/1`. Caps the
+  # parser's CPU exposure on hostile input. Override with
+  # `config :localize, :max_unit_bytes, n` (default 256 — even a
+  # heavily-compounded `meter-per-second-per-second-per-…` fits well
+  # under this).
+  @default_max_unit_bytes 256
+
   @doc """
   Parses a CLDR unit identifier string.
 
@@ -77,13 +84,6 @@ defmodule Localize.Unit.Parser do
        denominator: []
      ]}
   end
-
-  # Maximum byte length accepted by `parse/1`/`parse!/1`. Caps the
-  # parser's CPU exposure on hostile input. Override with
-  # `config :localize, :max_unit_bytes, n` (default 256 — even a
-  # heavily-compounded `meter-per-second-per-second-per-…` fits well
-  # under this).
-  @default_max_unit_bytes 256
 
   @doc false
   def max_unit_bytes do

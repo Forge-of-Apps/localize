@@ -37,6 +37,8 @@ defmodule Localize.Unit.CustomRegistry do
 
   @persistent_term_key :localize_custom_units
 
+  @name_pattern ~r/^[a-z][a-z0-9_-]*$/
+
   @doc """
   Returns the definition for a custom unit, or `nil` if not registered.
 
@@ -420,8 +422,6 @@ defmodule Localize.Unit.CustomRegistry do
   end
 
   # ── Validation ──
-
-  @name_pattern ~r/^[a-z][a-z0-9_-]*$/
 
   defp validate_name(name) when is_binary(name) do
     if Regex.match?(@name_pattern, name) do

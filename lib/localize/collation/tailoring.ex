@@ -24,6 +24,45 @@ defmodule Localize.Collation.Tailoring do
   alias Localize.Collation.{Element, Table}
   alias Localize.Collation.Table.Parser
 
+  @bidi_lrm <<0x200E::utf8>>
+
+  @bidi_rlm <<0x200F::utf8>>
+
+  # Synthetic primary weights for the CLDR positional anchors. These
+  # need to satisfy two constraints:
+  #
+  # 1. Subsequent `<X<Y...` rules increment the primary each time.
+  #    Large tailorings (e.g. zh-pinyin, zh-stroke) produce 20,000+
+  #    primary entries, so the anchor plus the largest expected
+  #    increment must stay within the 16-bit primary weight range
+  #    that our sort-key serialization uses. Anchors too close to
+  #    0xFFFF cause overflow and break comparison.
+  #
+  # 2. The anchor should not collide with real DUCET primary weights
+  #    for characters that aren't in the overlay. The overlay overrides
+  #    per-codepoint, so a collision only matters for chars NOT in the
+  #    tailoring — those fall through to DUCET weights directly.
+  #
+  # We pick 0x8000 (32768) for `[last regular]`. This leaves ~33K
+  # primary slots before hitting the implicit-weight boundary (0xFB40),
+  # comfortably fitting the largest observed CJK tailoring (~24K
+  # primaries for zh-stroke).
+  @synthetic_last_regular 0x8000
+
+  @synthetic_first_regular 0x0300
+
+  @synthetic_last_primary_ignorable 0x02FF
+
+  @synthetic_first_primary_ignorable 0x0100
+
+  @synthetic_last_secondary_ignorable 0x00
+
+  @synthetic_first_secondary_ignorable 0x00
+
+  @synthetic_last_tertiary_ignorable 0x00
+
+  @synthetic_first_tertiary_ignorable 0x00
+
   # The tailoring table (~500KB of rule strings) is loaded at runtime
   # on first use rather than embedded at compile time — embedding it
   # made this the largest beam in the library (~1.7MB) for data that
@@ -236,8 +275,6 @@ defmodule Localize.Collation.Tailoring do
       String.starts_with?(line, "=")
   end
 
-  @bidi_lrm <<0x200E::utf8>>
-  @bidi_rlm <<0x200F::utf8>>
   defp strip_bidi_marks(str) do
     str
     |> String.replace(@bidi_lrm, "")
@@ -661,34 +698,6 @@ defmodule Localize.Collation.Tailoring do
     {init, [{p, s, t, v}]} = Enum.split(anchor_elements, -1)
     init ++ [{p, s, t + 1, v}]
   end
-
-  # Synthetic primary weights for the CLDR positional anchors. These
-  # need to satisfy two constraints:
-  #
-  # 1. Subsequent `<X<Y...` rules increment the primary each time.
-  #    Large tailorings (e.g. zh-pinyin, zh-stroke) produce 20,000+
-  #    primary entries, so the anchor plus the largest expected
-  #    increment must stay within the 16-bit primary weight range
-  #    that our sort-key serialization uses. Anchors too close to
-  #    0xFFFF cause overflow and break comparison.
-  #
-  # 2. The anchor should not collide with real DUCET primary weights
-  #    for characters that aren't in the overlay. The overlay overrides
-  #    per-codepoint, so a collision only matters for chars NOT in the
-  #    tailoring — those fall through to DUCET weights directly.
-  #
-  # We pick 0x8000 (32768) for `[last regular]`. This leaves ~33K
-  # primary slots before hitting the implicit-weight boundary (0xFB40),
-  # comfortably fitting the largest observed CJK tailoring (~24K
-  # primaries for zh-stroke).
-  @synthetic_last_regular 0x8000
-  @synthetic_first_regular 0x0300
-  @synthetic_last_primary_ignorable 0x02FF
-  @synthetic_first_primary_ignorable 0x0100
-  @synthetic_last_secondary_ignorable 0x00
-  @synthetic_first_secondary_ignorable 0x00
-  @synthetic_last_tertiary_ignorable 0x00
-  @synthetic_first_tertiary_ignorable 0x00
 
   # One branch per CLDR logical-position anchor ([first/last regular,
   # primary/secondary/tertiary ignorable]).

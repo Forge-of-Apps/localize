@@ -35,6 +35,21 @@ defmodule Localize.Utils.Map do
 
   alias Localize.Utils.Helpers
 
+  @default_deep_map_options [
+    level: 1..1_000_000,
+    filter: [],
+    reject: [],
+    skip: [],
+    only: [],
+    except: []
+  ]
+
+  @starting_level 1
+
+  @max_level 1_000_000
+
+  @default_atomize_options [only_existing: false]
+
   @doc """
   Returns an argument unchanged.
 
@@ -51,17 +66,6 @@ defmodule Localize.Utils.Map do
 
   """
   def identity(x), do: x
-
-  @default_deep_map_options [
-    level: 1..1_000_000,
-    filter: [],
-    reject: [],
-    skip: [],
-    only: [],
-    except: []
-  ]
-  @starting_level 1
-  @max_level 1_000_000
 
   @doc """
   Recursively traverse a map and invoke a function
@@ -400,7 +404,6 @@ defmodule Localize.Utils.Map do
       %{a: %{b: %{1 => "c"}}}
 
   """
-  @default_atomize_options [only_existing: false]
   def atomize_keys(map, options \\ [])
 
   def atomize_keys(map, options) when is_map(map) or is_list(map) do

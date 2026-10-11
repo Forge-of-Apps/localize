@@ -17,6 +17,15 @@ defmodule Localize.Validity.U do
 
   @region_subtag_filler "zzzz"
 
+  @dont_atomize ["tz", "rg", "sd", "kr", "vt"]
+
+  # For timezones a nil value means its an acceptable
+  # time zone name but it needs to be resolved to its
+  # canonical version. For example, camtr becomes cator
+  @tz_values @validity_data["tz"]
+
+  @kr_valid_values @validity_data["kr"] |> Map.delete("REORDER_CODE")
+
   @doc false
   def fields, do: Fields.fields()
 
@@ -37,7 +46,6 @@ defmodule Localize.Validity.U do
     decode(unmap(key), value)
   end
 
-  @dont_atomize ["tz", "rg", "sd", "kr", "vt"]
   def decode(key, value) when key in @dont_atomize do
     case valid(key, value) do
       {:ok, value} ->
@@ -183,10 +191,6 @@ defmodule Localize.Validity.U do
     end
   end
 
-  # For timezones a nil value means its an acceptable
-  # time zone name but it needs to be resolved to its
-  # canonical version. For example, camtr becomes cator
-  @tz_values @validity_data["tz"]
   # Guarded on the value being a known id so that an unknown one falls through
   # to the error clause below rather than failing the `case`.
   defp valid("tz", value) when is_map_key(@tz_values, value) do
@@ -264,7 +268,6 @@ defmodule Localize.Validity.U do
     end)
   end
 
-  @kr_valid_values @validity_data["kr"] |> Map.delete("REORDER_CODE")
   defp valid("kr", value) when is_binary(value) do
     if Map.has_key?(@kr_valid_values, value) do
       {:ok, [atomize(value)]}

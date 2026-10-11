@@ -89,6 +89,19 @@ defmodule Localize.Locale.FallbackResilienceTest do
     :ok
   end
 
+  # Locales that exercise different parent-walk shapes. Each one was
+  # chosen because it's structurally valid in BCP47 and the parent
+  # chain has at least one non-trivial step.
+  @fallback_locales [
+    :"en-ZA",
+    :"en-AU",
+    :"en-GB",
+    :"pt-BR",
+    :"zh-Hant",
+    :"sr-Latn",
+    :"es-419"
+  ]
+
   # The provider is started linked to the test process. When that process exits,
   # the linked agent is told to die, but the registered-name removal is async to
   # the test process exit. The next test's setup races: `start_link/0` may see
@@ -119,19 +132,6 @@ defmodule Localize.Locale.FallbackResilienceTest do
         end
     end
   end
-
-  # Locales that exercise different parent-walk shapes. Each one was
-  # chosen because it's structurally valid in BCP47 and the parent
-  # chain has at least one non-trivial step.
-  @fallback_locales [
-    :"en-ZA",
-    :"en-AU",
-    :"en-GB",
-    :"pt-BR",
-    :"zh-Hant",
-    :"sr-Latn",
-    :"es-419"
-  ]
 
   for locale <- @fallback_locales do
     test "Locale.get/3 for #{inspect(locale)} returns ok or structured error, never crashes" do

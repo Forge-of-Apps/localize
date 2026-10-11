@@ -9,6 +9,8 @@ defmodule Localize.Data.Normalize.Number do
   @system_keyed_data ~w(symbols decimal_formats percent_formats currency_formats
                         scientific_formats misc_patterns rational_formats)
 
+  @pattern_count "unit_pattern_count_"
+
   def normalize(content, locale) do
     content
     |> drop_inherited_number_systems()
@@ -203,8 +205,6 @@ defmodule Localize.Data.Normalize.Number do
   end
 
   def flatten_short_formats(formats), do: formats
-
-  @pattern_count "unit_pattern_count_"
 
   def currency_long_format(nil), do: nil
 

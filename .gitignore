@@ -64,7 +64,7 @@ bench_unit_parser.sh
 /src/*.erl
 
 # Claude
-CLAUDE.md
+# CLAUDE.md is tracked: it carries the house rules contributors need.
 CLAUDE.local.md
 .claude/
 

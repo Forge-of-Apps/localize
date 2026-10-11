@@ -44,6 +44,13 @@ defmodule Localize.Unit.Data do
   @deprecated_unit_identifiers @data.deprecated_unit_identifiers
   @categories @data.categories
 
+  # Pre-built `string => atom` map for SI prefix names. Used by the
+  # unit parser to convert a parsed prefix string to its atom form
+  # without calling `String.to_atom/1` at runtime — the prefix set is
+  # finite and known at compile time, so atomising it once here means
+  # parser input never grows the atom table.
+  @si_prefix_atom_map Map.new(@si_prefix_names, fn name -> {name, String.to_atom(name)} end)
+
   # ── Public API ──────────────────────────────────────────────────────
 
   @doc """
@@ -109,13 +116,6 @@ defmodule Localize.Unit.Data do
   """
   @spec si_prefix_names() :: [String.t()]
   def si_prefix_names, do: @si_prefix_names
-
-  # Pre-built `string => atom` map for SI prefix names. Used by the
-  # unit parser to convert a parsed prefix string to its atom form
-  # without calling `String.to_atom/1` at runtime — the prefix set is
-  # finite and known at compile time, so atomising it once here means
-  # parser input never grows the atom table.
-  @si_prefix_atom_map Map.new(@si_prefix_names, fn name -> {name, String.to_atom(name)} end)
 
   @doc """
   Returns the atom form of a parsed SI prefix string, or `nil` if

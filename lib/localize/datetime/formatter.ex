@@ -145,6 +145,94 @@ defmodule Localize.DateTime.Formatter do
     zone_iso: 1..5
   }
 
+  @text_handlers [:era, :cyclic_year, :day_name, :period_am_pm, :period_flex] ++
+                   [:period_noon_midnight | @zone_handlers]
+
+  @name_or_number_handlers [
+    :month,
+    :standalone_month,
+    :quarter,
+    :standalone_quarter,
+    :day_of_week,
+    :standalone_day_of_week
+  ]
+
+  # A pattern with `W` writes its month, and the quarter, year and era the
+  # month is in, as the month its week belongs to, as `Y` writes the year
+  # `w` belongs to: "week W of MMMM" names the week's month, which can be the
+  # month before or after the date's (`Localize.Calendar.week_month_day/2`).
+  # The day and everything below it stay the date's.
+  @week_month_handlers [
+    :era,
+    :year,
+    :extended_year,
+    :cyclic_year,
+    :related_year,
+    :quarter,
+    :standalone_quarter,
+    :month,
+    :standalone_month
+  ]
+
+  # The pattern-symbol handlers that render a date field and a time field.
+  # Zone handlers belong to neither, and `decimal_separator` is the marker
+  # before fractional seconds rather than a separator a caller may choose.
+  @date_handlers [
+    :era,
+    :year,
+    :week_aligned_year,
+    :extended_year,
+    :cyclic_year,
+    :related_year,
+    :quarter,
+    :standalone_quarter,
+    :month,
+    :standalone_month,
+    :week_of_year,
+    :week_of_month,
+    :day_of_month,
+    :day_of_year,
+    :day_of_week_in_month,
+    :modified_julian_day,
+    :day_name,
+    :day_of_week,
+    :standalone_day_of_week
+  ]
+
+  @time_handlers [
+    :period_am_pm,
+    :period_noon_midnight,
+    :period_flex,
+    :h11,
+    :h12,
+    :h23,
+    :h24,
+    :minute,
+    :second,
+    :fractional_second,
+    :millisecond
+  ]
+
+  # An era, a year counted in one and the extended year need only the year
+  # where the calendar's eras begin with its years. Where one began mid-year,
+  # as in the Japanese calendar, a partial date in the year or month of the
+  # change also needs the fields that settle which era it falls in.
+  @era_handlers [:era, :year, :extended_year]
+
+  # A week of the year and its week-based year need the day too, unless the
+  # days a date without one could be are all in one week, as the days of a
+  # calendar of weeks' year and week are. Which week that is does not turn
+  # on the locale's weeks: a `Calendar.ISO` month runs through several by
+  # any of them.
+  @week_handlers [:week_of_year, :week_aligned_year]
+
+  @iso_week_data {1, 4}
+
+  @julian_day_of_iso_epoch 1_721_060
+
+  # TR35 names `Etc/Unknown` as the source of the fallback exemplar city.
+  @unknown_zone "Etc/Unknown"
+
   defguardp is_date(date)
             when is_map_key(date, :year) and is_map_key(date, :month) and is_map_key(date, :day)
 
@@ -452,17 +540,6 @@ defmodule Localize.DateTime.Formatter do
       String.match?(rendered(value_b), ~r/\A\p{Nd}/u)
   end
 
-  @text_handlers [:era, :cyclic_year, :day_name, :period_am_pm, :period_flex] ++
-                   [:period_noon_midnight | @zone_handlers]
-  @name_or_number_handlers [
-    :month,
-    :standalone_month,
-    :quarter,
-    :standalone_quarter,
-    :day_of_week,
-    :standalone_day_of_week
-  ]
-
   defp text_field?(handler, _count) when handler in @text_handlers, do: true
   defp text_field?(handler, count) when handler in @name_or_number_handlers, do: count > 2
   defp text_field?(_handler, _count), do: false
@@ -576,23 +653,6 @@ defmodule Localize.DateTime.Formatter do
       else: "�"
   end
 
-  # A pattern with `W` writes its month, and the quarter, year and era the
-  # month is in, as the month its week belongs to, as `Y` writes the year
-  # `w` belongs to: "week W of MMMM" names the week's month, which can be the
-  # month before or after the date's (`Localize.Calendar.week_month_day/2`).
-  # The day and everything below it stay the date's.
-  @week_month_handlers [
-    :era,
-    :year,
-    :extended_year,
-    :cyclic_year,
-    :related_year,
-    :quarter,
-    :standalone_quarter,
-    :month,
-    :standalone_month
-  ]
-
   defp week_month_day(datetime, tokens, locale_id, options) do
     if Enum.any?(tokens, &match?({:week_of_month, _line, _count}, &1)),
       do: Localize.Calendar.week_month_day(datetime, week_data(locale_id, options)),
@@ -630,45 +690,6 @@ defmodule Localize.DateTime.Formatter do
       field in [:month, :standalone_month] and count <= 2
     end)
   end
-
-  # The pattern-symbol handlers that render a date field and a time field.
-  # Zone handlers belong to neither, and `decimal_separator` is the marker
-  # before fractional seconds rather than a separator a caller may choose.
-  @date_handlers [
-    :era,
-    :year,
-    :week_aligned_year,
-    :extended_year,
-    :cyclic_year,
-    :related_year,
-    :quarter,
-    :standalone_quarter,
-    :month,
-    :standalone_month,
-    :week_of_year,
-    :week_of_month,
-    :day_of_month,
-    :day_of_year,
-    :day_of_week_in_month,
-    :modified_julian_day,
-    :day_name,
-    :day_of_week,
-    :standalone_day_of_week
-  ]
-
-  @time_handlers [
-    :period_am_pm,
-    :period_noon_midnight,
-    :period_flex,
-    :h11,
-    :h12,
-    :h23,
-    :h24,
-    :minute,
-    :second,
-    :fractional_second,
-    :millisecond
-  ]
 
   # CLDR 49 numeric separators: TR35 lets an implementation offer the
   # locale's `numericDateSeparator` and `numericTimeSeparator` for
@@ -830,12 +851,6 @@ defmodule Localize.DateTime.Formatter do
     end
   end
 
-  # An era, a year counted in one and the extended year need only the year
-  # where the calendar's eras begin with its years. Where one began mid-year,
-  # as in the Japanese calendar, a partial date in the year or month of the
-  # change also needs the fields that settle which era it falls in.
-  @era_handlers [:era, :year, :extended_year]
-
   defp unsettled_era_fields(value, tokens, unusable) do
     handlers =
       for {handler, _line, _count} <- tokens, handler in @era_handlers, uniq: true, do: handler
@@ -846,14 +861,6 @@ defmodule Localize.DateTime.Formatter do
       Enum.flat_map(handlers, &era_answer_fields(&1, value))
     end
   end
-
-  # A week of the year and its week-based year need the day too, unless the
-  # days a date without one could be are all in one week, as the days of a
-  # calendar of weeks' year and week are. Which week that is does not turn
-  # on the locale's weeks: a `Calendar.ISO` month runs through several by
-  # any of them.
-  @week_handlers [:week_of_year, :week_aligned_year]
-  @iso_week_data {1, 4}
 
   defp unsettled_week_fields(value, tokens, unusable) do
     week_field? = Enum.any?(tokens, fn {handler, _line, _count} -> handler in @week_handlers end)
@@ -1515,8 +1522,6 @@ defmodule Localize.DateTime.Formatter do
   # renders: the proleptic Gregorian day count from 0000-01-01 plus
   # 1,721,060.
 
-  @julian_day_of_iso_epoch 1_721_060
-
   @doc false
   def modified_julian_day(date, count, locale_id, options) when is_date(date) do
     (iso_days(date) + @julian_day_of_iso_epoch)
@@ -1949,9 +1954,6 @@ defmodule Localize.DateTime.Formatter do
   # ── Timezone symbols ─────────────────────────────────────
 
   alias Localize.DateTime.Timezone
-
-  # TR35 names `Etc/Unknown` as the source of the fallback exemplar city.
-  @unknown_zone "Etc/Unknown"
 
   # z (1-3): Short specific non-location (e.g., "EST")
   # z (4):   Long specific non-location (e.g., "Eastern Standard Time")

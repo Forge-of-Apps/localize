@@ -37,6 +37,53 @@ defmodule Localize.Unit do
             usage: nil,
             format_options: []
 
+  # Measurement system to CLDR region code mapping.
+  @system_regions %{metric: "001", us: "US", uk: "GB"}
+
+  # Quantity names that differ between unitQuantity and unitPreferences.
+  @quantity_to_preference_category %{
+    "length" => "length",
+    "mass" => "mass",
+    "area" => "area",
+    "volume" => "volume",
+    "speed" => "speed",
+    "temperature" => "temperature",
+    "pressure" => "pressure",
+    "energy" => "energy",
+    "power" => "power",
+    "duration" => "duration",
+    "acceleration" => "acceleration",
+    "force" => "force",
+    "consumption" => "consumption",
+    "mass-density" => "mass-density",
+    "concentration" => "concentration",
+    "year-duration" => "year-duration"
+  }
+
+  # Base units humanize/2 scales through the prefix ladder: the
+  # locale-invariant SI-prefixed quantities that CLDR's unit
+  # preference data does not cover. IEC binary prefixes are
+  # meaningful only for the digital bases.
+  @si_humanize_bases ~w(bit byte hertz watt)
+
+  @iec_humanize_bases ~w(bit byte)
+
+  # Prefix ladders for humanize/2, largest factor first so the first
+  # match is the prefix that scales the value into [1, 1000) or [1, 1024).
+  @si_humanize_prefixes ~w(kilo mega giga tera peta exa zetta yotta)
+
+  @iec_humanize_prefixes ~w(kibi mebi gibi tebi pebi exbi zebi yobi)
+
+  @si_humanize_ladder @si_humanize_prefixes
+                      |> Enum.with_index(1)
+                      |> Enum.map(fn {prefix, index} -> {prefix, Integer.pow(1000, index)} end)
+                      |> Enum.reverse()
+
+  @iec_humanize_ladder @iec_humanize_prefixes
+                       |> Enum.with_index(1)
+                       |> Enum.map(fn {prefix, index} -> {prefix, Integer.pow(1024, index)} end)
+                       |> Enum.reverse()
+
   @type value :: number() | Decimal.t() | [number()] | nil
 
   @type t :: %__MODULE__{
@@ -800,29 +847,6 @@ defmodule Localize.Unit do
 
   def convert_measurement_system(unit, _system), do: {:error, invalid_unit(unit)}
 
-  # Measurement system to CLDR region code mapping.
-  @system_regions %{metric: "001", us: "US", uk: "GB"}
-
-  # Quantity names that differ between unitQuantity and unitPreferences.
-  @quantity_to_preference_category %{
-    "length" => "length",
-    "mass" => "mass",
-    "area" => "area",
-    "volume" => "volume",
-    "speed" => "speed",
-    "temperature" => "temperature",
-    "pressure" => "pressure",
-    "energy" => "energy",
-    "power" => "power",
-    "duration" => "duration",
-    "acceleration" => "acceleration",
-    "force" => "force",
-    "consumption" => "consumption",
-    "mass-density" => "mass-density",
-    "concentration" => "concentration",
-    "year-duration" => "year-duration"
-  }
-
   defp preferred_unit(unit_name, system, usage) do
     region = Map.fetch!(@system_regions, system)
 
@@ -907,28 +931,6 @@ defmodule Localize.Unit do
         {:ok, unit}
     end
   end
-
-  # Base units humanize/2 scales through the prefix ladder: the
-  # locale-invariant SI-prefixed quantities that CLDR's unit
-  # preference data does not cover. IEC binary prefixes are
-  # meaningful only for the digital bases.
-  @si_humanize_bases ~w(bit byte hertz watt)
-  @iec_humanize_bases ~w(bit byte)
-
-  # Prefix ladders for humanize/2, largest factor first so the first
-  # match is the prefix that scales the value into [1, 1000) or [1, 1024).
-  @si_humanize_prefixes ~w(kilo mega giga tera peta exa zetta yotta)
-  @iec_humanize_prefixes ~w(kibi mebi gibi tebi pebi exbi zebi yobi)
-
-  @si_humanize_ladder @si_humanize_prefixes
-                      |> Enum.with_index(1)
-                      |> Enum.map(fn {prefix, index} -> {prefix, Integer.pow(1000, index)} end)
-                      |> Enum.reverse()
-
-  @iec_humanize_ladder @iec_humanize_prefixes
-                       |> Enum.with_index(1)
-                       |> Enum.map(fn {prefix, index} -> {prefix, Integer.pow(1024, index)} end)
-                       |> Enum.reverse()
 
   @doc """
   Converts a bit-, byte-, hertz- or watt-based unit to the prefixed

@@ -9,6 +9,12 @@ defmodule Localize.Unit.Parser.Combinator do
   @base_units Localize.Unit.Data.base_units()
   @categories Localize.Unit.Data.categories()
 
+  # Matches any lowercase identifier that is NOT a CLDR category name.
+  # Category names are reserved for the long-form category-prefix syntax
+  # (e.g., "length-meter"). Without this exclusion, "mass" in
+  # "mass-kilogram" would be consumed as a custom unit name.
+  @category_set MapSet.new(@categories)
+
   # ── Leaf combinators ────────────────────────────────────────────────
 
   @doc false
@@ -45,12 +51,6 @@ defmodule Localize.Unit.Parser.Combinator do
     |> choice()
     |> unwrap_and_tag(:base)
   end
-
-  # Matches any lowercase identifier that is NOT a CLDR category name.
-  # Category names are reserved for the long-form category-prefix syntax
-  # (e.g., "length-meter"). Without this exclusion, "mass" in
-  # "mass-kilogram" would be consumed as a custom unit name.
-  @category_set MapSet.new(@categories)
 
   @doc false
   def custom_base_unit do

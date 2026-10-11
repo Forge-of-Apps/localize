@@ -1,4 +1,11 @@
 defmodule Localize.Number.PluralRule.Transformer do
+  # TR35 evaluates plural rules "in semantic order: first `zero`, then
+  # `one`, `two`, `few`, and `many`", because two rules may both hold for a
+  # number and the earlier category must win; `other` takes what is left.
+  # The order is set here rather than taken from the data, and the `true`
+  # branch goes last because it always matches.
+  @semantic_order [:zero, :one, :two, :few, :many, :other]
+
   @moduledoc false
 
   # Transforms the parse tree returned from parsing plural rules
@@ -23,13 +30,6 @@ defmodule Localize.Number.PluralRule.Transformer do
 
     {:cond, [], [[do: in_semantic_order(branches)]]}
   end
-
-  # TR35 evaluates plural rules "in semantic order: first `zero`, then
-  # `one`, `two`, `few`, and `many`", because two rules may both hold for a
-  # number and the earlier category must win; `other` takes what is left.
-  # The order is set here rather than taken from the data, and the `true`
-  # branch goes last because it always matches.
-  @semantic_order [:zero, :one, :two, :few, :many, :other]
 
   defp in_semantic_order(branches) do
     Enum.sort_by(branches, fn {:->, [], [[ast], category]} ->

@@ -7,18 +7,6 @@ defmodule Localize.DateTime.TestData do
 
   @path "test/support/data/date_time_formatting.json"
 
-  def parse do
-    @path
-    |> File.read!()
-    |> :json.decode()
-    |> Enum.with_index(&format_test/2)
-  end
-
-  def test(n) do
-    parse()
-    |> Enum.find(&(&1.index == n))
-  end
-
   @rename_keys %{
     "timeLength" => "time_format",
     "dateLength" => "date_format",
@@ -61,6 +49,18 @@ defmodule Localize.DateTime.TestData do
                       yMMMMdEEEE yMMMdEEE yyMdEEE)a
 
   @skeletons_by_name Map.new(@known_skeletons, &{Atom.to_string(&1), &1})
+
+  def parse do
+    @path
+    |> File.read!()
+    |> :json.decode()
+    |> Enum.with_index(&format_test/2)
+  end
+
+  def test(n) do
+    parse()
+    |> Enum.find(&(&1.index == n))
+  end
 
   def format_test(test, index) do
     test

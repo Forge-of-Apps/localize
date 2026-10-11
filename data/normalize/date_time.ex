@@ -11,6 +11,25 @@ defmodule Localize.Data.Normalize.DateTime do
     "time_skeletons"
   ]
 
+  @tz_structural_keys MapSet.new([
+                        "zone",
+                        "metazone",
+                        "region_format",
+                        "hour_format",
+                        "gmt_format",
+                        "gmt_zero_format",
+                        "fallback_format",
+                        "exemplar_city",
+                        "formal",
+                        "type",
+                        "long",
+                        "short",
+                        "generic",
+                        "standard",
+                        "daylight",
+                        "number_system"
+                      ])
+
   def normalize(content, _locale) do
     dates =
       content
@@ -81,25 +100,6 @@ defmodule Localize.Data.Normalize.DateTime do
 
     Map.put(content, "dates", dates)
   end
-
-  @tz_structural_keys MapSet.new([
-                        "zone",
-                        "metazone",
-                        "region_format",
-                        "hour_format",
-                        "gmt_format",
-                        "gmt_zero_format",
-                        "fallback_format",
-                        "exemplar_city",
-                        "formal",
-                        "type",
-                        "long",
-                        "short",
-                        "generic",
-                        "standard",
-                        "daylight",
-                        "number_system"
-                      ])
 
   defp atomize_tz_structural_keys(content) do
     tz = content["time_zone_names"]

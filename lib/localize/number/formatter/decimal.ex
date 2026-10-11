@@ -22,6 +22,19 @@ defmodule Localize.Number.Formatter.Decimal do
   @minus_placeholder Compiler.placeholder(:minus)
   @nbsp "\u200b"
 
+  @superscript_digits %{
+    "0" => "⁰",
+    "1" => "¹",
+    "2" => "²",
+    "3" => "³",
+    "4" => "⁴",
+    "5" => "⁵",
+    "6" => "⁶",
+    "7" => "⁷",
+    "8" => "⁸",
+    "9" => "⁹"
+  }
+
   # # to_string/3
   # Formats a number using a format string and validated options.
   #
@@ -1148,19 +1161,6 @@ defmodule Localize.Number.Formatter.Decimal do
        do: s
 
   defp superscripting_symbol(_options), do: "×"
-
-  @superscript_digits %{
-    "0" => "⁰",
-    "1" => "¹",
-    "2" => "²",
-    "3" => "³",
-    "4" => "⁴",
-    "5" => "⁵",
-    "6" => "⁶",
-    "7" => "⁷",
-    "8" => "⁸",
-    "9" => "⁹"
-  }
 
   defp superscript_digit(grapheme), do: Map.get(@superscript_digits, grapheme, grapheme)
 

@@ -36,6 +36,25 @@ defmodule Localize.Utils.Math do
   @two Decimal.new(2)
   @ten Decimal.new(10)
 
+  @ln10 Decimal.from_float(2.30258509299)
+
+  @initial_old_estimate Decimal.from_float(0.0001)
+
+  @root_precision 0.0001
+
+  @decimal_root_precision Decimal.from_float(@root_precision)
+
+  @rounding_modes [:down, :up, :ceiling, :floor, :half_even, :half_up, :half_down]
+
+  # A double carries at most 17 significant decimal digits and its smallest
+  # subnormal is about 5e-324, so no finite double changes when rounded beyond
+  # roughly 325 decimal places — returning it unchanged is exact, not an
+  # approximation. The guard matters because the digit pipeline reconstructs
+  # through `10^n`, which overflows on the way back to a float: without it,
+  # `Localize.Number.to_string(1.0e-308, max_fractional_digits: 400)` raised
+  # ArithmeticError out of a public, non-bang function.
+  @max_meaningful_decimal_places 325
+
   @doc """
   Adds two numbers together.
 
@@ -765,7 +784,6 @@ defmodule Localize.Utils.Math do
     :math.log(number)
   end
 
-  @ln10 Decimal.from_float(2.30258509299)
   def log(%Decimal{} = number) do
     {mantissa, exp} = coef_exponent(number)
     exp = Decimal.new(exp)
@@ -1132,7 +1150,6 @@ defmodule Localize.Utils.Math do
       Decimal.new("3.141496458696078173887197038")
 
   """
-  @initial_old_estimate Decimal.from_float(0.0001)
   def sqrt(number, precision \\ nil)
 
   def sqrt(%Decimal{sign: sign} = number, _precision)
@@ -1246,7 +1263,6 @@ defmodule Localize.Utils.Math do
     do_root(number, nth, guess)
   end
 
-  @root_precision 0.0001
   defp do_root(number, nth, root) when is_number(number) do
     delta = 1 / nth * (number / :math.pow(root, nth - 1)) - root
 
@@ -1257,7 +1273,6 @@ defmodule Localize.Utils.Math do
     end
   end
 
-  @decimal_root_precision Decimal.from_float(@root_precision)
   defp do_root(%Decimal{} = number, %Decimal{} = nth, %Decimal{} = root) do
     d1 = Decimal.div(@one, nth)
     d2 = Decimal.div(number, power(root, Decimal.sub(nth, @one)))
@@ -1270,8 +1285,6 @@ defmodule Localize.Utils.Math do
       root
     end
   end
-
-  @rounding_modes [:down, :up, :ceiling, :floor, :half_even, :half_up, :half_down]
 
   @doc """
   Returns the list of valid rounding modes.
@@ -1345,15 +1358,6 @@ defmodule Localize.Utils.Math do
     |> Decimal.round(places, mode)
     |> Decimal.to_integer()
   end
-
-  # A double carries at most 17 significant decimal digits and its smallest
-  # subnormal is about 5e-324, so no finite double changes when rounded beyond
-  # roughly 325 decimal places — returning it unchanged is exact, not an
-  # approximation. The guard matters because the digit pipeline reconstructs
-  # through `10^n`, which overflows on the way back to a float: without it,
-  # `Localize.Number.to_string(1.0e-308, max_fractional_digits: 400)` raised
-  # ArithmeticError out of a public, non-bang function.
-  @max_meaningful_decimal_places 325
 
   def round(number, places, _mode)
       when is_float(number) and is_integer(places) and places > @max_meaningful_decimal_places do

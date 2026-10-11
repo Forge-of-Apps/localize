@@ -41,6 +41,82 @@ defmodule Localize.Inflection.Synthesizer.De do
     ["masculine", "feminine"]
   ]
 
+  # feature name -> {table key, include_semantic_value?}
+  @article_features %{
+    "pronoun" => {:pronoun, false},
+    "withPronoun" => {:pronoun, true},
+    "possessivePronoun" => {:pronoun, false},
+    "withPossessivePronoun" => {:pronoun, true},
+    "defArticle" => {:definite, false},
+    "defArticleInPreposition" => {:definite_in_preposition, false},
+    "withDefArticleInPreposition" => {:definite_in_preposition, true},
+    "indefArticle" => {:indefinite, false},
+    "demonArticle" => {:demonstrative, false},
+    "withDemonArticle" => {:demonstrative, true},
+    "negArticle" => {:negated, false},
+    "withNegArticle" => {:negated, true},
+    "possArticle" => {:possessive_second, false},
+    "withPossArticle" => {:possessive_second, true},
+    "interrogativeArticle" => {:interrogative, false},
+    "withInterrogativeArticle" => {:interrogative, true}
+  }
+
+  @strong_suffixes %{
+    {"plural", :all, :all} => "en",
+    {"singular", "feminine", "accusative"} => "e",
+    {"singular", "feminine", "dative"} => "er",
+    {"singular", "feminine", "genitive"} => "er",
+    {"singular", "feminine", "nominative"} => "e",
+    {"singular", "masculine", "accusative"} => "en",
+    {"singular", "masculine", "dative"} => "em",
+    {"singular", "masculine", "genitive"} => "en",
+    {"singular", "masculine", "nominative"} => "er",
+    {"singular", "neuter", "accusative"} => "es",
+    {"singular", "neuter", "dative"} => "em",
+    {"singular", "neuter", "genitive"} => "en",
+    {"singular", "neuter", "nominative"} => "es"
+  }
+
+  @weak_suffixes %{
+    {"plural", :all, :all} => "en",
+    {"singular", "feminine", "accusative"} => "e",
+    {"singular", "feminine", "dative"} => "en",
+    {"singular", "feminine", "genitive"} => "en",
+    {"singular", "feminine", "nominative"} => "e",
+    {"singular", "masculine", "accusative"} => "en",
+    {"singular", "masculine", "dative"} => "en",
+    {"singular", "masculine", "genitive"} => "en",
+    {"singular", "masculine", "nominative"} => "e",
+    {"singular", "neuter", "accusative"} => "e",
+    {"singular", "neuter", "dative"} => "en",
+    {"singular", "neuter", "genitive"} => "en",
+    {"singular", "neuter", "nominative"} => "e"
+  }
+
+  @mixed_suffixes %{
+    {"plural", :all, :all} => "en",
+    {"singular", "feminine", "accusative"} => "e",
+    {"singular", "feminine", "dative"} => "en",
+    {"singular", "feminine", "genitive"} => "en",
+    {"singular", "feminine", "nominative"} => "e",
+    {"singular", "masculine", "accusative"} => "en",
+    {"singular", "masculine", "dative"} => "en",
+    {"singular", "masculine", "genitive"} => "en",
+    {"singular", "masculine", "nominative"} => "er",
+    {"singular", "neuter", "accusative"} => "es",
+    {"singular", "neuter", "dative"} => "en",
+    {"singular", "neuter", "genitive"} => "en",
+    {"singular", "neuter", "nominative"} => "es"
+  }
+
+  # STRONG plural is case-sensitive, unlike weak/mixed.
+  @strong_plural %{
+    "accusative" => "e",
+    "dative" => "en",
+    "genitive" => "er",
+    "nominative" => "e"
+  }
+
   # Article tables keyed {number, gender, case}. Plural forms do not
   # vary by gender, so plural rows are expanded over all genders.
   defp expand_plural(rows) do
@@ -217,82 +293,6 @@ defmodule Localize.Inflection.Synthesizer.De do
       {{"singular", "neuter", "nominative"}, "welches"}
     ])
   end
-
-  # feature name -> {table key, include_semantic_value?}
-  @article_features %{
-    "pronoun" => {:pronoun, false},
-    "withPronoun" => {:pronoun, true},
-    "possessivePronoun" => {:pronoun, false},
-    "withPossessivePronoun" => {:pronoun, true},
-    "defArticle" => {:definite, false},
-    "defArticleInPreposition" => {:definite_in_preposition, false},
-    "withDefArticleInPreposition" => {:definite_in_preposition, true},
-    "indefArticle" => {:indefinite, false},
-    "demonArticle" => {:demonstrative, false},
-    "withDemonArticle" => {:demonstrative, true},
-    "negArticle" => {:negated, false},
-    "withNegArticle" => {:negated, true},
-    "possArticle" => {:possessive_second, false},
-    "withPossArticle" => {:possessive_second, true},
-    "interrogativeArticle" => {:interrogative, false},
-    "withInterrogativeArticle" => {:interrogative, true}
-  }
-
-  @strong_suffixes %{
-    {"plural", :all, :all} => "en",
-    {"singular", "feminine", "accusative"} => "e",
-    {"singular", "feminine", "dative"} => "er",
-    {"singular", "feminine", "genitive"} => "er",
-    {"singular", "feminine", "nominative"} => "e",
-    {"singular", "masculine", "accusative"} => "en",
-    {"singular", "masculine", "dative"} => "em",
-    {"singular", "masculine", "genitive"} => "en",
-    {"singular", "masculine", "nominative"} => "er",
-    {"singular", "neuter", "accusative"} => "es",
-    {"singular", "neuter", "dative"} => "em",
-    {"singular", "neuter", "genitive"} => "en",
-    {"singular", "neuter", "nominative"} => "es"
-  }
-
-  @weak_suffixes %{
-    {"plural", :all, :all} => "en",
-    {"singular", "feminine", "accusative"} => "e",
-    {"singular", "feminine", "dative"} => "en",
-    {"singular", "feminine", "genitive"} => "en",
-    {"singular", "feminine", "nominative"} => "e",
-    {"singular", "masculine", "accusative"} => "en",
-    {"singular", "masculine", "dative"} => "en",
-    {"singular", "masculine", "genitive"} => "en",
-    {"singular", "masculine", "nominative"} => "e",
-    {"singular", "neuter", "accusative"} => "e",
-    {"singular", "neuter", "dative"} => "en",
-    {"singular", "neuter", "genitive"} => "en",
-    {"singular", "neuter", "nominative"} => "e"
-  }
-
-  @mixed_suffixes %{
-    {"plural", :all, :all} => "en",
-    {"singular", "feminine", "accusative"} => "e",
-    {"singular", "feminine", "dative"} => "en",
-    {"singular", "feminine", "genitive"} => "en",
-    {"singular", "feminine", "nominative"} => "e",
-    {"singular", "masculine", "accusative"} => "en",
-    {"singular", "masculine", "dative"} => "en",
-    {"singular", "masculine", "genitive"} => "en",
-    {"singular", "masculine", "nominative"} => "er",
-    {"singular", "neuter", "accusative"} => "es",
-    {"singular", "neuter", "dative"} => "en",
-    {"singular", "neuter", "genitive"} => "en",
-    {"singular", "neuter", "nominative"} => "es"
-  }
-
-  # STRONG plural is case-sensitive, unlike weak/mixed.
-  @strong_plural %{
-    "accusative" => "e",
-    "dative" => "en",
-    "genitive" => "er",
-    "nominative" => "e"
-  }
 
   @impl true
   def feature_value(feature, display_value, constraints)

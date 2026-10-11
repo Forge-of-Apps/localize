@@ -63,6 +63,8 @@ defmodule Localize.Currency do
             from: nil,
             to: nil
 
+  @rtl_mark "\u200F"
+
   # ── Currency validation ──────────────────────────────────────
 
   @doc """
@@ -1596,8 +1598,6 @@ defmodule Localize.Currency do
   def unannotated?(_currency), do: false
 
   # ── Private helpers ──────────────────────────────────────────
-
-  @rtl_mark "\u200F"
 
   @doc false
   # Public so that the data pipeline can build this index at generation time

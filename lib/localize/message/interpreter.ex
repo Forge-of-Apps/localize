@@ -136,6 +136,33 @@ defmodule Localize.Message.Interpreter do
   # the locale's standard formats.
   @standard_format_styles ["short", "medium", "long", "full"]
 
+  @list_separator_options %{
+    "withBeforeFirst" => :before_first,
+    "withAfterFirst" => :after_first,
+    "withItemDelimiter" => :item_delimiter,
+    "withBeforeLast" => :before_last,
+    "withAfterLast" => :after_last,
+    "withItemPrefix" => :item_prefix,
+    "withItemSuffix" => :item_suffix
+  }
+
+  @list_control_options [
+    "withType",
+    "withAvoidItemAffixRedundancy" | Map.keys(@list_separator_options)
+  ]
+
+  # Unicode bidi isolate characters
+  @lri "\u2066"
+
+  @rli "\u2067"
+
+  @fsi "\u2068"
+
+  @pdi "\u2069"
+
+  # RTL scripts that trigger automatic bidi isolation
+  @rtl_scripts ~w(Arab Hebr Thaa Syrc Mand Samr Nkoo Tfng Adlm)a
+
   # ── Public API ─────────────────────────────────────────────────
 
   @doc """
@@ -2474,21 +2501,6 @@ defmodule Localize.Message.Interpreter do
   # `option_key/1`) and are compared as strings, so no atom is made
   # from a message.
 
-  @list_separator_options %{
-    "withBeforeFirst" => :before_first,
-    "withAfterFirst" => :after_first,
-    "withItemDelimiter" => :item_delimiter,
-    "withBeforeLast" => :before_last,
-    "withAfterLast" => :after_last,
-    "withItemPrefix" => :item_prefix,
-    "withItemSuffix" => :item_suffix
-  }
-
-  @list_control_options [
-    "withType",
-    "withAvoidItemAffixRedundancy" | Map.keys(@list_separator_options)
-  ]
-
   # The grammatical constraints the options give. With `:agree`
   # (`:i:inflect`, `:i:pronoun`) a value that is not one of the
   # feature's values is a word or phrase to agree with, so
@@ -3144,15 +3156,6 @@ defmodule Localize.Message.Interpreter do
   end
 
   # ── Bidirectional text isolation ─────────────────────────────────
-
-  # Unicode bidi isolate characters
-  @lri "\u2066"
-  @rli "\u2067"
-  @fsi "\u2068"
-  @pdi "\u2069"
-
-  # RTL scripts that trigger automatic bidi isolation
-  @rtl_scripts ~w(Arab Hebr Thaa Syrc Mand Samr Nkoo Tfng Adlm)a
 
   defp extract_dir_attribute(attrs) do
     Enum.find_value(attrs, nil, fn

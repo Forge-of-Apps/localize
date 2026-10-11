@@ -1,4 +1,6 @@
 defmodule Localize.Substitution do
+  @digits [?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9]
+
   # Compiles substitution templates of the form `"{0} something {1}"`
   # into token lists for efficient parameter substitution at runtime.
   #
@@ -201,8 +203,6 @@ defmodule Localize.Substitution do
   end
 
   # ── Private ─────────────────────────────────────────────────
-
-  @digits [?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9]
 
   defp item_from_token(<<?{, digit, ?}>>) when digit in @digits do
     digit - ?0

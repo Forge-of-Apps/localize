@@ -98,6 +98,27 @@ defmodule Localize.Number.Format.Options do
 
   @currency_indicator "¤"
 
+  # Set default fractional digits from the currency data when the
+  # caller hasn't provided fractional_digits and the format is either a
+  # standard currency format (an atom like :currency or :accounting) or
+  # a pattern string with a currency sign. TR35 has the currency's
+  # supplemental data override a currency pattern's decimal places, as
+  # ICU does; a pattern with significant digits keeps them.
+  @currency_fraction_formats [
+    :currency,
+    :accounting,
+    :standard,
+    :currency_no_symbol,
+    :accounting_no_symbol,
+    :currency_alpha_next_to_number,
+    :accounting_alpha_next_to_number,
+    # The long forms apply the currency's fraction digits to the
+    # number portion per ECMA-402 `currencyDisplay: "name"`:
+    # "1,234.50 US dollars", not "1,234.5 US dollars".
+    :currency_long,
+    :currency_long_with_symbol
+  ]
+
   # # Returns the default options for number formatting.
   # #
   # # These serve as the base options that user-supplied
@@ -601,27 +622,6 @@ defmodule Localize.Number.Format.Options do
   # ── Currency symbol resolution ──────────────────────────────
 
   # ── Currency fractional digits ─────────────────────────────
-
-  # Set default fractional digits from the currency data when the
-  # caller hasn't provided fractional_digits and the format is either a
-  # standard currency format (an atom like :currency or :accounting) or
-  # a pattern string with a currency sign. TR35 has the currency's
-  # supplemental data override a currency pattern's decimal places, as
-  # ICU does; a pattern with significant digits keeps them.
-  @currency_fraction_formats [
-    :currency,
-    :accounting,
-    :standard,
-    :currency_no_symbol,
-    :accounting_no_symbol,
-    :currency_alpha_next_to_number,
-    :accounting_alpha_next_to_number,
-    # The long forms apply the currency's fraction digits to the
-    # number portion per ECMA-402 `currencyDisplay: "name"`:
-    # "1,234.50 US dollars", not "1,234.5 US dollars".
-    :currency_long,
-    :currency_long_with_symbol
-  ]
 
   defp default_currency_fractional_digits(format, %Localize.Currency{} = currency, digits)
        when format in @currency_fraction_formats do

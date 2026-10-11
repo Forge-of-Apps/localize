@@ -24,6 +24,17 @@ defmodule Localize.Collation.Options do
             han_ordering: :implicit,
             backend: :elixir
 
+  @closed_values [
+    strength: [:primary, :secondary, :tertiary, :quaternary, :identical],
+    alternate: [:non_ignorable, :shifted],
+    backwards: [false, true],
+    normalization: [false, true],
+    case_level: [false, true],
+    case_first: [false, :upper, :lower],
+    numeric: [false, true],
+    max_variable: [:space, :punct, :symbol, :currency]
+  ]
+
   @type strength :: :primary | :secondary | :tertiary | :quaternary | :identical
   @type alternate :: :non_ignorable | :shifted
   @type case_first_opt :: :upper | :lower | false
@@ -113,17 +124,6 @@ defmodule Localize.Collation.Options do
   end
 
   def new(options), do: {:error, Localize.Utils.Helpers.invalid_options(options)}
-
-  @closed_values [
-    strength: [:primary, :secondary, :tertiary, :quaternary, :identical],
-    alternate: [:non_ignorable, :shifted],
-    backwards: [false, true],
-    normalization: [false, true],
-    case_level: [false, true],
-    case_first: [false, :upper, :lower],
-    numeric: [false, true],
-    max_variable: [:space, :punct, :symbol, :currency]
-  ]
 
   # An option with a closed set of values must take one of them and
   # `:reorder` must be script codes. Other entries pass through to

@@ -131,6 +131,46 @@ defmodule Localize.Date.Parser do
   @space_class "[    　]*"
   @literal_space_class "[    　]+"
 
+  @ordinal_probe_digits [1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 31]
+
+  @related_year_steps 12
+
+  # A week every week-based year has, far from both its ends.
+  @mid_year_week 26
+
+  # The separators people join two dates with, where the locale's pattern
+  # is not used: the dashes, a tilde, "to", and a hyphen or a slash between
+  # spaces.
+  @written_range_joins for separator <- ["–", "—", "−", "〜", "~", "to", " - ", " / "],
+                           do: {"", separator, :earliest_first}
+
+  # A weekday beside a week of the year: with the week's year (`ywE`),
+  # without it (`wE`) and with the year's era (`GywE`). No locale has a
+  # format for any of them: the formatter appends the weekday to the
+  # locale's `yw`, as TR35 appends a field no format carries ("Tue, week 25
+  # of 2026"), and the week to the weekday where there is no year, with the
+  # name of its field ("Tue (week: 25)"). They are what a calendar of weeks'
+  # week and day are written as at the skeletons of a year, a month and a
+  # day, of a month and a day, and of those with an era. Without its pattern
+  # a weekday beside a week was read with the weekday taken off its front,
+  # as the week alone, and was that week's first day, whatever day it named.
+  # They are a function of the locale and the calendar, as every pattern
+  # kept is, and are kept with the rest (`kept_patterns/3`).
+  @weekday_of_week_skeletons [:ywE, :wE, :GywE]
+
+  # The years an algorithmic numbering writes otherwise than in digits, each
+  # read before the digits of `digits`: `ja`'s Japanese dates are written
+  # with `y=jpanyear`, whose first year of an era is 元, "令和元年5月1日". The
+  # years asked about are those of an era, none of which has reached a
+  # hundred.
+  @numeral_years 1..100
+
+  # A year the input left out ranges over this many years either side of
+  # the reference year: enough to hold every leap-day, weekday and
+  # week-count combination of the Gregorian calendar, which repeat every
+  # 28 years, and the leap years of the lunisolar calendars.
+  @partial_year_span 28
+
   @doc """
   Parses `input` as a locale-formatted date.
 
@@ -692,8 +732,6 @@ defmodule Localize.Date.Parser do
     regex = Regex.compile!("(?:" <> alternation <> ")(\\d+)", "u")
     Regex.replace(regex, input, "\\1")
   end
-
-  @ordinal_probe_digits [1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 31]
 
   # Locales known to render `digits-ordinal` as just digit + `.`
   # (de) collide with the period as a date-field separator —
@@ -2038,8 +2076,6 @@ defmodule Localize.Date.Parser do
     end
   end
 
-  @related_year_steps 12
-
   # The calendar's year whose related year is the one written. A calendar in
   # step with the solar year keeps its year a fixed number from its related
   # year, and one that is not drifts from it: the Islamic calendar's year is
@@ -2538,9 +2574,6 @@ defmodule Localize.Date.Parser do
 
   defp anchors_week(_fields, _anchor, _options), do: :error
 
-  # A week every week-based year has, far from both its ends.
-  @mid_year_week 26
-
   # The week-based year next to an anchor's: a day of it, which a week is
   # read in the year of, and the day the anchor's own is a week-based year
   # away, which the week is short of. The same day a year away will not do
@@ -2680,12 +2713,6 @@ defmodule Localize.Date.Parser do
       {:error, _reason} -> nil
     end
   end
-
-  # The separators people join two dates with, where the locale's pattern
-  # is not used: the dashes, a tilde, "to", and a hyphen or a slash between
-  # spaces.
-  @written_range_joins for separator <- ["–", "—", "−", "〜", "~", "to", " - ", " / "],
-                           do: {"", separator, :earliest_first}
 
   @doc false
   # The ways two dates are joined into a range, each the text before the
@@ -3040,20 +3067,6 @@ defmodule Localize.Date.Parser do
   end
 
   defp detail(_ctx, pattern), do: pattern_detail(pattern)
-
-  # A weekday beside a week of the year: with the week's year (`ywE`),
-  # without it (`wE`) and with the year's era (`GywE`). No locale has a
-  # format for any of them: the formatter appends the weekday to the
-  # locale's `yw`, as TR35 appends a field no format carries ("Tue, week 25
-  # of 2026"), and the week to the weekday where there is no year, with the
-  # name of its field ("Tue (week: 25)"). They are what a calendar of weeks'
-  # week and day are written as at the skeletons of a year, a month and a
-  # day, of a month and a day, and of those with an era. Without its pattern
-  # a weekday beside a week was read with the weekday taken off its front,
-  # as the week alone, and was that week's first day, whatever day it named.
-  # They are a function of the locale and the calendar, as every pattern
-  # kept is, and are kept with the rest (`kept_patterns/3`).
-  @weekday_of_week_skeletons [:ywE, :wE, :GywE]
 
   defp weekday_of_week_patterns(locale, calendar_module) do
     first_day = %{calendar: calendar_module, year: 1, month: 1, day: 1}
@@ -4338,13 +4351,6 @@ defmodule Localize.Date.Parser do
     end
   end
 
-  # The years an algorithmic numbering writes otherwise than in digits, each
-  # read before the digits of `digits`: `ja`'s Japanese dates are written
-  # with `y=jpanyear`, whose first year of an era is 元, "令和元年5月1日". The
-  # years asked about are those of an era, none of which has reached a
-  # hundred.
-  @numeral_years 1..100
-
   defp year_numerals(ctx, digits) do
     numerals =
       for {year, numeral} <- numeral_names(ctx, "y", @numeral_years),
@@ -5594,12 +5600,6 @@ defmodule Localize.Date.Parser do
   end
 
   # ── Partial dates ────────────────────────────────────────────
-
-  # A year the input left out ranges over this many years either side of
-  # the reference year: enough to hold every leap-day, weekday and
-  # week-count combination of the Gregorian calendar, which repeat every
-  # 28 years, and the leap years of the lunisolar calendars.
-  @partial_year_span 28
 
   # A partial date is possible when some date of the calendar has every
   # field it carries. A year the input left out ranges over the years

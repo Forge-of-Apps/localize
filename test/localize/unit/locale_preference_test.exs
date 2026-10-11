@@ -19,6 +19,23 @@ defmodule Localize.Unit.LocalePreferenceTest do
                "unit_locale_preference_test_data.txt"
              ])
 
+  # All 23 cases match. Getting there took three fixes, each found by this
+  # fixture:
+  #
+  #   * Every usage CLDR defines now has an interned atom. The preference
+  #     data is keyed by usage *string*, so nothing created them, and
+  #     `String.to_existing_atom/1` failed for any usage no other module
+  #     mentioned — `usage: "fluid"` silently became `:default` and
+  #     returned cubic inches for `en-GB`.
+  #
+  #   * `-u-ms` and `-u-mu` are read. A measurement system stands for a
+  #     territory that uses it; a measurement unit overrides the result
+  #     outright, and is ignored when it is not convertible from the input.
+  #
+  #   * A unit whose quantity has no preferences falls back to base units
+  #     rather than returning an error.
+  @expected_matches 23
+
   defp cases do
     @data_file
     |> File.stream!()
@@ -42,23 +59,6 @@ defmodule Localize.Unit.LocalePreferenceTest do
         Decimal.new(value)
     end
   end
-
-  # All 23 cases match. Getting there took three fixes, each found by this
-  # fixture:
-  #
-  #   * Every usage CLDR defines now has an interned atom. The preference
-  #     data is keyed by usage *string*, so nothing created them, and
-  #     `String.to_existing_atom/1` failed for any usage no other module
-  #     mentioned — `usage: "fluid"` silently became `:default` and
-  #     returned cubic inches for `en-GB`.
-  #
-  #   * `-u-ms` and `-u-mu` are read. A measurement system stands for a
-  #     territory that uses it; a measurement unit overrides the result
-  #     outright, and is ignored when it is not convertible from the input.
-  #
-  #   * A unit whose quantity has no preferences falls back to base units
-  #     rather than returning an error.
-  @expected_matches 23
 
   test "unit preferences honour the locale's region and keyword overrides" do
     {matched, missed} =

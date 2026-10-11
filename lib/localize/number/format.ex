@@ -33,6 +33,12 @@ defmodule Localize.Number.Format do
 
   defstruct @format_styles ++ [:currency_spacing, :other, :rational]
 
+  @reject_styles [:__struct__, :currency_spacing, :other, :rational]
+
+  @isnt_really_a_short_format [:currency_long]
+
+  @short_formats MapSet.new(@short_format_styles -- @isnt_really_a_short_format)
+
   @behaviour Access
 
   @type format :: String.t()
@@ -56,10 +62,6 @@ defmodule Localize.Number.Format do
   def pop(struct, key) do
     {Map.get(struct, key), Map.delete(struct, key)}
   end
-
-  @reject_styles [:__struct__, :currency_spacing, :other, :rational]
-  @isnt_really_a_short_format [:currency_long]
-  @short_formats MapSet.new(@short_format_styles -- @isnt_really_a_short_format)
 
   @doc """
   Returns the short format style names.

@@ -3,6 +3,8 @@ defmodule Localize.Data.Normalize.Currency do
 
   alias Localize.Utils.Map, as: LMap
 
+  @count_types [:zero, :one, :two, :few, :many, :other]
+
   def normalize(content, _locale) do
     currency_data = get_currency_data()["fractions"]
     default = currency_data["DEFAULT"]
@@ -45,8 +47,6 @@ defmodule Localize.Data.Normalize.Currency do
 
     Map.put(content, "currencies", currencies)
   end
-
-  @count_types [:zero, :one, :two, :few, :many, :other]
 
   def currency_counts(currency) do
     Enum.reduce(@count_types, %{}, fn category, counts ->

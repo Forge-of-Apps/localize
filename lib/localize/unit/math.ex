@@ -17,6 +17,18 @@ defmodule Localize.Unit.Math do
   alias Localize.Unit.Canonical
   alias Localize.Unit.Conversion
 
+  @rounding_modes [:down, :half_up, :half_even, :ceiling, :floor, :half_down, :up]
+
+  @dimensionless_fns ~w(sin cos tan asin acos atan exp sinh cosh tanh asinh acosh atanh)a
+
+  @log_fns ~w(ln log log2)a
+
+  @all_dimensionless_fns @dimensionless_fns ++ @log_fns
+
+  # Dimensionless base units — a unit is considered dimensionless for
+  # transcendental functions if it converts to one of these base units.
+  @dimensionless_bases ~w(revolution part)
+
   @doc """
   Negates the value of a unit.
 
@@ -462,8 +474,6 @@ defmodule Localize.Unit.Math do
   """
   @spec round(Unit.t(), non_neg_integer(), atom()) :: {:ok, Unit.t()} | {:error, Exception.t()}
 
-  @rounding_modes [:down, :half_up, :half_even, :ceiling, :floor, :half_down, :up]
-
   def round(unit, places \\ 0, mode \\ :half_up)
 
   def round(%Unit{value: value} = unit, places, mode)
@@ -681,14 +691,6 @@ defmodule Localize.Unit.Math do
   # Trig and logarithmic functions require a dimensionless (bare number)
   # or a unit whose dimensions have all cancelled. They return a bare
   # number, not a unit.
-
-  @dimensionless_fns ~w(sin cos tan asin acos atan exp sinh cosh tanh asinh acosh atanh)a
-  @log_fns ~w(ln log log2)a
-  @all_dimensionless_fns @dimensionless_fns ++ @log_fns
-
-  # Dimensionless base units — a unit is considered dimensionless for
-  # transcendental functions if it converts to one of these base units.
-  @dimensionless_bases ~w(revolution part)
 
   # ── Public dimensionless function wrappers ──
 

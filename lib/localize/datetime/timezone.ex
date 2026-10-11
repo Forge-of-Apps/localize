@@ -155,6 +155,12 @@ defmodule Localize.DateTime.Timezone do
   # first of them here: a generic name follows the zone's own clock.
   @zone_name_types [:generic, :standard, :daylight]
 
+  @non_location_types [:specific, :generic, :standard, :daylight]
+
+  # The zone's offsets from 184 days before the time to 184 days after it,
+  # read a week apart and at either end.
+  @offset_sample_days Enum.to_list(-184..184//7) ++ [184]
+
   # ── Timezone Data Access ─────────────────────────────────────
 
   @doc """
@@ -775,8 +781,6 @@ defmodule Localize.DateTime.Timezone do
   def non_location_format(datetime, _locale_id, _options),
     do: {:error, Localize.Utils.Helpers.invalid_value(datetime, "a map with a :time_zone")}
 
-  @non_location_types [:specific, :generic, :standard, :daylight]
-
   defp non_location_type(type) when type in @non_location_types, do: {:ok, type}
 
   defp non_location_type(type) do
@@ -926,10 +930,6 @@ defmodule Localize.DateTime.Timezone do
         is_nil(get_in(names, [:long, :daylight])) and is_nil(get_in(names, [:short, :daylight]))
     end
   end
-
-  # The zone's offsets from 184 days before the time to 184 days after it,
-  # read a week apart and at either end.
-  @offset_sample_days Enum.to_list(-184..184//7) ++ [184]
 
   defp offset_changes_near(time_zone, datetime) do
     case metazone_instant(datetime) do

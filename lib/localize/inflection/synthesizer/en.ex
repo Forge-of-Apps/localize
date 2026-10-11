@@ -51,6 +51,8 @@ defmodule Localize.Inflection.Synthesizer.En do
     "you" => "your"
   }
 
+  @vowels ~w(a e i o u A E I O U)
+
   @impl true
   def feature_value(feature, display_value, constraints)
 
@@ -349,8 +351,6 @@ defmodule Localize.Inflection.Synthesizer.En do
     suffix = binary_part(phrase, token.stop, byte_size(phrase) - token.stop)
     {prefix, suffix}
   end
-
-  @vowels ~w(a e i o u A E I O U)
 
   defp guess_plural(word) do
     cond do

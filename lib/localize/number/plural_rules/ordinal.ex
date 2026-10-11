@@ -43,6 +43,8 @@ defmodule Localize.Number.PluralRule.Ordinal do
 
   @rules_at_compile Localize.Number.PluralRule.Loader.load_plural_rules(:ordinal)
 
+  @default_substitution :other
+
   @doc """
   Returns the locale names for which ordinal plural rules
   are defined.
@@ -113,7 +115,6 @@ defmodule Localize.Number.PluralRule.Ordinal do
       "nd"
 
   """
-  @default_substitution :other
 
   @spec pluralize(
           number() | Decimal.t(),

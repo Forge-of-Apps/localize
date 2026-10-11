@@ -13,6 +13,18 @@ defmodule Localize.Data.XmlExtractors do
 
   @zones_with_no_territory ["gmt", "unk"]
 
+  # Maps short names to their directory and file in the CLDR repository.
+  @xml_local_paths %{
+    "plural_ranges.xml" => {:supplemental, "pluralRanges.xml"},
+    "subdivisions.xml" => {:supplemental, "subdivisions.xml"},
+    "bcp47/timezone.xml" => {:bcp47, "timezone.xml"},
+    "bcp47/measure.xml" => {:bcp47, "measure.xml"},
+    "units.xml" => {:supplemental, "units.xml"},
+    "grammatical_features.xml" => {:supplemental, "grammaticalFeatures.xml"},
+    "meta_zones.xml" => {:supplemental, "metaZones.xml"},
+    "validity/unit.xml" => {:validity, "unit.xml"}
+  }
+
   @doc """
   Generates plural range data from `plural_ranges.xml`.
 
@@ -581,18 +593,6 @@ defmodule Localize.Data.XmlExtractors do
   end
 
   # ── Private helpers ─────────────────────────────────────────────
-
-  # Maps short names to their directory and file in the CLDR repository.
-  @xml_local_paths %{
-    "plural_ranges.xml" => {:supplemental, "pluralRanges.xml"},
-    "subdivisions.xml" => {:supplemental, "subdivisions.xml"},
-    "bcp47/timezone.xml" => {:bcp47, "timezone.xml"},
-    "bcp47/measure.xml" => {:bcp47, "measure.xml"},
-    "units.xml" => {:supplemental, "units.xml"},
-    "grammatical_features.xml" => {:supplemental, "grammaticalFeatures.xml"},
-    "meta_zones.xml" => {:supplemental, "metaZones.xml"},
-    "validity/unit.xml" => {:validity, "unit.xml"}
-  }
 
   defp read_xml(short_name) do
     {dir_type, filename} = Map.fetch!(@xml_local_paths, short_name)

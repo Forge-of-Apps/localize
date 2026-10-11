@@ -48,6 +48,21 @@ defmodule Localize.Time.Parser do
   # them where the pattern has a space.
   @space_class "[    　]*"
 
+  @iso_time ~r/\A(?<hour>[0-9]{2})(?:(?<separator>:?)(?<minute>[0-9]{2})(?:\k<separator>(?<second>[0-9]{2})(?<fraction>[.,][0-9]+)?)?)?(?<offset>[Zz]|[+\-−][0-9]{2}(?::?[0-9]{2})?)?\z/u
+
+  @flex_period_keys [
+    :morning1,
+    :morning2,
+    :afternoon1,
+    :afternoon2,
+    :evening1,
+    :evening2,
+    :night1,
+    :night2,
+    :noon,
+    :midnight
+  ]
+
   @doc """
   Parses `input` as a locale-formatted time string.
 
@@ -296,8 +311,6 @@ defmodule Localize.Time.Parser do
       nil -> nil
     end
   end
-
-  @iso_time ~r/\A(?<hour>[0-9]{2})(?:(?<separator>:?)(?<minute>[0-9]{2})(?:\k<separator>(?<second>[0-9]{2})(?<fraction>[.,][0-9]+)?)?)?(?<offset>[Zz]|[+\-−][0-9]{2}(?::?[0-9]{2})?)?\z/u
 
   @doc false
   # A time as ISO 8601 writes one after a date's `T`, in the one form Elixir
@@ -917,19 +930,6 @@ defmodule Localize.Time.Parser do
   defp entry_to_names(_), do: []
 
   # ── Flex day period regex (B) ────────────────────────────────
-
-  @flex_period_keys [
-    :morning1,
-    :morning2,
-    :afternoon1,
-    :afternoon2,
-    :evening1,
-    :evening2,
-    :night1,
-    :night2,
-    :noon,
-    :midnight
-  ]
 
   # A name can name more than one period — `fr`'s "matin" is morning1 and
   # night1 — so it is captured whole, longest first, and resolved against

@@ -9,6 +9,18 @@ defmodule Localize.Collation.Reorder do
 
   import Bitwise
 
+  @non_reorderable_groups MapSet.new([
+                            "terminator",
+                            "level-separator",
+                            "field-separator",
+                            "compress",
+                            "implicit",
+                            "trailing",
+                            "special",
+                            "reorder_reserved_before_latin",
+                            "reorder_reserved_after_latin"
+                          ])
+
   @doc """
   Build a reorder mapping function from the given script codes.
 
@@ -277,18 +289,6 @@ defmodule Localize.Collation.Reorder do
       ranges -> ranges
     end
   end
-
-  @non_reorderable_groups MapSet.new([
-                            "terminator",
-                            "level-separator",
-                            "field-separator",
-                            "compress",
-                            "implicit",
-                            "trailing",
-                            "special",
-                            "reorder_reserved_before_latin",
-                            "reorder_reserved_after_latin"
-                          ])
 
   @doc false
   def parse_top_bytes(path) do

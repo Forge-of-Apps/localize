@@ -9,6 +9,16 @@ defmodule Localize.LocaleCacheWriteError do
 
   defexception [:locale_id, :path, :reason, :posix_error]
 
+  @posix_to_reason %{
+    eacces: :permission_denied,
+    eperm: :permission_denied,
+    enoent: :no_such_directory,
+    enotdir: :no_such_directory,
+    enospc: :disk_full,
+    erofs: :read_only_filesystem,
+    eexist: :file_exists
+  }
+
   @type reason ::
           :permission_denied
           | :no_such_directory
@@ -34,16 +44,6 @@ defmodule Localize.LocaleCacheWriteError do
       :file_exists,
       :other_io_error
     ]
-
-  @posix_to_reason %{
-    eacces: :permission_denied,
-    eperm: :permission_denied,
-    enoent: :no_such_directory,
-    enotdir: :no_such_directory,
-    enospc: :disk_full,
-    erofs: :read_only_filesystem,
-    eexist: :file_exists
-  }
 
   @impl true
   def exception(bindings) when is_list(bindings) do

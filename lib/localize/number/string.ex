@@ -8,11 +8,13 @@ defmodule Localize.Number.String do
   # # latin1/0
   # Returns a regex matching all Latin-1 characters.
   @latin1 "([\\x00-\\x7F])"
+
+  @not_latin1 "([^\\x00-\\x7F])"
+
   def latin1, do: ~r/#{@latin1}/
 
   # # not_latin1/0
   # Returns a regex matching all non-Latin-1 characters.
-  @not_latin1 "([^\\x00-\\x7F])"
   def not_latin1, do: ~r/#{@not_latin1}/
 
   # # hex_string/1

@@ -36,6 +36,33 @@ defmodule Localize.Territory do
 
   @styles [:short, :standard, :variant]
 
+  @regions [
+    "005",
+    "011",
+    "013",
+    "014",
+    "015",
+    "017",
+    "018",
+    "021",
+    "029",
+    "030",
+    "034",
+    "035",
+    "039",
+    "053",
+    "054",
+    "057",
+    "061",
+    "143",
+    "145",
+    "151",
+    "154",
+    "155"
+  ]
+
+  @unicode_flag_codepoint_offset 0x1F1A5
+
   # ── Styles ──────────────────────────────────────────────────
 
   @doc """
@@ -980,31 +1007,6 @@ defmodule Localize.Territory do
 
   # ── Individual territories ──────────────────────────────────
 
-  @regions [
-    "005",
-    "011",
-    "013",
-    "014",
-    "015",
-    "017",
-    "018",
-    "021",
-    "029",
-    "030",
-    "034",
-    "035",
-    "039",
-    "053",
-    "054",
-    "057",
-    "061",
-    "143",
-    "145",
-    "151",
-    "154",
-    "155"
-  ]
-
   @doc """
   Returns a sorted list of territory codes for individual
   territories.
@@ -1046,8 +1048,6 @@ defmodule Localize.Territory do
   end
 
   # ── Flag ─────────────────────────────────────────────────────
-
-  @unicode_flag_codepoint_offset 0x1F1A5
 
   @doc """
   Returns a Unicode flag emoji for a territory or locale.

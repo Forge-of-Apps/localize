@@ -43,6 +43,48 @@ defmodule Localize.Utils.Http do
   # restarted to clear a previously-set proxy.
   @httpc_profile :localize
 
+  # Server errors, a request the server timed out or throttled, and a
+  # connection that failed or dropped are worth another attempt. Anything
+  # else will fail the same way again: a 404 means the object is absent
+  # for this version, and an unknown host stays unknown.
+  @retryable_statuses [408, 429, 500, 502, 503, 504]
+
+  @default_retries 3
+
+  @default_retry_delay 500
+
+  @max_retry_delay 8_000
+
+  # `:inet6fb4` tries IPv6 and falls back to IPv4, but a host that
+  # advertises IPv6 without a working route only falls back after the
+  # connection timeout. `:inet` and `:inet6` pin one family.
+  @ip_families [:inet6fb4, :inet, :inet6]
+
+  @static_certificate_locations [
+    # Debian/Ubuntu/Gentoo etc.
+    "/etc/ssl/certs/ca-certificates.crt",
+
+    # Fedora/RHEL 6
+    "/etc/pki/tls/certs/ca-bundle.crt",
+
+    # OpenSUSE
+    "/etc/ssl/ca-bundle.pem",
+
+    # OpenELEC
+    "/etc/pki/tls/cacert.pem",
+
+    # CentOS/RHEL 7
+    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+
+    # OpenSSL on MacOS
+    "/usr/local/etc/openssl/cert.pem",
+
+    # MacOS & Alpine Linux
+    "/etc/ssl/cert.pem"
+  ]
+
+  @ca_trust_key {__MODULE__, :ca_trust_option}
+
   @doc """
   Securely download HTTPS content from a URL.
 
@@ -360,22 +402,12 @@ defmodule Localize.Utils.Http do
     {:failed, reason, "Failed to download #{inspect(url)}. Error #{inspect(reason)}"}
   end
 
-  # Server errors, a request the server timed out or throttled, and a
-  # connection that failed or dropped are worth another attempt. Anything
-  # else will fail the same way again: a 404 means the object is absent
-  # for this version, and an unknown host stays unknown.
-  @retryable_statuses [408, 429, 500, 502, 503, 504]
-
   defp retryable?(status) when is_integer(status), do: status in @retryable_statuses
   defp retryable?(:connection_timeout), do: true
   defp retryable?(:timeout), do: true
   defp retryable?(:socket_closed_remotely), do: true
   defp retryable?({:failed_connect, [_address | _attempts]}), do: true
   defp retryable?(_final), do: false
-
-  @default_retries 3
-  @default_retry_delay 500
-  @max_retry_delay 8_000
 
   defp retries(options) do
     case Keyword.get(options, :retries, Application.get_env(:localize, :http_retries)) do
@@ -396,11 +428,6 @@ defmodule Localize.Utils.Http do
     min(base * Integer.pow(2, attempt), @max_retry_delay) + :rand.uniform(base + 1) - 1
   end
 
-  # `:inet6fb4` tries IPv6 and falls back to IPv4, but a host that
-  # advertises IPv6 without a working route only falls back after the
-  # connection timeout. `:inet` and `:inet6` pin one family.
-  @ip_families [:inet6fb4, :inet, :inet6]
-
   defp ip_family(options) do
     case Keyword.get(options, :ip_family, Application.get_env(:localize, :http_ip_family)) do
       nil ->
@@ -418,29 +445,6 @@ defmodule Localize.Utils.Http do
         :inet6fb4
     end
   end
-
-  @static_certificate_locations [
-    # Debian/Ubuntu/Gentoo etc.
-    "/etc/ssl/certs/ca-certificates.crt",
-
-    # Fedora/RHEL 6
-    "/etc/pki/tls/certs/ca-bundle.crt",
-
-    # OpenSUSE
-    "/etc/ssl/ca-bundle.pem",
-
-    # OpenELEC
-    "/etc/pki/tls/cacert.pem",
-
-    # CentOS/RHEL 7
-    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
-
-    # OpenSSL on MacOS
-    "/usr/local/etc/openssl/cert.pem",
-
-    # MacOS & Alpine Linux
-    "/etc/ssl/cert.pem"
-  ]
 
   @doc """
   Return the dynamically discovered certificate file locations.
@@ -505,8 +509,6 @@ defmodule Localize.Utils.Http do
   defp raise_if_no_cacertfile!(file) do
     file
   end
-
-  @ca_trust_key {__MODULE__, :ca_trust_option}
 
   @doc """
   Resolve the trust source to hand to `:ssl` for peer verification.

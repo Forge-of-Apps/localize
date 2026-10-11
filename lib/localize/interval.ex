@@ -47,6 +47,55 @@ defmodule Localize.Interval do
   # the "at" pattern by default.
   @interval_style :default
 
+  # Units from largest to smallest. AM/PM sits above the hour: two times on
+  # either side of noon differ in it first. The era sits above the year, as
+  # CLDR's items give `G` a pattern beside `y`'s: it changes with the year
+  # in most calendars but mid-year in the Japanese one, whose years count
+  # from each era.
+  @unit_order [:era, :year, :month, :day, :am_pm, :hour, :minute, :second]
+
+  # The pattern symbols that display each unit. A 12-hour hour displays the
+  # day period too. A week is smaller than a year and is held by no field of
+  # its own, so it ranks with the day, the smallest unit of a date.
+  @unit_symbols [
+    era: ~w(G),
+    year: ~w(y Y u U r),
+    month: ~w(M L Q q),
+    day: ~w(d D F g E e c w W),
+    am_pm: ~w(a b B h K),
+    hour: ~w(h H K k j J C),
+    minute: ~w(m),
+    second: ~w(s S A)
+  ]
+
+  # Each date field a pattern writes, at the width that tells its every
+  # value apart: a number for a month, a quarter or a weekday, whose narrow
+  # names are shared ("J" is January, June and July), and an era's full
+  # name. A year's place in the sixty-year cycle, which `y` and `U` write in
+  # a calendar of cyclic years, is shared by years sixty apart, so a year
+  # is compared by its number through every cycle as well, `u`.
+  @comparison_fields %{
+    "G" => "GGGG",
+    "y" => ~w(y u),
+    "Y" => "Y",
+    "u" => "u",
+    "U" => ~w(U u),
+    "r" => "r",
+    "Q" => "Q",
+    "q" => "Q",
+    "M" => "M",
+    "L" => "M",
+    "w" => "w",
+    "W" => "W",
+    "d" => "d",
+    "D" => "D",
+    "F" => "F",
+    "g" => "g",
+    "E" => "e",
+    "e" => "e",
+    "c" => "e"
+  }
+
   @doc """
   Formats an interval between two dates, times or datetimes as a localized string.
 
@@ -1255,55 +1304,6 @@ defmodule Localize.Interval do
   end
 
   # ── The difference an interval displays ────────────────────
-
-  # Units from largest to smallest. AM/PM sits above the hour: two times on
-  # either side of noon differ in it first. The era sits above the year, as
-  # CLDR's items give `G` a pattern beside `y`'s: it changes with the year
-  # in most calendars but mid-year in the Japanese one, whose years count
-  # from each era.
-  @unit_order [:era, :year, :month, :day, :am_pm, :hour, :minute, :second]
-
-  # The pattern symbols that display each unit. A 12-hour hour displays the
-  # day period too. A week is smaller than a year and is held by no field of
-  # its own, so it ranks with the day, the smallest unit of a date.
-  @unit_symbols [
-    era: ~w(G),
-    year: ~w(y Y u U r),
-    month: ~w(M L Q q),
-    day: ~w(d D F g E e c w W),
-    am_pm: ~w(a b B h K),
-    hour: ~w(h H K k j J C),
-    minute: ~w(m),
-    second: ~w(s S A)
-  ]
-
-  # Each date field a pattern writes, at the width that tells its every
-  # value apart: a number for a month, a quarter or a weekday, whose narrow
-  # names are shared ("J" is January, June and July), and an era's full
-  # name. A year's place in the sixty-year cycle, which `y` and `U` write in
-  # a calendar of cyclic years, is shared by years sixty apart, so a year
-  # is compared by its number through every cycle as well, `u`.
-  @comparison_fields %{
-    "G" => "GGGG",
-    "y" => ~w(y u),
-    "Y" => "Y",
-    "u" => "u",
-    "U" => ~w(U u),
-    "r" => "r",
-    "Q" => "Q",
-    "q" => "Q",
-    "M" => "M",
-    "L" => "M",
-    "w" => "w",
-    "W" => "W",
-    "d" => "d",
-    "D" => "D",
-    "F" => "F",
-    "g" => "g",
-    "E" => "e",
-    "e" => "e",
-    "c" => "e"
-  }
 
   defp calendar_difference(from, to) do
     Enum.find(@unit_order, &differs?(from, to, &1))

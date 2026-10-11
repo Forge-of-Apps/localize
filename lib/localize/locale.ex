@@ -118,6 +118,8 @@ defmodule Localize.Locale do
   @spec display_name!(LanguageTag.t() | String.t() | atom(), Keyword.t()) :: String.t()
   defdelegate display_name!(locale, options \\ []), to: Localize.Locale.LocaleDisplay
 
+  @coverage_levels [:basic, :moderate, :modern]
+
   # ── Locale inheritance ────────────────────────────────────────
 
   @doc """
@@ -1262,7 +1264,6 @@ defmodule Localize.Locale do
       [:"en-AU"]
 
   """
-  @coverage_levels [:basic, :moderate, :modern]
 
   @spec expand_locale_list([atom() | String.t()], atom() | String.t()) ::
           [atom()] | {:error, Exception.t()}

@@ -38,6 +38,8 @@ defmodule Localize.Time do
     {:full, :h23} => :Hmsv
   }
 
+  @same_cycle_hour %{"K" => "h", "h" => "K", "H" => "k", "k" => "H"}
+
   # @time_field_names Enum.map(@time_fields_ordered, &elem(&1, 0))
 
   defguardp is_full_time(time)
@@ -456,8 +458,6 @@ defmodule Localize.Time do
   defp preferred_symbol_for_cycle(:h12), do: "h"
   defp preferred_symbol_for_cycle(:h23), do: "H"
   defp preferred_symbol_for_cycle(:h24), do: "k"
-
-  @same_cycle_hour %{"K" => "h", "h" => "K", "H" => "k", "k" => "H"}
 
   @doc false
   # TR35 part 1 gives each `-u-hc-` hour cycle its pattern symbol: h11 is K,

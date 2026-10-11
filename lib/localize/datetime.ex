@@ -50,6 +50,8 @@ defmodule Localize.DateTime do
     :std_offset
   ]
 
+  @weekday_symbols ~w(E c e)
+
   @doc """
   Formats a datetime according to a CLDR format pattern.
 
@@ -773,8 +775,6 @@ defmodule Localize.DateTime do
       _unresolvable -> :none
     end
   end
-
-  @weekday_symbols ~w(E c e)
 
   # TR35 §Missing Skeleton Fields, step 3, in the order CLDR-19066 settled:
   # a time half that is only a zone glues through `Date-Timezone` first, and

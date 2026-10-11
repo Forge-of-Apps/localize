@@ -47,6 +47,14 @@ defmodule Localize.Nif do
   # than probed by calling one.
   @loaded_key {__MODULE__, :loaded?}
 
+  @min_int64 -0x8000000000000000
+
+  @max_int64 0x7FFFFFFFFFFFFFFF
+
+  @variable_pattern ~r/\$([a-zA-Z_][a-zA-Z0-9_]*)/
+
+  @local_declaration_pattern ~r/\.(?:local|input)\s+\$([a-zA-Z_][a-zA-Z0-9_]*)/
+
   @doc false
   def init do
     path =
@@ -214,9 +222,6 @@ defmodule Localize.Nif do
     end
   end
 
-  @min_int64 -0x8000000000000000
-  @max_int64 0x7FFFFFFFFFFFFFFF
-
   defp mf2_argument?({name, value}), do: mf2_name?(name) and mf2_value?(value)
 
   defp mf2_name?(name) when is_binary(name), do: String.valid?(name)
@@ -225,9 +230,6 @@ defmodule Localize.Nif do
   defp mf2_value?(value) when is_binary(value), do: String.valid?(value)
   defp mf2_value?(value) when is_integer(value), do: value >= @min_int64 and value <= @max_int64
   defp mf2_value?(value), do: is_float(value)
-
-  @variable_pattern ~r/\$([a-zA-Z_][a-zA-Z0-9_]*)/
-  @local_declaration_pattern ~r/\.(?:local|input)\s+\$([a-zA-Z_][a-zA-Z0-9_]*)/
 
   @dialyzer {:nowarn_function, unbound_variables: 2}
   defp unbound_variables(message, args) do

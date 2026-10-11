@@ -15,6 +15,15 @@ defmodule Localize.Unit.Conversion do
 
   alias Localize.Unit.{BaseUnit, Parser}
 
+  # Built-in special conversions compiled from CLDR data. These are
+  # always available without requiring CustomRegistry registration.
+  @built_in_special %{
+    "beaufort" => {
+      {Localize.Unit.Conversion.Beaufort, :forward},
+      {Localize.Unit.Conversion.Beaufort, :inverse}
+    }
+  }
+
   @doc """
   Checks whether two units are convertible (same dimensional base unit).
 
@@ -320,15 +329,6 @@ defmodule Localize.Unit.Conversion do
   defp apply_power_to_factor(factor, {:pow, n}), do: :math.pow(factor, n)
 
   # ── Special (nonlinear) conversion detection ─────────────────────
-
-  # Built-in special conversions compiled from CLDR data. These are
-  # always available without requiring CustomRegistry registration.
-  @built_in_special %{
-    "beaufort" => {
-      {Localize.Unit.Conversion.Beaufort, :forward},
-      {Localize.Unit.Conversion.Beaufort, :inverse}
-    }
-  }
 
   # Detect if a parsed AST represents a unit with a registered special
   # conversion (forward/inverse functions). Only simple units without

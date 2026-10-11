@@ -11,6 +11,10 @@ defmodule Localize.Data.Supplemental do
 
   alias Localize.Utils.Map, as: LMap
 
+  @replacement "replacement"
+
+  @language_population_key "language_population"
+
   # ── Simple generators ───────────────────────────────────────────
 
   @doc """
@@ -544,7 +548,6 @@ defmodule Localize.Data.Supplemental do
 
   defp split_alternates(other), do: other
 
-  @replacement "replacement"
   defp simplify_replacements({k, %{} = v}) do
     if Map.get(v, @replacement) do
       {k, Map.get(v, @replacement)}
@@ -658,7 +661,6 @@ defmodule Localize.Data.Supplemental do
     |> LMap.rename_keys("_tender", "tender")
   end
 
-  @language_population_key "language_population"
   defp normalize_language_codes({k, v}) do
     if language_population = Map.get(v, @language_population_key) do
       language_population =

@@ -2,6 +2,9 @@ defmodule Localize.Test.PreferenceData do
   @moduledoc false
 
   @preference_test_data "test/support/data/preference_test_data.txt"
+
+  @fields [:quantity, :usage, :region, :input_rational, :input_double, :input_unit, :output]
+
   @external_resource @preference_test_data
 
   def preferences do
@@ -13,8 +16,6 @@ defmodule Localize.Test.PreferenceData do
     |> Enum.map(&parse_test/1)
     |> Enum.reject(&is_nil/1)
   end
-
-  @fields [:quantity, :usage, :region, :input_rational, :input_double, :input_unit, :output]
 
   defp parse_test({"", _}), do: nil
   defp parse_test({<<"#", _rest::binary>>, _}), do: nil

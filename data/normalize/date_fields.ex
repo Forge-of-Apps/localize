@@ -4,6 +4,18 @@ defmodule Localize.Data.Normalize.DateFields do
   alias Localize.Data.Normalize.Helpers
   alias Localize.Utils.Map, as: LMap
 
+  @base_content_type "standard"
+
+  @relative_ordinal %{
+    "relative_type__2" => -2,
+    "relative_type__1" => -1,
+    "relative_type_0" => 0,
+    "relative_type_1" => 1,
+    "relative_type_2" => 2
+  }
+
+  @relative_keys Map.keys(@relative_ordinal)
+
   def normalize(content, _locale) do
     updated_content = normalize_date_fields(content)
     Map.put(content, "date_fields", updated_content)
@@ -33,8 +45,6 @@ defmodule Localize.Data.Normalize.DateFields do
 
   defp group_day_period(other), do: other
 
-  @base_content_type "standard"
-
   defp fold_default_content(content) do
     Enum.reduce(base_keys(content), content, fn key, acc ->
       base_content =
@@ -59,16 +69,6 @@ defmodule Localize.Data.Normalize.DateFields do
       |> Map.delete(key)
     end)
   end
-
-  @relative_ordinal %{
-    "relative_type__2" => -2,
-    "relative_type__1" => -1,
-    "relative_type_0" => 0,
-    "relative_type_1" => 1,
-    "relative_type_2" => 2
-  }
-
-  @relative_keys Map.keys(@relative_ordinal)
 
   defp normalize_ordinals(content) do
     relative_ordinals =

@@ -75,6 +75,14 @@ defmodule Localize.DateTime.Format.AppendItems do
     date_timezone: :zone
   }
 
+  # The Chinese and Dangi calendars, which TR35 excepts from the calendars
+  # that inherit their date formats (`format_calendars/2`).
+  @own_date_formats_alone [:chinese, :dangi]
+
+  # CLDR's field order, which its reference pattern generator builds a
+  # fallback in.
+  @canonical_order ~w(G y Y u U r Q q M L w W E e c d D F g a b B h H K k m s S A z Z O v V X x)
+
   @doc false
   @spec symbol_to_field(String.t()) :: atom() | nil
   def symbol_to_field(symbol), do: Map.get(@symbol_to_field, symbol)
@@ -118,10 +126,6 @@ defmodule Localize.DateTime.Format.AppendItems do
         from_fields(skeleton, locale_id, calendar_type)
     end
   end
-
-  # The Chinese and Dangi calendars, which TR35 excepts from the calendars
-  # that inherit their date formats (`format_calendars/2`).
-  @own_date_formats_alone [:chinese, :dangi]
 
   @doc false
   # The CLDR calendars whose formats a skeleton is matched against, the
@@ -170,10 +174,6 @@ defmodule Localize.DateTime.Format.AppendItems do
     available_pattern(skeleton, locale_id, calendar_type, options) ||
       matched_pattern_for(skeleton, locale_id, calendar_type, options)
   end
-
-  # CLDR's field order, which its reference pattern generator builds a
-  # fallback in.
-  @canonical_order ~w(G y Y u U r Q q M L w W E e c d D F g a b B h H K k m s S A z Z O v V X x)
 
   # The last resort, where no available format carries any of the requested
   # fields: `en` has no format for an era alone, so `:G` has nothing to

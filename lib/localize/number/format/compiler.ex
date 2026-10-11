@@ -26,6 +26,46 @@ defmodule Localize.Number.Format.Compiler do
 
   @rounding_pattern "[" <> @digit_omit_zeroes <> @significant_digit <> @grouping_separator <> "]"
 
+  @integer_digits "(?<integer>[@#0-9,]+)"
+
+  @fraction_digits "([.](?<fraction>[#0-9,]+))?"
+
+  @exponent "([Ee](?<exponent_sign>[+-])?(?<exponent_digits>[0-9]+))?"
+
+  @format_regex @integer_digits <> @fraction_digits <> @exponent
+
+  @digits_match "(?<digits>" <> @digits <> "+)"
+
+  @hashes_match "(?<hashes>[" <> @digit_omit_zeroes <> "]+)"
+
+  @min_significant_digits "(?<ats>" <> @significant_digit <> "+)"
+
+  @max_significant_digits "(?<hashes>" <> @digit_omit_zeroes <> "*)?"
+
+  @leading_digits "([" <> @digit_omit_zeroes <> @grouping_separator <> "]*)?"
+
+  @significant_digits_match @leading_digits <> @min_significant_digits <> @max_significant_digits
+
+  # ── Compiled regexes ────────────────────────────────────────
+  #
+  # These patterns are composed from module attributes, so they cannot
+  # be written as `~r//` sigil literals, and on OTP 29 a compiled regex
+  # cannot be stored as a module-attribute constant either. The
+  # interpolating sigil `~r/#{@attr}/` recompiles the pattern on every
+  # call, which dominated `format_to_metadata/1` (Regex.compile is
+  # ~1-2us each, and `analyse/2` runs eight of them). They are instead
+  # compiled once into `:persistent_term` — at supervisor start via
+  # `precompile_regexes/0`, while the term table is still small — and
+  # read on every use. A direct caller that skips application start
+  # falls back to a one-time lazy compile.
+  @regex_sources %{
+    format: @format_regex,
+    digits: @digits_match,
+    hashes: @hashes_match,
+    significant: @significant_digits_match,
+    rounding: @rounding_pattern
+  }
+
   # ── Placeholder symbols ──────────────────────────────────────
 
   @doc false
@@ -284,10 +324,6 @@ defmodule Localize.Number.Format.Compiler do
       "567"
 
   """
-  @integer_digits "(?<integer>[@#0-9,]+)"
-  @fraction_digits "([.](?<fraction>[#0-9,]+))?"
-  @exponent "([Ee](?<exponent_sign>[+-])?(?<exponent_digits>[0-9]+))?"
-  @format_regex @integer_digits <> @fraction_digits <> @exponent
 
   @spec number_match_regex() :: Regex.t()
   def number_match_regex do
@@ -338,8 +374,6 @@ defmodule Localize.Number.Format.Compiler do
   end
 
   # ── Integer digit extraction ────────────────────────────────
-
-  @digits_match "(?<digits>" <> @digits <> "+)"
 
   defp required_integer_digits(%{"compact_integer" => integer_format}) do
     if captures = Regex.named_captures(digits_re(), integer_format) do
@@ -413,8 +447,6 @@ defmodule Localize.Number.Format.Compiler do
   end
 
   defp required_fraction_digits(_), do: @min_fraction_digits
-
-  @hashes_match "(?<hashes>[" <> @digit_omit_zeroes <> "]+)"
 
   defp optional_fraction_digits(%{"compact_fraction" => ""}), do: 0
 
@@ -509,11 +541,6 @@ defmodule Localize.Number.Format.Compiler do
   end
 
   # ── Significant digits ─────────────────────────────────────
-
-  @min_significant_digits "(?<ats>" <> @significant_digit <> "+)"
-  @max_significant_digits "(?<hashes>" <> @digit_omit_zeroes <> "*)?"
-  @leading_digits "([" <> @digit_omit_zeroes <> @grouping_separator <> "]*)?"
-  @significant_digits_match @leading_digits <> @min_significant_digits <> @max_significant_digits
 
   defp significant_digits(%{
          "compact_integer" => integer_format,
@@ -661,26 +688,6 @@ defmodule Localize.Number.Format.Compiler do
       meta
     end
   end
-
-  # ── Compiled regexes ────────────────────────────────────────
-  #
-  # These patterns are composed from module attributes, so they cannot
-  # be written as `~r//` sigil literals, and on OTP 29 a compiled regex
-  # cannot be stored as a module-attribute constant either. The
-  # interpolating sigil `~r/#{@attr}/` recompiles the pattern on every
-  # call, which dominated `format_to_metadata/1` (Regex.compile is
-  # ~1-2us each, and `analyse/2` runs eight of them). They are instead
-  # compiled once into `:persistent_term` — at supervisor start via
-  # `precompile_regexes/0`, while the term table is still small — and
-  # read on every use. A direct caller that skips application start
-  # falls back to a one-time lazy compile.
-  @regex_sources %{
-    format: @format_regex,
-    digits: @digits_match,
-    hashes: @hashes_match,
-    significant: @significant_digits_match,
-    rounding: @rounding_pattern
-  }
 
   @doc false
   @spec precompile_regexes() :: :ok

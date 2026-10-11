@@ -37,6 +37,21 @@ defmodule Localize.Data.Locale do
     "posix"
   ]
 
+  @alt_keys [
+    "default",
+    "menu",
+    "short",
+    "long",
+    "variant",
+    "standard",
+    "medium",
+    "core",
+    "extension",
+    "alt"
+  ]
+
+  @lenient_parse_keys ["date", "general", "number"]
+
   @doc """
   Generates a consolidated locale data map for the given locale.
 
@@ -196,21 +211,6 @@ defmodule Localize.Data.Locale do
   # The Cldr.Locale.Loader applies additional transformations when
   # loading consolidated JSON. We replicate those here so the
   # generated data matches what get_locale returns.
-
-  @alt_keys [
-    "default",
-    "menu",
-    "short",
-    "long",
-    "variant",
-    "standard",
-    "medium",
-    "core",
-    "extension",
-    "alt"
-  ]
-
-  @lenient_parse_keys ["date", "general", "number"]
 
   # Stores each calendar's format tables with their keys already tokenized for
   # skeleton matching. Matching a skeleton needs those tokens, and deriving

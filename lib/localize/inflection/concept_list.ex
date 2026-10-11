@@ -37,11 +37,6 @@ defmodule Localize.Inflection.ConceptList do
     avoid_affix_redundancy: true
   ]
 
-  @type t :: %__MODULE__{}
-
-  defguardp is_locale(locale)
-            when is_atom(locale) or is_binary(locale) or is_struct(locale, Localize.LanguageTag)
-
   # Language-specific list behavior, applied over the CLDR-derived
   # base wiring. `custom:` selects a Conjunction module (dynamic
   # before-last); keyword entries overwrite separators with static
@@ -74,6 +69,11 @@ defmodule Localize.Inflection.ConceptList do
       or: [before_last: "或", item_delimiter: "、"]
     }
   }
+
+  @type t :: %__MODULE__{}
+
+  defguardp is_locale(locale)
+            when is_atom(locale) or is_binary(locale) or is_struct(locale, Localize.LanguageTag)
 
   @doc """
   Builds an and-list of concepts.

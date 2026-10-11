@@ -88,27 +88,6 @@ defmodule Localize.Calendar do
   # ISO day numbers for the -u-fw- (first day of week) extension values.
   @first_day_from_fw %{mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7}
 
-  @doc """
-  Returns the list of known CLDR calendar types.
-
-  ### Returns
-
-  * A list of calendar type atoms.
-
-  ### Examples
-
-      iex> calendars = Localize.Calendar.known_calendars()
-      iex> :gregorian in calendars and :buddhist in calendars and :hebrew in calendars
-      true
-
-  """
-  @spec known_calendars() :: [atom(), ...]
-  def known_calendars do
-    @acceptable_calendars
-  end
-
-  # ── Display names ─────────────────────────────────────────────
-
   @display_name_types [
     :calendar,
     :era,
@@ -133,6 +112,61 @@ defmodule Localize.Calendar do
     :second,
     :zone
   ]
+
+  # The related Gregorian year in which the first sixty-year cycle began, as
+  # ICU counts the cycles of the Chinese and Dangi calendars: 2637 BC.
+  @first_cyclic_year -2636
+
+  # The callbacks Localize puts to a calendar other than `Calendar.ISO`, which
+  # every calendar implementing the Calendrical behaviour answers: the
+  # behaviour's own, and every callback of the `Calendar` behaviour it
+  # extends, which Localize reaches directly and through `Date.convert/2`,
+  # `Date.shift/2` and their kin.
+  @answers [
+             cldr_calendar_type: 0,
+             era_calendar_type: 0,
+             parsing_calendar: 0,
+             month_of_year: 3,
+             cardinal_month: 1,
+             calendar_year: 3,
+             extended_year: 3,
+             related_gregorian_year: 3,
+             cyclic_year: 3,
+             week_of_year: 3,
+             week_of_month: 3,
+             week: 2,
+             quarter: 2,
+             year: 1,
+             plus: 6,
+             diff: 3
+           ] ++
+             (Calendar.behaviour_info(:callbacks) -- Calendar.behaviour_info(:optional_callbacks))
+
+  # CLDR's leap-year name of a month (`7_yeartype_leap`, the Hebrew "Adar II")
+  # is keyed by an atom. The keys are built here from the closed set of month
+  # numbers, so no atom is made at runtime.
+  @leap_year_name_keys Map.new(1..13, &{&1, :"#{&1}_yeartype_leap"})
+
+  @doc """
+  Returns the list of known CLDR calendar types.
+
+  ### Returns
+
+  * A list of calendar type atoms.
+
+  ### Examples
+
+      iex> calendars = Localize.Calendar.known_calendars()
+      iex> :gregorian in calendars and :buddhist in calendars and :hebrew in calendars
+      true
+
+  """
+  @spec known_calendars() :: [atom(), ...]
+  def known_calendars do
+    @acceptable_calendars
+  end
+
+  # ── Display names ─────────────────────────────────────────────
 
   @doc """
   Returns a localized display name for a calendar-related item.
@@ -1390,10 +1424,6 @@ defmodule Localize.Calendar do
   @spec displayed_year(term()) :: {:ok, Calendar.year()} | {:error, [atom()] | Exception.t()}
   def displayed_year(date), do: settle(date, &displayed_year_on/2)
 
-  # The related Gregorian year in which the first sixty-year cycle began, as
-  # ICU counts the cycles of the Chinese and Dangi calendars: 2637 BC.
-  @first_cyclic_year -2636
-
   @doc false
   # The place of a date's year in the sixty-year cycle, where `y` writes that
   # place. TR35's `U` names "the year value" and is written as `y` writes it
@@ -1646,31 +1676,6 @@ defmodule Localize.Calendar do
   @spec answering(module()) :: module()
   def answering(Calendar.ISO), do: Localize.Calendar.ISO
   def answering(calendar), do: calendar
-
-  # The callbacks Localize puts to a calendar other than `Calendar.ISO`, which
-  # every calendar implementing the Calendrical behaviour answers: the
-  # behaviour's own, and every callback of the `Calendar` behaviour it
-  # extends, which Localize reaches directly and through `Date.convert/2`,
-  # `Date.shift/2` and their kin.
-  @answers [
-             cldr_calendar_type: 0,
-             era_calendar_type: 0,
-             parsing_calendar: 0,
-             month_of_year: 3,
-             cardinal_month: 1,
-             calendar_year: 3,
-             extended_year: 3,
-             related_gregorian_year: 3,
-             cyclic_year: 3,
-             week_of_year: 3,
-             week_of_month: 3,
-             week: 2,
-             quarter: 2,
-             year: 1,
-             plus: 6,
-             diff: 3
-           ] ++
-             (Calendar.behaviour_info(:callbacks) -- Calendar.behaviour_info(:optional_callbacks))
 
   @doc false
   # The CLDR calendar whose data names a calendar's months and days.
@@ -2483,11 +2488,6 @@ defmodule Localize.Calendar do
       end
     end
   end
-
-  # CLDR's leap-year name of a month (`7_yeartype_leap`, the Hebrew "Adar II")
-  # is keyed by an atom. The keys are built here from the closed set of month
-  # numbers, so no atom is made at runtime.
-  @leap_year_name_keys Map.new(1..13, &{&1, :"#{&1}_yeartype_leap"})
 
   defp month_name({month, :leap}, options), do: leap_month_name(month, options)
   defp month_name(month, options), do: display_name(:month, month, options)

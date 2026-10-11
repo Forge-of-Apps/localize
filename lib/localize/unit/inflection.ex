@@ -30,6 +30,30 @@ defmodule Localize.Unit.Inflection do
 
   @modes [false, :safe, :always]
 
+  @genders %{
+    "masculine" => :masculine,
+    "feminine" => :feminine,
+    "neuter" => :neuter,
+    "common" => :common,
+    "inanimate" => :inanimate,
+    "animate" => :animate,
+    "personal" => :personal
+  }
+
+  # In a unit pattern the noun always follows a numeral, so its
+  # number and case come from the language's numeral-government
+  # rules — exactly what the quantify factories encode (Slavic
+  # paucals, the Arabic counted-noun case map, Finnish partitive).
+  # The noun is rendered through quantify with a sentinel number
+  # and the sentinel stripped, keeping the pattern's own number
+  # placement and spacing. Turkic and Ugric languages have no
+  # quantify factory upstream (the base factory would pluralize)
+  # but require the singular after numerals, so they inflect
+  # directly.
+  @sentinel "\uE000"
+
+  @singular_after_numeral ~w(az hu kk tr)
+
   @doc """
   Attempts to synthesize a unit pattern for a grammatical case the
   CLDR data does not provide.
@@ -126,16 +150,6 @@ defmodule Localize.Unit.Inflection do
       {:ok, [position, leading <> inflected <> trailing]}
     end
   end
-
-  @genders %{
-    "masculine" => :masculine,
-    "feminine" => :feminine,
-    "neuter" => :neuter,
-    "common" => :common,
-    "inanimate" => :inanimate,
-    "animate" => :animate,
-    "personal" => :personal
-  }
 
   @doc """
   Resolves the grammatical gender of a simple unit.
@@ -256,19 +270,6 @@ defmodule Localize.Unit.Inflection do
   end
 
   defp single_word?(text), do: not String.contains?(text, [" ", "\u00A0"])
-
-  # In a unit pattern the noun always follows a numeral, so its
-  # number and case come from the language's numeral-government
-  # rules — exactly what the quantify factories encode (Slavic
-  # paucals, the Arabic counted-noun case map, Finnish partitive).
-  # The noun is rendered through quantify with a sentinel number
-  # and the sentinel stripped, keeping the pattern's own number
-  # placement and spacing. Turkic and Ugric languages have no
-  # quantify factory upstream (the base factory would pluralize)
-  # but require the singular after numerals, so they inflect
-  # directly.
-  @sentinel "\uE000"
-  @singular_after_numeral ~w(az hu kk tr)
 
   defp inflect_text(text, locale, grammatical_case, plural, mode) do
     internal = InflectionLocale.normalize(locale)

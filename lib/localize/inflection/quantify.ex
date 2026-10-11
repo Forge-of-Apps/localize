@@ -68,6 +68,8 @@ defmodule Localize.Inflection.Quantify do
   # sets for the supported languages.
   @single_category_locales ~w(id ja ko ms th vi yue zh zh_HK)
 
+  @categories [:zero, :one, :two, :few, :many, :other]
+
   @doc """
   Quantifies a concept with a pre-formatted number.
 
@@ -220,8 +222,6 @@ defmodule Localize.Inflection.Quantify do
     language = locale |> Locale.normalize() |> String.split("_") |> hd()
     Numeral.formatted(language, locale, number, concept)
   end
-
-  @categories [:zero, :one, :two, :few, :many, :other]
 
   # The category comes from the :plural option, or from Localize's
   # own plural rules when a numeric value was given.

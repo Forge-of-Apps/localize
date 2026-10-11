@@ -8,6 +8,14 @@ defmodule Localize.Data.R2 do
 
   @key_pattern ~r/^[A-Za-z0-9._\/-]+$/
 
+  # R2, like S3, answers some requests with a transient error and asks for
+  # them to be tried again ("500 InternalError … Please try again"), and a
+  # connection can drop mid-request. Those are retried with exponential
+  # backoff and jitter, each attempt signed afresh; anything else is final.
+  @attempts 6
+
+  @retryable_statuses [429, 500, 502, 503, 504]
+
   @doc """
   Returns the R2 connection read from the environment.
 
@@ -187,13 +195,6 @@ defmodule Localize.Data.R2 do
       nil -> {:error, "HEAD #{key}: no ETag"}
     end
   end
-
-  # R2, like S3, answers some requests with a transient error and asks for
-  # them to be tried again ("500 InternalError … Please try again"), and a
-  # connection can drop mid-request. Those are retried with exponential
-  # backoff and jitter, each attempt signed afresh; anything else is final.
-  @attempts 6
-  @retryable_statuses [429, 500, 502, 503, 504]
 
   defp retrying(request, attempt \\ 1) do
     result = request.()

@@ -1,4 +1,6 @@
 defmodule Localize.Validity do
+  @omit_status [:deprecated, :reserved, :special, :unknown, :private_use]
+
   @moduledoc false
 
   @doc """
@@ -103,8 +105,6 @@ defmodule Localize.Validity do
   # Returns a list of known data that omits
   # valid (per the spec) but shouldn't be used
   # in general practise
-
-  @omit_status [:deprecated, :reserved, :special, :unknown, :private_use]
 
   @doc false
   def known(type) do

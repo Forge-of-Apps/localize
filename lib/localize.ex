@@ -99,6 +99,12 @@ defmodule Localize do
   @version_key {:localize, :version}
   @cldr_repo_ref_key {:localize, :cldr_repo_ref}
 
+  @calendar_aliases %{
+    "gregory" => :gregorian,
+    "ethioaa" => :ethiopic_amete_alem,
+    "islamicc" => :islamic_civil
+  }
+
   # Lazily-built string→atom maps cached in `:persistent_term` so
   # that validating a caller-supplied string never interns a new atom
   # and never scans linearly over the known-values list at runtime.
@@ -139,12 +145,6 @@ defmodule Localize do
         value
     end
   end
-
-  @calendar_aliases %{
-    "gregory" => :gregorian,
-    "ethioaa" => :ethiopic_amete_alem,
-    "islamicc" => :islamic_civil
-  }
 
   @doc """
   Returns the CLDR version this build of Localize targets.

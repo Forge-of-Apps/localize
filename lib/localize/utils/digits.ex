@@ -41,6 +41,8 @@ defmodule Localize.Utils.Digits do
   @float_bias 1022
   @min_e -1074
 
+  @log_0_approx -60
+
   @doc """
   Returns the fractional part of an integer, float or Decimal as an integer.
 
@@ -665,8 +667,6 @@ defmodule Localize.Utils.Digits do
       end
     end
   end
-
-  @log_0_approx -60
 
   @doc false
   def scale(r, s, m_plus, m_minus, low_ok, high_ok, float) do

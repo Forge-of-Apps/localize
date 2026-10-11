@@ -57,6 +57,42 @@ defmodule Localize.DateTime.Parser do
 
   @standard_formats [:short, :medium, :long, :full]
 
+  # The fields of a semantic skeleton that are a date's; its time and its
+  # zone are the time's.
+  @semantic_date_fields [:year, :month, :day, :weekday]
+
+  @date_letters ~w(G y Y u U r Q q M L l w W d D F g E e c)
+
+  @time_letters ~w(a b B h H K k j J C m s S A z Z O v V X x)
+
+  # A format that is none is an error whatever the text, and is reported
+  # for the first split that meets it rather than taken for text the half
+  # does not read.
+  @format_errors [
+    Localize.DateTimeFormatError,
+    Localize.DateTimeUnresolvedFormatError,
+    Localize.DateTimeInvalidInputError
+  ]
+
+  # Universal fallback glues — accepted in every locale on top
+  # of the CLDR-defined ones. Real-world inputs frequently use
+  # these even where CLDR specifies a more elaborate separator:
+  #
+  #   * `" "` — bare space. Default for most locales (e.g. `ja`
+  #     uses bare space) but `en` CLDR ships `, ` as the
+  #     standard; accept bare space anyway so inputs like
+  #     `"01/01/2018 14:44"` parse under `en`.
+  #
+  #   * `" - "` — common in admin UIs and exported reports.
+  #
+  #   * `" @ "` — common in human-written notes (`"23-05-2019 @ 10:01"`).
+  #
+  # Listed in descending byte-length so longer separators are
+  # tried first; that prevents the bare-space fallback from
+  # eating a hyphen-glued input before the `" - "` candidate
+  # gets to try.
+  @fallback_glue_separators [" - ", " @ ", " "]
+
   @doc """
   Parses a locale-formatted string as a date, time, datetime, or date
   range — whichever matches.
@@ -318,10 +354,6 @@ defmodule Localize.DateTime.Parser do
     end
   end
 
-  # The fields of a semantic skeleton that are a date's; its time and its
-  # zone are the time's.
-  @semantic_date_fields [:year, :month, :day, :weekday]
-
   defp format_halves(nil, _locale), do: {:ok, {nil, nil, nil}}
 
   defp format_halves(format, _locale) when format in @standard_formats,
@@ -374,9 +406,6 @@ defmodule Localize.DateTime.Parser do
 
   defp semantic_half(_semantic, []), do: nil
   defp semantic_half(semantic, fields), do: %{semantic | fields: fields}
-
-  @date_letters ~w(G y Y u U r Q q M L l w W d D F g E e c)
-  @time_letters ~w(a b B h H K k j J C m s S A z Z O v V X x)
 
   # A pattern of a date and time writes its date fields in one run and its
   # time fields in another, with literal text between them: "d/M/y HH:mm",
@@ -783,15 +812,6 @@ defmodule Localize.DateTime.Parser do
 
   defp time_calendar(_format, calendar_module), do: calendar_module
 
-  # A format that is none is an error whatever the text, and is reported
-  # for the first split that meets it rather than taken for text the half
-  # does not read.
-  @format_errors [
-    Localize.DateTimeFormatError,
-    Localize.DateTimeUnresolvedFormatError,
-    Localize.DateTimeInvalidInputError
-  ]
-
   defp half_error({:error, %error{}} = result) when error in @format_errors, do: result
   defp half_error(_unread), do: nil
 
@@ -1023,25 +1043,6 @@ defmodule Localize.DateTime.Parser do
   end
 
   # ── Locale glue split ───────────────────────────────────────
-
-  # Universal fallback glues — accepted in every locale on top
-  # of the CLDR-defined ones. Real-world inputs frequently use
-  # these even where CLDR specifies a more elaborate separator:
-  #
-  #   * `" "` — bare space. Default for most locales (e.g. `ja`
-  #     uses bare space) but `en` CLDR ships `, ` as the
-  #     standard; accept bare space anyway so inputs like
-  #     `"01/01/2018 14:44"` parse under `en`.
-  #
-  #   * `" - "` — common in admin UIs and exported reports.
-  #
-  #   * `" @ "` — common in human-written notes (`"23-05-2019 @ 10:01"`).
-  #
-  # Listed in descending byte-length so longer separators are
-  # tried first; that prevents the bare-space fallback from
-  # eating a hyphen-glued input before the `" - "` candidate
-  # gets to try.
-  @fallback_glue_separators [" - ", " @ ", " "]
 
   # A CLDR date-time glue pattern joins `{1}`, the date, and `{0}`, the
   # time, usually date first (`{1}, {0}`) but time first in some locales

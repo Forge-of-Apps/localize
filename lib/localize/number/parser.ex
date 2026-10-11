@@ -53,6 +53,25 @@ defmodule Localize.Number.Parser do
   # {primary, secondary} for a locale whose pattern carries no grouping.
   @default_grouping_sizes {3, 3}
 
+  # Maximum byte length accepted by `parse/2`. A 1 KB cap fits even
+  # very long localised group/decimal-separated representations of a
+  # value with hundreds of digits. Override with
+  # `config :localize, :max_number_bytes, n`.
+  @default_max_number_bytes 1_024
+
+  # Maximum absolute value of a parsed Decimal exponent. CLDR-shipped
+  # number formats never produce exponents this large; capping here
+  # prevents downstream operations (multiplication, formatting) from
+  # materialising mantissa-sized work for an attacker-controlled
+  # `"1e9999999999"`. Override with
+  # `config :localize, :max_decimal_exponent, n`.
+  @default_max_decimal_exponent 100
+
+  # A match distance below this is a good fit (`match_distance/2`): the
+  # same language in another territory is 3 to 5, a related language 12
+  # and an unrelated one 84.
+  @good_fit_distance 10
+
   @doc """
   Scans a string in a locale-aware manner and returns a list
   of strings and numbers.
@@ -264,24 +283,10 @@ defmodule Localize.Number.Parser do
     end
   end
 
-  # Maximum byte length accepted by `parse/2`. A 1 KB cap fits even
-  # very long localised group/decimal-separated representations of a
-  # value with hundreds of digits. Override with
-  # `config :localize, :max_number_bytes, n`.
-  @default_max_number_bytes 1_024
-
   @doc false
   def max_number_bytes do
     Application.get_env(:localize, :max_number_bytes, @default_max_number_bytes)
   end
-
-  # Maximum absolute value of a parsed Decimal exponent. CLDR-shipped
-  # number formats never produce exponents this large; capping here
-  # prevents downstream operations (multiplication, formatting) from
-  # materialising mantissa-sized work for an attacker-controlled
-  # `"1e9999999999"`. Override with
-  # `config :localize, :max_decimal_exponent, n`.
-  @default_max_decimal_exponent 100
 
   @doc false
   def max_decimal_exponent do
@@ -505,11 +510,6 @@ defmodule Localize.Number.Parser do
         {:cont, {:ok, acc ++ [other]}}
     end)
   end
-
-  # A match distance below this is a good fit (`match_distance/2`): the
-  # same language in another territory is 3 to 5, a related language 12
-  # and an unrelated one 84.
-  @good_fit_distance 10
 
   defp closest_currency(codes, language_tag) do
     scored =
