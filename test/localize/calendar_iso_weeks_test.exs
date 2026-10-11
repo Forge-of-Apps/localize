@@ -60,8 +60,8 @@ defmodule Localize.CalendarISOWeeksTest do
     # 4 January 1998; with weeks from Sunday it runs from 4 to 10 January,
     # and the first three days of 1998 are in week 53 of 1997.
     test "follows TR35's worked example" do
-      assert ISO.week(1998, 1, {1, 4}) == Date.range(~D[1997-12-29], ~D[1998-01-04])
-      assert ISO.week(1998, 1, {7, 4}) == Date.range(~D[1998-01-04], ~D[1998-01-10])
+      assert iso(ISO.week(1998, 1, {1, 4})) == Date.range(~D[1997-12-29], ~D[1998-01-04])
+      assert iso(ISO.week(1998, 1, {7, 4})) == Date.range(~D[1998-01-04], ~D[1998-01-10])
 
       for day <- 1..3 do
         assert ISO.week_of_year(1998, 1, day, {7, 4}) == {1997, 53}
@@ -116,7 +116,7 @@ defmodule Localize.CalendarISOWeeksTest do
           case ISO.week(year, week, week_data) do
             %Date.Range{} = days ->
               assert Date.day_of_week(days.first) == first_day
-              assert Enum.to_list(days) == Map.fetch!(named, {year, week})
+              assert Enum.to_list(iso(days)) == Map.fetch!(named, {year, week})
 
             {:error, :invalid_date} ->
               refute Map.has_key?(named, {year, week})
@@ -128,12 +128,12 @@ defmodule Localize.CalendarISOWeeksTest do
     # ISO 8601 gives 2026, which begins on a Thursday, 53 weeks and 2025
     # 52; with weeks from Sunday holding one day, 2022 has 53 and 2026 52.
     test "has the weeks its year has" do
-      assert ISO.week(2026, 53) == Date.range(~D[2026-12-28], ~D[2027-01-03])
-      assert ISO.week(2025, 53) == {:error, :invalid_date}
-      assert ISO.week(2022, 53, {7, 1}) == Date.range(~D[2022-12-25], ~D[2022-12-31])
-      assert ISO.week(2026, 53, {7, 1}) == {:error, :invalid_date}
-      assert ISO.week(2026, 0) == {:error, :invalid_date}
-      assert ISO.week(2026, 54) == {:error, :invalid_date}
+      assert iso(ISO.week(2026, 53)) == Date.range(~D[2026-12-28], ~D[2027-01-03])
+      assert iso(ISO.week(2025, 53)) == {:error, :invalid_date}
+      assert iso(ISO.week(2022, 53, {7, 1})) == Date.range(~D[2022-12-25], ~D[2022-12-31])
+      assert iso(ISO.week(2026, 53, {7, 1})) == {:error, :invalid_date}
+      assert iso(ISO.week(2026, 0)) == {:error, :invalid_date}
+      assert iso(ISO.week(2026, 54)) == {:error, :invalid_date}
     end
   end
 
@@ -153,11 +153,11 @@ defmodule Localize.CalendarISOWeeksTest do
         assert ISO.weeks_in_month(year, month) == length(thursdays)
 
         for {thursday, week} <- Enum.with_index(thursdays, 1) do
-          assert ISO.month_week(year, month, week) ==
+          assert iso(ISO.month_week(year, month, week)) ==
                    Date.range(Date.add(thursday, -3), Date.add(thursday, 3))
         end
 
-        assert ISO.month_week(year, month, length(thursdays) + 1) == {:error, :invalid_date}
+        assert iso(ISO.month_week(year, month, length(thursdays) + 1)) == {:error, :invalid_date}
       end
     end
 
@@ -173,9 +173,9 @@ defmodule Localize.CalendarISOWeeksTest do
       assert ISO.weeks_in_month(2026, 13) == {:error, :invalid_date}
       assert ISO.weeks_in_month(2026, 0) == {:error, :invalid_date}
       assert ISO.weeks_in_month(nil, 1) == {:error, :invalid_date}
-      assert ISO.month_week(2026, 13, 1) == {:error, :invalid_date}
-      assert ISO.month_week(2026, 5, 0) == {:error, :invalid_date}
-      assert ISO.month_week(2026, "5", 1) == {:error, :invalid_date}
+      assert iso(ISO.month_week(2026, 13, 1)) == {:error, :invalid_date}
+      assert iso(ISO.month_week(2026, 5, 0)) == {:error, :invalid_date}
+      assert iso(ISO.month_week(2026, "5", 1)) == {:error, :invalid_date}
     end
   end
 
@@ -197,8 +197,8 @@ defmodule Localize.CalendarISOWeeksTest do
       end
 
       for {year, week} <- [{nil, 1}, {2026, nil}, {2026, "1"}, {2026, -1}] do
-        assert ISO.week(year, week) == {:error, :invalid_date}
-        assert ISO.week(year, week, {7, 1}) == {:error, :invalid_date}
+        assert iso(ISO.week(year, week)) == {:error, :invalid_date}
+        assert iso(ISO.week(year, week, {7, 1})) == {:error, :invalid_date}
       end
     end
   end
@@ -213,14 +213,14 @@ defmodule Localize.CalendarISOWeeksTest do
       assert ISO.week_of_year(9999, 12, 31, {7, 1}) == {10_000, 1}
       assert ISO.week_of_month(9999, 12, 31, {7, 1}) == {1, 1}
 
-      assert ISO.week(10_000, 1, {7, 1}) ==
+      assert iso(ISO.week(10_000, 1, {7, 1})) ==
                Date.range(~D[9999-12-26], Date.new!(10_000, 1, 1))
 
       assert Date.day_of_week(~D[-9999-01-01]) == 1
       assert ISO.week_of_year(-9999, 1, 1) == {-9999, 1}
-      assert ISO.week(-9999, 1) == Date.range(~D[-9999-01-01], ~D[-9999-01-07])
+      assert iso(ISO.week(-9999, 1)) == Date.range(~D[-9999-01-01], ~D[-9999-01-07])
 
-      assert ISO.week(-9999, 1, {7, 1}) ==
+      assert iso(ISO.week(-9999, 1, {7, 1})) ==
                Date.range(Date.new!(-10_000, 12, 31), ~D[-9999-01-06])
     end
   end
@@ -231,4 +231,12 @@ defmodule Localize.CalendarISOWeeksTest do
     first = Date.add(date, -Integer.mod(Date.day_of_week(date) - first_day, 7))
     Date.add(first, 7 - min_days)
   end
+
+  # The module answers with dates of itself, each the `Calendar.ISO` date of
+  # the same year, month and day; the expected values are Elixir's, so its
+  # dates are read here as the `Calendar.ISO` dates they are.
+  defp iso(%Date{} = date), do: %{date | calendar: Calendar.ISO}
+  defp iso(%Date.Range{first: first, last: last}), do: Date.range(iso(first), iso(last))
+  defp iso(dates) when is_list(dates), do: Enum.map(dates, &iso/1)
+  defp iso(answer), do: answer
 end

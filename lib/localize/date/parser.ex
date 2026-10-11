@@ -2706,8 +2706,9 @@ defmodule Localize.Date.Parser do
          {year, ""} <- Integer.parse(y),
          {day_of_year, ""} <- Integer.parse(d),
          %Date.Range{} = days <- Localize.Calendar.ISO.year(year),
-         true <- day_of_year in 1..Enum.count(days)//1 do
-      {:ok, Date.add(days.first, day_of_year - 1)}
+         true <- day_of_year in 1..Enum.count(days)//1,
+         {:ok, date} <- days.first |> Date.add(day_of_year - 1) |> Date.convert(Calendar.ISO) do
+      {:ok, date}
     else
       _ -> :error
     end
@@ -2724,8 +2725,9 @@ defmodule Localize.Date.Parser do
          {week, ""} <- Integer.parse(w),
          {day, ""} <- Integer.parse(d),
          true <- day in 1..7,
-         %Date.Range{first: monday} <- Localize.Calendar.ISO.week(year, week) do
-      {:ok, Date.add(monday, day - 1)}
+         %Date.Range{first: monday} <- Localize.Calendar.ISO.week(year, week),
+         {:ok, date} <- monday |> Date.add(day - 1) |> Date.convert(Calendar.ISO) do
+      {:ok, date}
     else
       _ -> :error
     end

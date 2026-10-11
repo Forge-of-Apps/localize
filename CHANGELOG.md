@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+* The module that answers the Calendrical behaviour for `Calendar.ISO` is a full calendar a value may name as its own: it declares the `Calendar` behaviour, answers with dates of itself, and reads a date written for it as one of its own. A date, a time or an interval held in it is read, written and its weeks numbered exactly as the `Calendar.ISO` value of the same fields is.
+
 * The formatter's day of the month (`d`) is the day the calendar names, through an optional `cardinal_day/3` of the date's calendar, so a calendar whose months are counted from the year's first day — Calendrical's Julian year-start variants — writes 25 March 1750 from its month 1 day 1. A calendar without it writes the day field, as before.
 
 * A date written that way reads back, through an optional `date_from_julian_date/3` of the calendar, which takes the calendar's own year with the month and day that name it and answers the date they named: "March 25, 1750" reads as month 1 day 1 again, for a single date, a date read as a map and each end of an interval.

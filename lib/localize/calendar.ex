@@ -1688,9 +1688,18 @@ defmodule Localize.Calendar do
   # week. The answer is a calendar that must answer Localize in turn.
   @spec parsing_calendar(module()) :: {:ok, module()} | {:error, Exception.t()}
   def parsing_calendar(calendar) do
-    parsing = answering(calendar).parsing_calendar()
+    parsing = parsed_in(calendar, answering(calendar).parsing_calendar())
 
     with :ok <- validate_calendar(%{calendar: parsing}), do: {:ok, parsing}
+  end
+
+  # A calendar and the module that answers for it are one calendar under
+  # two names (`answering/1`). Where the answer names the other of the two,
+  # the calendar's dates are read in itself: `Localize.Calendar.ISO` reads a
+  # written date as a date of its own, so a date written for `Calendar.ISO`,
+  # which it answers for, is read as a `Calendar.ISO` date.
+  defp parsed_in(calendar, parsing) do
+    if answering(parsing) == answering(calendar), do: calendar, else: parsing
   end
 
   @doc false
@@ -2265,12 +2274,16 @@ defmodule Localize.Calendar do
   # locale's week data: the first day of the week and the fewest days of a
   # year, or a month, that its week 1 holds (`Localize.DateTime.Week.config/1`).
   # The questions below take that data and put it, with the question, to
-  # `Calendar.ISO` alone (user, 2026-10-02).
+  # `Calendar.ISO` alone (user, 2026-10-02): to the module that answers for
+  # it, whether a date names `Calendar.ISO` or that module as its calendar.
   @typedoc false
   @type week_data :: {1..7, 1..7}
 
-  defp week_question(Calendar.ISO, arguments, week_data), do: arguments ++ [week_data]
-  defp week_question(_calendar, arguments, _week_data), do: arguments
+  defp week_question(calendar, arguments, week_data) do
+    if answering(calendar) == Localize.Calendar.ISO,
+      do: arguments ++ [week_data],
+      else: arguments
+  end
 
   @doc false
   # The week-based year a date's week belongs to and its week of that year,

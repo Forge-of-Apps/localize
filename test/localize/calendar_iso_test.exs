@@ -109,7 +109,7 @@ defmodule Localize.CalendarISOTest do
       assert ISO.calendar_base() == :month
       assert ISO.cldr_calendar_type() == :gregorian
       assert ISO.era_calendar_type() == :gregorian
-      assert ISO.parsing_calendar() == Calendar.ISO
+      assert ISO.parsing_calendar() == ISO
     end
 
     test "its twelve months are their own numbering, and no year has a leap month" do
@@ -135,22 +135,25 @@ defmodule Localize.CalendarISOTest do
       for year <- @years do
         for month <- 1..12 do
           first = Date.new!(year, month, 1)
-          assert ISO.named_month(year, month) == [Date.range(first, Date.end_of_month(first))]
+
+          assert iso(ISO.named_month(year, month)) == [
+                   Date.range(first, Date.end_of_month(first))
+                 ]
         end
 
-        assert ISO.named_month(year, 13) == []
-        assert ISO.named_month(year, 0) == []
+        assert iso(ISO.named_month(year, 13)) == []
+        assert iso(ISO.named_month(year, 0)) == []
 
         last = if Calendar.ISO.leap_year?(year), do: 366, else: 365
-        assert ISO.date_from_day_of_year(year, 1) == Date.new!(year, 1, 1)
-        assert ISO.date_from_day_of_year(year, 60) == Date.add(Date.new!(year, 1, 1), 59)
-        assert ISO.date_from_day_of_year(year, last) == Date.new!(year, 12, 31)
-        assert ISO.date_from_day_of_year(year, last + 1) == {:error, :invalid_date}
-        assert ISO.date_from_day_of_year(year, 0) == {:error, :invalid_date}
+        assert iso(ISO.date_from_day_of_year(year, 1)) == Date.new!(year, 1, 1)
+        assert iso(ISO.date_from_day_of_year(year, 60)) == Date.add(Date.new!(year, 1, 1), 59)
+        assert iso(ISO.date_from_day_of_year(year, last)) == Date.new!(year, 12, 31)
+        assert iso(ISO.date_from_day_of_year(year, last + 1)) == {:error, :invalid_date}
+        assert iso(ISO.date_from_day_of_year(year, 0)) == {:error, :invalid_date}
       end
 
-      assert ISO.date_from_day_of_year(nil, 1) == {:error, :invalid_date}
-      assert ISO.date_from_day_of_year(2026, "1") == {:error, :invalid_date}
+      assert iso(ISO.date_from_day_of_year(nil, 1)) == {:error, :invalid_date}
+      assert iso(ISO.date_from_day_of_year(2026, "1")) == {:error, :invalid_date}
     end
 
     test "a solar term is not answered, since Localize has no astronomy" do
@@ -199,14 +202,14 @@ defmodule Localize.CalendarISOTest do
   describe "the periods of a year" do
     test "a year is its days from 1 January to 31 December" do
       for year <- @years do
-        assert ISO.year(year) == Date.range(Date.new!(year, 1, 1), Date.new!(year, 12, 31))
+        assert iso(ISO.year(year)) == Date.range(Date.new!(year, 1, 1), Date.new!(year, 12, 31))
       end
     end
 
     test "a month is its days from the first to the last" do
       for year <- @years, month <- 1..12 do
         first = Date.new!(year, month, 1)
-        assert ISO.month(year, month) == Date.range(first, Date.end_of_month(first))
+        assert iso(ISO.month(year, month)) == Date.range(first, Date.end_of_month(first))
       end
     end
 
@@ -236,12 +239,12 @@ defmodule Localize.CalendarISOTest do
     end
 
     test "a period the year does not have is an error" do
-      assert ISO.month(2026, 0) == {:error, :invalid_date}
-      assert ISO.month(2026, 13) == {:error, :invalid_date}
-      assert ISO.quarter(2026, 0) == {:error, :invalid_date}
-      assert ISO.quarter(2026, 5) == {:error, :invalid_date}
-      assert ISO.quadrimester(2026, 4) == {:error, :invalid_date}
-      assert ISO.semester(2026, 3) == {:error, :invalid_date}
+      assert iso(ISO.month(2026, 0)) == {:error, :invalid_date}
+      assert iso(ISO.month(2026, 13)) == {:error, :invalid_date}
+      assert iso(ISO.quarter(2026, 0)) == {:error, :invalid_date}
+      assert iso(ISO.quarter(2026, 5)) == {:error, :invalid_date}
+      assert iso(ISO.quadrimester(2026, 4)) == {:error, :invalid_date}
+      assert iso(ISO.semester(2026, 3)) == {:error, :invalid_date}
     end
   end
 
@@ -299,12 +302,12 @@ defmodule Localize.CalendarISOTest do
 
         assert ISO.iso_week_of_year(year, month, day) == ISO.week_of_year(year, month, day)
         assert ISO.extended_year(year, month, day) == year
-        assert ISO.dates_in_gregorian_year(year, month, day) == [date]
+        assert iso(ISO.dates_in_gregorian_year(year, month, day)) == [date]
       end
 
       assert ISO.iso_week_of_year(2027, 1, 1) == :calendar.iso_week_number({2027, 1, 1})
-      assert ISO.dates_in_gregorian_year(2025, 2, 29) == []
-      assert ISO.dates_in_gregorian_year(2024, 2, 29) == [~D[2024-02-29]]
+      assert iso(ISO.dates_in_gregorian_year(2025, 2, 29)) == []
+      assert iso(ISO.dates_in_gregorian_year(2024, 2, 29)) == [~D[2024-02-29]]
     end
   end
 
@@ -408,18 +411,18 @@ defmodule Localize.CalendarISOTest do
 
   describe "values that are no date, year or period" do
     test "are errors, never raises" do
-      assert ISO.year(nil) == {:error, :invalid_date}
-      assert ISO.year("2026") == {:error, :invalid_date}
-      assert ISO.month(nil, 1) == {:error, :invalid_date}
-      assert ISO.month(2026, nil) == {:error, :invalid_date}
-      assert ISO.quarter(nil, 1) == {:error, :invalid_date}
-      assert ISO.semester("2026", 1) == {:error, :invalid_date}
-      assert ISO.quadrimester(2026, :first) == {:error, :invalid_date}
+      assert iso(ISO.year(nil)) == {:error, :invalid_date}
+      assert iso(ISO.year("2026")) == {:error, :invalid_date}
+      assert iso(ISO.month(nil, 1)) == {:error, :invalid_date}
+      assert iso(ISO.month(2026, nil)) == {:error, :invalid_date}
+      assert iso(ISO.quarter(nil, 1)) == {:error, :invalid_date}
+      assert iso(ISO.semester("2026", 1)) == {:error, :invalid_date}
+      assert iso(ISO.quadrimester(2026, :first)) == {:error, :invalid_date}
       assert ISO.days_in_year(nil) == {:error, :invalid_date}
       assert ISO.periods_in_year(nil) == {:error, :invalid_date}
       assert ISO.weeks_in_year("2026") == {:error, :invalid_date}
       assert ISO.days_in_month(nil) == {:error, :undefined}
-      assert ISO.dates_in_gregorian_year(nil, 1, 1) == []
+      assert iso(ISO.dates_in_gregorian_year(nil, 1, 1)) == []
       assert ISO.iso_week_of_year(2026, 2, 30) == {:error, :invalid_date}
 
       assert ISO.plus(nil, 1, 1, :months, 1, []) == {:error, :invalid_date}
@@ -435,4 +438,12 @@ defmodule Localize.CalendarISOTest do
       assert ISO.diff(:today, {2026, 3, 1}, :months) == {:error, :invalid_date}
     end
   end
+
+  # The module answers with dates of itself, each the `Calendar.ISO` date of
+  # the same year, month and day; the expected values are Elixir's, so its
+  # dates are read here as the `Calendar.ISO` dates they are.
+  defp iso(%Date{} = date), do: %{date | calendar: Calendar.ISO}
+  defp iso(%Date.Range{first: first, last: last}), do: Date.range(iso(first), iso(last))
+  defp iso(dates) when is_list(dates), do: Enum.map(dates, &iso/1)
+  defp iso(answer), do: answer
 end

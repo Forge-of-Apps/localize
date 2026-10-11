@@ -1,23 +1,42 @@
 defmodule Localize.Calendar.ISO do
   @moduledoc false
 
-  # A calendar answers what a format needs to know about its dates through
-  # callbacks on its own module. `Calendar.ISO` has none of the Calendrical
-  # behaviour's callbacks and Calendrical may not be present, so Localize
-  # answers them for it here and nowhere else, as the proleptic Gregorian
-  # calendar: `Localize.Calendar.answering/1` names this module for
-  # `Calendar.ISO`, and every other calendar answers for itself (user,
-  # 2026-10-02: "All Calendrical behaviour callbacks must be implemented for
-  # Calendar.ISO and done so in a specific, isolated, callback module"). Every
-  # callback of the Calendrical behaviour is answered, as Calendrical's own
-  # `Calendrical.ISO` answers it, which a Calendrical test holds this module
-  # to. Every callback of the `Calendar` behaviour is passed to `Calendar.ISO`,
-  # so every question Localize puts to a calendar goes to the one module.
+  # The ISO 8601 calendar as a full calendar module: the proleptic Gregorian
+  # calendar of Elixir's `Calendar.ISO`, with ISO 8601's weeks.
+  #
+  # `Calendar.ISO` keeps Elixir's `Calendar` behaviour alone. A calendar
+  # answers what a format needs to know about its dates through the
+  # callbacks of the Calendrical behaviour too, which `Calendar.ISO` has
+  # none of, and Calendrical may not be present. This module is the one
+  # calendar that keeps both:
+  #
+  # * Every callback of the `Calendar` behaviour is passed to `Calendar.ISO`.
+  #
+  # * Every callback of the Calendrical behaviour is implemented here, as
+  #   Calendrical's own `Calendrical.ISO` answers it, which a Calendrical
+  #   test holds this module to. Localize does not depend on Calendrical, so
+  #   that behaviour is kept and not declared.
+  #
+  # It is a calendar in its own right: a date it answers with is a date of
+  # this module, as every calendar's answers are dates of itself, and a
+  # date written for it is read as a date of it (`parsing_calendar/0`). A
+  # value may name it as its calendar, and it is then the `Calendar.ISO`
+  # value of the same fields under another module's name: `Date.convert/2`
+  # takes one to the other, and Localize reads, writes and numbers the
+  # weeks of both alike.
+  #
+  # Localize puts every question about a `Calendar.ISO` date to this module
+  # and to no other (`Localize.Calendar.answering/1`; user, 2026-10-02: "All
+  # Calendrical behaviour callbacks must be implemented for Calendar.ISO and
+  # done so in a specific, isolated, callback module").
+
+  @behaviour Calendar
 
   for {name, arity} <- Calendar.behaviour_info(:callbacks) do
     arguments = Macro.generate_arguments(arity, __MODULE__)
 
     @doc false
+    @impl Calendar
     def unquote(name)(unquote_splicing(arguments)),
       do: Calendar.ISO.unquote(name)(unquote_splicing(arguments))
   end
@@ -38,9 +57,10 @@ defmodule Localize.Calendar.ISO do
   @spec era_calendar_type() :: :gregorian
   def era_calendar_type, do: :gregorian
 
+  # A date written for this calendar is read as a date of it.
   @doc false
-  @spec parsing_calendar() :: Calendar.ISO
-  def parsing_calendar, do: Calendar.ISO
+  @spec parsing_calendar() :: __MODULE__
+  def parsing_calendar, do: __MODULE__
 
   @doc false
   @spec month_of_year(Calendar.year(), Calendar.month(), Calendar.day()) :: Calendar.month()
@@ -133,7 +153,7 @@ defmodule Localize.Calendar.ISO do
           Date.t() | {:error, :invalid_date}
   def date_from_day_of_year(year, day_of_year)
       when is_integer(year) and is_integer(day_of_year) and day_of_year >= 1 do
-    with {:ok, first} <- Date.new(year, 1, 1),
+    with {:ok, first} <- Date.new(year, 1, 1, __MODULE__),
          true <- day_of_year <= days_in_year(year) do
       Date.add(first, day_of_year - 1)
     else
@@ -245,7 +265,7 @@ defmodule Localize.Calendar.ISO do
   @spec dates_in_gregorian_year(Calendar.year(), Calendar.month(), Calendar.day()) :: [Date.t()]
   def dates_in_gregorian_year(year, month, day)
       when is_integer(year) and is_integer(month) and is_integer(day) do
-    case Date.new(year, month, day) do
+    case Date.new(year, month, day, __MODULE__) do
       {:ok, date} -> [date]
       {:error, _reason} -> []
     end
@@ -506,7 +526,7 @@ defmodule Localize.Calendar.ISO do
     with {:ok, first_week, next_first_week} <- weeks_of_month(year, month),
          first = first_week + (week - 1) * 7,
          true <- first < next_first_week do
-      Date.range(Date.from_gregorian_days(first), Date.from_gregorian_days(first + 6))
+      week_from_day(first)
     else
       _not_a_week -> {:error, :invalid_date}
     end
@@ -550,7 +570,7 @@ defmodule Localize.Calendar.ISO do
          january_1 = Date.to_gregorian_days(january_1),
          first = week_one(january_1, week_data) + (week - 1) * 7,
          true <- first < week_one(january_1 + days_in_year(year), week_data) do
-      Date.range(Date.from_gregorian_days(first), Date.from_gregorian_days(first + 6))
+      week_from_day(first)
     else
       _not_a_week -> {:error, :invalid_date}
     end
@@ -576,12 +596,23 @@ defmodule Localize.Calendar.ISO do
 
   defp week_from(week_one, days), do: div(days - week_one, 7) + 1
 
+  # The seven days of the week that begins on day `first`, as dates of this
+  # calendar: each the `Calendar.ISO` date of that day under this module's
+  # name.
+  defp week_from_day(first) do
+    Date.range(
+      %{Date.from_gregorian_days(first) | calendar: __MODULE__},
+      %{Date.from_gregorian_days(first + 6) | calendar: __MODULE__}
+    )
+  end
+
   defp weekday(days), do: Integer.mod(days + 5, 7) + 1
 
-  # The days from the first of one month of a year to the last of another.
+  # The days from the first of one month of a year to the last of another,
+  # as dates of this calendar.
   defp months(year, first_month, last_month) when is_integer(year) do
-    with {:ok, first} <- Date.new(year, first_month, 1),
-         {:ok, last} <- Date.new(year, last_month, 1) do
+    with {:ok, first} <- Date.new(year, first_month, 1, __MODULE__),
+         {:ok, last} <- Date.new(year, last_month, 1, __MODULE__) do
       Date.range(first, Date.end_of_month(last))
     else
       {:error, _reason} -> {:error, :invalid_date}
