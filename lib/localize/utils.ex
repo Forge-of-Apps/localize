@@ -43,11 +43,17 @@ defmodule Localize.Utils do
     major = :erlang.system_info(:otp_release) |> List.to_string()
     vsn_file = Path.join([:code.root_dir(), "releases", major, "OTP_VERSION"])
 
-    with {:ok, contents} <- File.read(vsn_file),
-         [full] <- String.split(contents, "\n", trim: true) do
-      full
-    else
-      _no_full_version -> major
+    full_otp_version(File.read(vsn_file), major)
+  end
+
+  # The major release alone where the OTP_VERSION file is missing or names
+  # more than one version.
+  defp full_otp_version({:ok, contents}, major) do
+    case String.split(contents, "\n", trim: true) do
+      [full] -> full
+      _not_one_version -> major
     end
   end
+
+  defp full_otp_version({:error, _unreadable}, major), do: major
 end

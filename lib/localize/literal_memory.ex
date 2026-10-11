@@ -61,14 +61,21 @@ defmodule Localize.LiteralMemory do
   # bytes free.
   @spec room_for(term()) :: :ok | {:lacking, non_neg_integer(), non_neg_integer()}
   def room_for(term) do
-    with {:ok, free} <- free(),
-         {:ok, needed} <- size(term),
-         true <- needed + @margin > free do
-      {:lacking, needed, free}
-    else
-      _room_or_unknown -> :ok
+    case free_and_needed(term) do
+      {:ok, free, needed} -> lacking_or_room(needed, free)
+      :unknown -> :ok
     end
   end
+
+  defp free_and_needed(term) do
+    with {:ok, free} <- free(),
+         {:ok, needed} <- size(term) do
+      {:ok, free, needed}
+    end
+  end
+
+  defp lacking_or_room(needed, free) when needed + @margin > free, do: {:lacking, needed, free}
+  defp lacking_or_room(_needed, _free), do: :ok
 
   @doc false
   # The bytes of the literal area no carrier holds yet, as the VM reports
@@ -80,10 +87,15 @@ defmodule Localize.LiteralMemory do
       |> :erlang.system_info()
       |> reported([:literal_mmap, :supercarrier, :sizes])
 
-    with total when is_integer(total) <- reported(sizes, [:total]),
-         used when is_integer(used) <- reported(sizes, [:used]) do
+    with {:ok, total} <- reported_integer(sizes, [:total]),
+         {:ok, used} <- reported_integer(sizes, [:used]) do
       {:ok, max(total - used, 0)}
-    else
+    end
+  end
+
+  defp reported_integer(sizes, path) do
+    case reported(sizes, path) do
+      integer when is_integer(integer) -> {:ok, integer}
       _unreported -> :unknown
     end
   end

@@ -210,11 +210,10 @@ defmodule Localize.Locale.Provider.Cache do
       file_path <>
         ".tmp.#{System.pid()}.#{System.unique_integer([:positive])}"
 
-    with :ok <- File.mkdir_p(dir),
-         :ok <- File.write(temp_path, content),
-         :ok <- rename_or_cleanup(temp_path, file_path) do
-      {:ok, file_path}
-    else
+    case written_atomically(dir, temp_path, file_path, content) do
+      :ok ->
+        {:ok, file_path}
+
       {:error, reason} ->
         {:error,
          Localize.LocaleCacheWriteError.exception(
@@ -222,6 +221,13 @@ defmodule Localize.Locale.Provider.Cache do
            path: file_path,
            posix_error: reason
          )}
+    end
+  end
+
+  defp written_atomically(dir, temp_path, file_path, content) do
+    with :ok <- File.mkdir_p(dir),
+         :ok <- File.write(temp_path, content) do
+      rename_or_cleanup(temp_path, file_path)
     end
   end
 

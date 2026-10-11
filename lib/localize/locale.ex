@@ -1013,16 +1013,22 @@ defmodule Localize.Locale do
 
   @spec next_parent(atom(), [atom(), ...]) :: {:ok, atom()} | :no_parent
   defp next_parent(locale_id, visited) do
-    with {:ok, parent_tag} <- parent(to_string(locale_id)),
-         {:ok, parent_id} <- cldr_locale_id_from(parent_tag) do
-      if parent_id in visited do
-        :no_parent
-      else
-        {:ok, parent_id}
-      end
-    else
-      _ -> :no_parent
+    case parent(to_string(locale_id)) do
+      {:ok, parent_tag} -> unvisited_parent(parent_tag, visited)
+      {:error, _no_parent} -> :no_parent
     end
+  end
+
+  # A parent already walked ends the chain rather than looping it.
+  defp unvisited_parent(parent_tag, visited) do
+    case cldr_locale_id_from(parent_tag) do
+      {:ok, parent_id} -> unwalked(parent_id, visited)
+      {:error, _unnameable_parent} -> :no_parent
+    end
+  end
+
+  defp unwalked(parent_id, visited) do
+    if parent_id in visited, do: :no_parent, else: {:ok, parent_id}
   end
 
   # ── CLDR Locale ID resolution ────────────────────────────────────────

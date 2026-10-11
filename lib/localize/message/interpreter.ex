@@ -1671,16 +1671,20 @@ defmodule Localize.Message.Interpreter do
        when name in ["i:inflect", "i:pronoun"] do
     locale = Keyword.get(options, :locale, Localize.get_locale())
 
-    with {:ok, func_opts} <- resolve_func_options(func_options, bindings),
-         {:ok, projected} <- inflection_selection(name, value, func_opts, locale) do
-      Localize.Inflection.SpeakableString.print(projected)
-    else
-      _error -> ""
+    case projected_selector(name, value, func_options, bindings, locale) do
+      {:ok, projected} -> Localize.Inflection.SpeakableString.print(projected)
+      {:error, _no_projection} -> ""
     end
   end
 
   defp declaration_selector_value(value, func, _bindings, _options),
     do: selector_value(value, func)
+
+  defp projected_selector(name, value, func_options, bindings, locale) do
+    with {:ok, func_opts} <- resolve_func_options(func_options, bindings) do
+      inflection_selection(name, value, func_opts, locale)
+    end
+  end
 
   defp inflection_selection("i:inflect", value, func_opts, locale),
     do: inflect_projection(value, func_opts, locale, :select)
@@ -1689,11 +1693,15 @@ defmodule Localize.Message.Interpreter do
     do: pronoun_projection(value, func_opts, locale)
 
   defp offset_selector_value(number, func_options) do
-    with {:ok, func_opts} <- resolve_func_options(func_options, %{}),
-         {:ok, adjustment} <- offset_adjustment(func_opts) do
-      number + adjustment
-    else
-      _other -> number
+    case resolved_adjustment(func_options) do
+      {:ok, adjustment} -> number + adjustment
+      {:error, _no_adjustment} -> number
+    end
+  end
+
+  defp resolved_adjustment(func_options) do
+    with {:ok, func_opts} <- resolve_func_options(func_options, %{}) do
+      offset_adjustment(func_opts)
     end
   end
 
@@ -1774,15 +1782,19 @@ defmodule Localize.Message.Interpreter do
   # selects by its selector value.
   defp plural_operand(value, {:function, name, func_options}, bindings, options, fallback)
        when name in ["number", "integer", "offset", "percent"] do
-    with {:ok, func_opts} <- resolve_func_options(func_options, bindings),
-         {:ok, number, number_options} <- prepare_number(name, value, func_opts, options) do
-      Localize.Number.source_number(number, number_options)
-    else
-      _not_a_number -> fallback
+    case prepared_number(name, value, func_options, bindings, options) do
+      {:ok, number, number_options} -> Localize.Number.source_number(number, number_options)
+      {:error, _not_a_number} -> fallback
     end
   end
 
   defp plural_operand(_value, _func, _bindings, _options, fallback), do: fallback
+
+  defp prepared_number(name, value, func_options, bindings, options) do
+    with {:ok, func_opts} <- resolve_func_options(func_options, bindings) do
+      prepare_number(name, value, func_opts, options)
+    end
+  end
 
   defp resolve_plural_category(value, plural_type, options)
        when is_number(value) or is_struct(value, Decimal) do
@@ -1827,11 +1839,9 @@ defmodule Localize.Message.Interpreter do
 
   # A value with no string form matches no key.
   defp match_value?(value, key) do
-    with {:ok, value_string} <- to_string_value(value),
-         {:ok, key_string} <- to_string_value(key) do
-      nfc(value_string) == nfc(key_string)
-    else
-      {:error, _no_string_form} -> false
+    case {to_string_value(value), to_string_value(key)} do
+      {{:ok, value_string}, {:ok, key_string}} -> nfc(value_string) == nfc(key_string)
+      _no_string_form -> false
     end
   end
 
@@ -2944,12 +2954,18 @@ defmodule Localize.Message.Interpreter do
   end
 
   defp at_midnight(%Date{calendar: calendar} = date) do
-    with {:ok, midnight} <- Time.new(0, 0, 0, {0, 0}, calendar),
-         {:ok, datetime} <- NaiveDateTime.new(date, midnight) do
-      {:ok, datetime}
-    else
+    case midnight_datetime(date, calendar) do
+      {:ok, _datetime} = ok ->
+        ok
+
       {:error, reason} ->
         {:error, "cannot read #{inspect(date)} as a datetime: #{inspect(reason)}"}
+    end
+  end
+
+  defp midnight_datetime(date, calendar) do
+    with {:ok, midnight} <- Time.new(0, 0, 0, {0, 0}, calendar) do
+      NaiveDateTime.new(date, midnight)
     end
   end
 
@@ -3092,11 +3108,10 @@ defmodule Localize.Message.Interpreter do
   defp to_string_value(value) when is_float(value), do: {:ok, Float.to_string(value)}
 
   defp to_string_value(value) when is_list(value) do
-    with true <- chardata?(value),
-         string when is_binary(string) <- :unicode.characters_to_binary(value) do
-      {:ok, string}
+    if chardata?(value) do
+      binary_chardata(value)
     else
-      _not_chardata -> {:error, no_string_form(value)}
+      {:error, no_string_form(value)}
     end
   end
 
@@ -3104,6 +3119,15 @@ defmodule Localize.Message.Interpreter do
     case String.Chars.impl_for(value) do
       nil -> {:error, no_string_form(value)}
       impl -> {:ok, impl.to_string(value)}
+    end
+  end
+
+  # Chardata whose encoding is incomplete or invalid has no string form, so
+  # the conversion answers a tuple rather than a binary.
+  defp binary_chardata(value) do
+    case :unicode.characters_to_binary(value) do
+      string when is_binary(string) -> {:ok, string}
+      _not_encodable -> {:error, no_string_form(value)}
     end
   end
 
@@ -3170,12 +3194,22 @@ defmodule Localize.Message.Interpreter do
         false
 
       locale ->
-        with {:ok, tag} <- Localize.validate_locale(locale),
-             {:ok, expanded} <- Localize.LanguageTag.add_likely_subtags(tag) do
-          expanded.script in @rtl_scripts
-        else
-          _ -> false
-        end
+        rtl_script?(locale)
+    end
+  end
+
+  # A locale that does not validate, or whose script cannot be resolved,
+  # is not right-to-left.
+  defp rtl_script?(locale) do
+    case expanded_tag(locale) do
+      {:ok, expanded} -> expanded.script in @rtl_scripts
+      {:error, _unresolved} -> false
+    end
+  end
+
+  defp expanded_tag(locale) do
+    with {:ok, tag} <- Localize.validate_locale(locale) do
+      Localize.LanguageTag.add_likely_subtags(tag)
     end
   end
 end
