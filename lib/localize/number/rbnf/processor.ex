@@ -249,16 +249,19 @@ defmodule Localize.Number.Rbnf.Processor do
     base = get_base_value(rule)
     divisor = get_divisor(rule)
 
-    with true <- is_integer(divisor) and divisor > 0,
-         0 <- rem(number, divisor),
-         true <- rem(base, divisor) != 0,
-         true <- two_substitutions?(rule),
-         preceding when not is_nil(preceding) <-
-           Enum.find(rules, &(get_base_value(&1) < base)) do
-      preceding
+    if rolls_back?(rule, number, base, divisor) do
+      Enum.find(rules, &(get_base_value(&1) < base)) || rule
     else
-      _no_rollback -> rule
+      rule
     end
+  end
+
+  # A rule rolls back to the preceding one where its divisor divides the
+  # number but not its own base value, and where it writes both of its
+  # substitutions.
+  defp rolls_back?(rule, number, base, divisor) do
+    is_integer(divisor) and divisor > 0 and rem(number, divisor) == 0 and
+      rem(base, divisor) != 0 and two_substitutions?(rule)
   end
 
   # True when the rule has its two substitutions: a quotient, `<<` or

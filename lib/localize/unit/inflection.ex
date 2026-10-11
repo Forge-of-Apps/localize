@@ -82,15 +82,48 @@ defmodule Localize.Unit.Inflection do
     if grammatical_case == :nominative or Map.has_key?(unit_formats, grammatical_case) do
       :no_inflection
     else
-      with [position, literal] when is_integer(position) and is_binary(literal) <-
-             base_pattern(unit_formats, plural),
-           {leading, text, trailing} <- split_literal(literal),
-           :ok <- confidence_gate(mode, text, locale),
-           {:ok, inflected} <- inflect_text(text, locale, grammatical_case, plural, mode) do
-        {:ok, [position, leading <> inflected <> trailing]}
-      else
-        _other -> :no_inflection
-      end
+      inflected_pattern(unit_formats, plural, locale, grammatical_case, mode)
+    end
+  end
+
+  # `:no_inflection` for a pattern with no literal to inflect, a literal that
+  # is nothing but space, text the confidence gate refuses, and text the
+  # lexicon has no attested form for; the caller keeps CLDR's own pattern.
+  defp inflected_pattern(unit_formats, plural, locale, grammatical_case, mode) do
+    with {:ok, position, literal} <- pattern_literal(unit_formats, plural),
+         {:ok, leading, text, trailing} <- literal_parts(literal),
+         :ok <- gate(mode, text, locale) do
+      inflected_literal(position, leading, text, trailing, locale, grammatical_case, plural, mode)
+    end
+  end
+
+  defp pattern_literal(unit_formats, plural) do
+    case base_pattern(unit_formats, plural) do
+      [position, literal] when is_integer(position) and is_binary(literal) ->
+        {:ok, position, literal}
+
+      _no_literal ->
+        :no_inflection
+    end
+  end
+
+  defp literal_parts(literal) do
+    case split_literal(literal) do
+      {leading, text, trailing} -> {:ok, leading, text, trailing}
+      _nothing_to_inflect -> :no_inflection
+    end
+  end
+
+  defp gate(mode, text, locale) do
+    case confidence_gate(mode, text, locale) do
+      :ok -> :ok
+      :skip -> :no_inflection
+    end
+  end
+
+  defp inflected_literal(position, leading, text, trailing, locale, case_, plural, mode) do
+    with {:ok, inflected} <- inflect_text(text, locale, case_, plural, mode) do
+      {:ok, [position, leading <> inflected <> trailing]}
     end
   end
 
@@ -145,14 +178,37 @@ defmodule Localize.Unit.Inflection do
          keys: [:grammatical_gender, unit_name]
        )}
 
-    with [_position, literal] when is_binary(literal) <- base_pattern(unit_formats, :one),
+    case lexicon_gender(unit_formats, locale) do
+      {:ok, gender} -> {:ok, gender}
+      :none -> not_found
+    end
+  end
+
+  # The gender the lexicon gives the nominative `:one` pattern's text, where
+  # it knows the text and records one.
+  defp lexicon_gender(unit_formats, locale) do
+    with {:ok, literal} <- gender_literal(unit_formats),
          text = String.trim(literal),
-         true <- Localize.Inflection.known?(text, locale),
-         {:ok, gender} when not is_nil(gender) <-
-           Localize.Inflection.feature(text, locale, :gender) do
-      {:ok, gender}
-    else
-      _other -> not_found
+         :ok <- lexicon_knows(text, locale) do
+      recorded_gender(text, locale)
+    end
+  end
+
+  defp gender_literal(unit_formats) do
+    case pattern_literal(unit_formats, :one) do
+      {:ok, _position, literal} -> {:ok, literal}
+      :no_inflection -> :none
+    end
+  end
+
+  defp lexicon_knows(text, locale) do
+    if Localize.Inflection.known?(text, locale), do: :ok, else: :none
+  end
+
+  defp recorded_gender(text, locale) do
+    case Localize.Inflection.feature(text, locale, :gender) do
+      {:ok, gender} when not is_nil(gender) -> {:ok, gender}
+      _unrecorded -> :none
     end
   end
 

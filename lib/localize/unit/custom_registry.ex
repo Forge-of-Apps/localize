@@ -182,14 +182,7 @@ defmodule Localize.Unit.CustomRegistry do
   def register_batch(definitions) when is_map(definitions) do
     validated_map =
       Enum.reduce(definitions, %{}, fn {name, definition}, acc ->
-        with :ok <- validate_name(name),
-             :ok <- validate_definition(definition),
-             :ok <- validate_no_collision(name),
-             {:ok, normalized} <- normalize_base(definition) do
-          Map.put(acc, name, normalized)
-        else
-          {:error, _reason} -> acc
-        end
+        put_validated(acc, name, definition)
       end)
 
     current = all()
@@ -199,6 +192,23 @@ defmodule Localize.Unit.CustomRegistry do
 
   def register_batch(definitions),
     do: {:error, Localize.Utils.Helpers.invalid_value(definitions, "a map of unit definitions")}
+
+  # A definition the registry will not take is left out of the batch rather
+  # than failing the whole of it.
+  defp put_validated(acc, name, definition) do
+    case validated(name, definition) do
+      {:ok, normalized} -> Map.put(acc, name, normalized)
+      {:error, _reason} -> acc
+    end
+  end
+
+  defp validated(name, definition) do
+    with :ok <- validate_name(name),
+         :ok <- validate_definition(definition),
+         :ok <- validate_no_collision(name) do
+      normalize_base(definition)
+    end
+  end
 
   @doc """
   Loads custom unit definitions from an `.exs` file.

@@ -125,20 +125,30 @@ defmodule Localize.Number.Rbnf do
   end
 
   defp format_in(number, rule_name, locale_id, requested_id) do
+    case rule_set_in(rule_name, locale_id, requested_id) do
+      {:ok, resolved_name, rule_set, all_rule_sets} ->
+        # The digits are formatted in the requested locale; the plural forms of
+        # `$(cardinal,…)$` come from the locale whose rules were found, since
+        # they select among that locale's own words.
+        Processor.process(number, resolved_name, rule_set.rules, all_rule_sets, %{
+          locale: requested_id,
+          plural_locale: Localize.Locale.data_locale_id(locale_id)
+        })
+
+      {:error, _not_in_this_locale} ->
+        nil
+    end
+  end
+
+  # The rule set of this name in this locale, with the locale's whole set of
+  # rules, which `$(cardinal,…)$` and `%%rule` references are resolved in.
+  defp rule_set_in(rule_name, locale_id, requested_id) do
     with {:ok, rbnf_data} <- load_rbnf_data(locale_id),
          {:ok, all_rule_sets} <- extract_rule_sets(rbnf_data),
          {:ok, resolved_name} <- resolve_rule_name(rule_name, all_rule_sets, locale_id),
          :ok <- reject_und_spellout_stub(locale_id, requested_id, resolved_name),
          {:ok, rule_set} <- find_rule_set(all_rule_sets, resolved_name, locale_id) do
-      # The digits are formatted in the requested locale; the plural forms of
-      # `$(cardinal,…)$` come from the locale whose rules were found, since
-      # they select among that locale's own words.
-      Processor.process(number, resolved_name, rule_set.rules, all_rule_sets, %{
-        locale: requested_id,
-        plural_locale: Localize.Locale.data_locale_id(locale_id)
-      })
-    else
-      {:error, _not_in_this_locale} -> nil
+      {:ok, resolved_name, rule_set, all_rule_sets}
     end
   end
 
@@ -161,12 +171,29 @@ defmodule Localize.Number.Rbnf do
   end
 
   defp parent_chain(language_tag, chain) do
-    with {:ok, parent} <- Localize.Locale.parent(language_tag),
-         {:ok, parent_id} <- cldr_locale_id_from(parent) do
-      parent_chain(parent, if(parent_id in chain, do: chain, else: chain ++ [parent_id]))
-    else
-      _no_parent -> chain
+    case named_parent(language_tag) do
+      {:ok, parent, parent_id} -> parent_chain(parent, appended(chain, parent_id))
+      :none -> chain
     end
+  end
+
+  # `:none` where a locale has no parent to walk to, which only `und` has not.
+  defp named_parent(language_tag) do
+    case Localize.Locale.parent(language_tag) do
+      {:ok, parent} -> parent_with_id(parent)
+      {:error, _no_parent} -> :none
+    end
+  end
+
+  defp parent_with_id(parent) do
+    case cldr_locale_id_from(parent) do
+      {:ok, parent_id} -> {:ok, parent, parent_id}
+      {:error, _unnameable_parent} -> :none
+    end
+  end
+
+  defp appended(chain, parent_id) do
+    if parent_id in chain, do: chain, else: chain ++ [parent_id]
   end
 
   # The `und` (root) locale's spellout rule sets are digit-format

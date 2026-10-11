@@ -236,11 +236,8 @@ defmodule Localize.Unit.BaseUnit do
     do: {:error, Localize.Utils.Helpers.invalid_value(units, "a list of parsed unit components")}
 
   defp decompose_single({:single_unit, keyword} = component) when is_list(keyword) do
-    with base when is_binary(base) <- Keyword.get(keyword, :base),
-         {:ok, base_powers} <- resolve_base_unit(base) do
-      {:ok, apply_power(base_powers, Keyword.get(keyword, :power))}
-    else
-      {:error, _} = error -> error
+    case Keyword.get(keyword, :base) do
+      base when is_binary(base) -> decompose_base(base, keyword)
       _no_base -> {:error, invalid_component(component)}
     end
   end
@@ -250,6 +247,12 @@ defmodule Localize.Unit.BaseUnit do
   end
 
   defp decompose_single(component), do: {:error, invalid_component(component)}
+
+  defp decompose_base(base, keyword) do
+    with {:ok, base_powers} <- resolve_base_unit(base) do
+      {:ok, apply_power(base_powers, Keyword.get(keyword, :power))}
+    end
+  end
 
   defp invalid_component(component),
     do: Localize.Utils.Helpers.invalid_value(component, "a parsed unit component")

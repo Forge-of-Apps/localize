@@ -40,11 +40,9 @@ defmodule Localize.Unit.Conversion do
   @spec convertible?(String.t() | tuple(), String.t() | tuple()) :: boolean()
 
   def convertible?(unit_1, unit_2) do
-    with {:ok, base_1} <- BaseUnit.base_unit(unit_1),
-         {:ok, base_2} <- BaseUnit.base_unit(unit_2) do
-      base_1 == base_2
-    else
-      _ -> false
+    case {BaseUnit.base_unit(unit_1), BaseUnit.base_unit(unit_2)} do
+      {{:ok, base}, {:ok, base}} -> true
+      _no_shared_base -> false
     end
   end
 
@@ -84,23 +82,31 @@ defmodule Localize.Unit.Conversion do
   def convert(value, from, to) when is_number(value) or is_struct(value, Decimal) do
     with {:ok, parsed_from} <- Parser.parse(from),
          {:ok, parsed_to} <- Parser.parse(to),
-         true <- convertible?(parsed_from, parsed_to) do
-      case value do
-        %Decimal{} -> do_convert_decimal(value, parsed_from, parsed_to)
-        _ -> do_convert(to_float(value), parsed_from, parsed_to)
-      end
-    else
-      false ->
-        {:error,
-         Localize.UnitConversionError.exception(from: from, to: to, reason: :not_convertible)}
-
-      {:error, _} = error ->
-        error
+         :ok <- convertible(from, to, parsed_from, parsed_to) do
+      converted(value, parsed_from, parsed_to)
     end
   end
 
   def convert(value, _from, _to),
     do: {:error, Localize.Utils.Helpers.invalid_value(value, "a number or a Decimal")}
+
+  # The error names the units as they were given, not as they parsed.
+  defp convertible(from, to, parsed_from, parsed_to) do
+    if convertible?(parsed_from, parsed_to) do
+      :ok
+    else
+      {:error,
+       Localize.UnitConversionError.exception(from: from, to: to, reason: :not_convertible)}
+    end
+  end
+
+  defp converted(value, parsed_from, parsed_to) when is_struct(value, Decimal) do
+    do_convert_decimal(value, parsed_from, parsed_to)
+  end
+
+  defp converted(value, parsed_from, parsed_to) do
+    do_convert(to_float(value), parsed_from, parsed_to)
+  end
 
   @doc """
   Converts a numeric value from one unit to another, raising on error.
@@ -328,19 +334,28 @@ defmodule Localize.Unit.Conversion do
   # conversion (forward/inverse functions). Only simple units without
   # SI prefixes or power prefixes qualify — compound units cannot be special.
   defp special_unit({:unit, keyword}) do
-    with [{:single_unit, opts}] <- Keyword.get(keyword, :numerator, []),
-         [] <- Keyword.get(keyword, :denominator, []),
-         nil <- Keyword.get(opts, :prefix),
-         nil <- Keyword.get(opts, :power),
-         base when is_binary(base) <- Keyword.get(opts, :base),
-         %{factor: :special} <- Localize.Unit.Data.Overlay.conversion_factor(base) do
-      lookup_special(base)
-    else
-      _ -> nil
+    case {Keyword.get(keyword, :numerator, []), Keyword.get(keyword, :denominator, [])} do
+      {[{:single_unit, options}], []} -> special_base(options)
+      _not_one_simple_unit -> nil
     end
   end
 
   defp special_unit({:mixed_unit, _}), do: nil
+
+  defp special_base(options) do
+    case {Keyword.get(options, :prefix), Keyword.get(options, :power),
+          Keyword.get(options, :base)} do
+      {nil, nil, base} when is_binary(base) -> special_factor(base)
+      _not_a_bare_base -> nil
+    end
+  end
+
+  defp special_factor(base) do
+    case Localize.Unit.Data.Overlay.conversion_factor(base) do
+      %{factor: :special} -> lookup_special(base)
+      _no_special_factor -> nil
+    end
+  end
 
   defp lookup_special(name) do
     case Localize.Unit.CustomRegistry.get(name) do

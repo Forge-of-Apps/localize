@@ -297,16 +297,25 @@ defmodule Localize.Number.Parser do
          {:ok, symbol} <- number_symbols(language_tag, number_system, options) do
       lenient? = Keyword.get(options, :lenient, true)
 
-      with {:ok, normalized} <-
-             string
-             |> transliterate_digits(number_system)
-             |> normalize_number_string(symbol, language_tag, number_system, lenient?),
-           {:ok, _value} = success <-
-             normalized |> String.trim() |> parse_number(number_type) do
-        bound_decimal_exponent(success, string)
-      else
-        _error -> {:error, parse_error(string)}
-      end
+      read_number(string, number_type, number_system, symbol, language_tag, lenient?)
+    end
+  end
+
+  # Text that is not a number of this locale is a parse error naming the
+  # text, not whichever step of the reading first refused it.
+  defp read_number(string, number_type, number_system, symbol, language_tag, lenient?) do
+    case normalized_value(string, number_type, number_system, symbol, language_tag, lenient?) do
+      {:ok, _value} = success -> bound_decimal_exponent(success, string)
+      _unreadable -> {:error, parse_error(string)}
+    end
+  end
+
+  defp normalized_value(string, number_type, number_system, symbol, language_tag, lenient?) do
+    with {:ok, normalized} <-
+           string
+           |> transliterate_digits(number_system)
+           |> normalize_number_string(symbol, language_tag, number_system, lenient?) do
+      normalized |> String.trim() |> parse_number(number_type)
     end
   end
 
@@ -421,14 +430,21 @@ defmodule Localize.Number.Parser do
     filters = [only: only_filter, except: except_filter]
 
     with {:ok, language_tag} <- Localize.validate_locale(locale),
-         locale_id <- locale_id(language_tag),
-         {:ok, currency_strings} <- Localize.Currency.currency_strings(locale_id, filters),
+         {:ok, currency_strings} <-
+           Localize.Currency.currency_strings(locale_id(language_tag), filters),
          {:ok, currency} <-
-           find_or_resolve_currency(currency_strings, string, fuzzy, language_tag, filters) do
+           found_currency(currency_strings, string, fuzzy, language_tag, filters) do
       currency
-    else
-      # Only finding no currency means the currency is unknown. An invalid
-      # `:fuzzy` value or locale is reported as itself.
+    end
+  end
+
+  # Only finding no currency means the currency is unknown. An invalid
+  # `:fuzzy` value is reported as itself.
+  defp found_currency(currency_strings, string, fuzzy, language_tag, filters) do
+    case find_or_resolve_currency(currency_strings, string, fuzzy, language_tag, filters) do
+      {:ok, _currency} = found ->
+        found
+
       {:error, %Localize.InvalidValueError{context: "Localize.Number.Parser"}} ->
         {:error, Localize.UnknownCurrencyError.exception(currency: string)}
 
@@ -450,18 +466,30 @@ defmodule Localize.Number.Parser do
         found
 
       {:error, _not_found} = error ->
-        resolve_ambiguous(string, fuzzy, language_tag, filters) || error
+        resolved_claimants(string, fuzzy, language_tag, filters, error)
     end
   end
 
-  defp resolve_ambiguous(string, fuzzy, language_tag, filters) do
-    with {:ok, ambiguous} <-
-           Localize.Currency.ambiguous_currency_strings(locale_id(language_tag), filters),
-         {:ok, found} when is_list(found) <- find_and_replace(ambiguous, string, fuzzy),
-         {:ok, resolved} <- resolve_claimants(found, language_tag) do
-      {:ok, resolved}
-    else
-      _unresolved -> nil
+  # The error stands where the string is not one the locale's currencies
+  # share, or where its claimants cannot be told apart.
+  defp resolved_claimants(string, fuzzy, language_tag, filters, error) do
+    case Localize.Currency.ambiguous_currency_strings(locale_id(language_tag), filters) do
+      {:ok, ambiguous} -> claimants_in(ambiguous, string, fuzzy, language_tag, error)
+      {:error, _no_shared_strings} -> error
+    end
+  end
+
+  defp claimants_in(ambiguous, string, fuzzy, language_tag, error) do
+    case find_and_replace(ambiguous, string, fuzzy) do
+      {:ok, found} when is_list(found) -> nearest_claimants(found, language_tag, error)
+      _not_a_shared_string -> error
+    end
+  end
+
+  defp nearest_claimants(found, language_tag, error) do
+    case resolve_claimants(found, language_tag) do
+      {:ok, resolved} -> {:ok, resolved}
+      :error -> error
     end
   end
 
@@ -493,12 +521,19 @@ defmodule Localize.Number.Parser do
           is_number(distance) and distance < @good_fit_distance,
           do: {distance, code}
 
-    with [_ | _] <- scored,
-         nearest = scored |> Enum.map(&elem(&1, 0)) |> Enum.min(),
-         [code] <- for({^nearest, code} <- scored, uniq: true, do: code) do
-      {:ok, code}
-    else
-      _none_or_tied -> :error
+    nearest_code(scored)
+  end
+
+  # `:error` where nothing is a good fit, and where two codes are equally
+  # near: a tie names no currency.
+  defp nearest_code([]), do: :error
+
+  defp nearest_code(scored) do
+    nearest = scored |> Enum.map(&elem(&1, 0)) |> Enum.min()
+
+    case for({^nearest, code} <- scored, uniq: true, do: code) do
+      [code] -> {:ok, code}
+      _tied -> :error
     end
   end
 

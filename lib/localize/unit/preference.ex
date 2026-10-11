@@ -174,14 +174,21 @@ defmodule Localize.Unit.Preference do
     end
   end
 
+  # The base unit of a unit named as CLDR names it.
+  defp parsed_base_unit(name) do
+    with {:ok, parsed} <- Parser.parse(name) do
+      BaseUnit.base_unit(parsed)
+    end
+  end
+
   # The unit expressed in its base units — `kilocandela` is `candela`,
   # `candela-per-cubic-foot` is `candela-per-cubic-meter`.
   defp base_units(%Unit{name: name}) do
-    with {:ok, parsed} <- Parser.parse(name),
-         {:ok, base} <- BaseUnit.base_unit(parsed) do
-      {:ok, [unit_name(base)], []}
-    else
-      _no_base_unit ->
+    case parsed_base_unit(name) do
+      {:ok, base} ->
+        {:ok, [unit_name(base)], []}
+
+      {:error, _no_base_unit} ->
         {:error,
          Localize.InvalidValueError.exception(
            value: name,
@@ -307,23 +314,23 @@ defmodule Localize.Unit.Preference do
   # every quantity — `candela-per-byte` — is not an error: it simply has no
   # preferences, and the caller falls back to base units.
   defp unit_category(%Unit{name: name}) do
-    with {:ok, parsed} <- Parser.parse(name),
-         {:ok, base} <- BaseUnit.base_unit(parsed) do
-      btq = Data.base_unit_to_quantity()
-
-      # Try the original unit name first (handles compound units like
-      # cubic-meter-per-meter → consumption), then fall back to base unit
-      Map.get(btq, name) || Map.get(btq, base)
-    else
-      _unparseable -> nil
+    case parsed_base_unit(name) do
+      {:ok, base} -> quantity_of(name, base)
+      {:error, _unparseable} -> nil
     end
+  end
+
+  # The original unit name first, which handles compound units like
+  # `cubic-meter-per-meter` → `consumption`, then the base unit.
+  defp quantity_of(name, base) do
+    btq = Data.base_unit_to_quantity()
+    Map.get(btq, name) || Map.get(btq, base)
   end
 
   # ── Base unit value ─────────────────────────────────────────
 
   defp base_unit_value(%Unit{value: value, name: name}) do
-    with {:ok, parsed} <- Parser.parse(name),
-         {:ok, base} <- BaseUnit.base_unit(parsed) do
+    with {:ok, base} <- parsed_base_unit(name) do
       Conversion.convert(to_float(value), name, base)
     end
   end
@@ -382,13 +389,26 @@ defmodule Localize.Unit.Preference do
   # convertible from the input unit is ignored — `de-u-mu-celsius` asking
   # for a length still gets centimetres.
   defp measurement_unit_override(options, %Unit{} = unit) do
-    with locale when not is_nil(locale) <- Keyword.get(options, :locale),
-         {:ok, %{locale: %{mu: mu}}} when not is_nil(mu) <- Localize.validate_locale(locale),
-         true <- convertible_from?(unit, mu) do
-      {:ok, [mu], []}
-    else
-      _no_override -> nil
+    case locale_measurement_unit(Keyword.get(options, :locale)) do
+      {:ok, mu} -> convertible_override(unit, mu)
+      :none -> nil
     end
+  end
+
+  # `:none` where no locale was given, the locale does not validate, or it
+  # carries no `-u-mu`.
+  defp locale_measurement_unit(nil), do: :none
+
+  defp locale_measurement_unit(locale) do
+    case Localize.validate_locale(locale) do
+      {:ok, %{locale: %{mu: nil}}} -> :none
+      {:ok, %{locale: %{mu: mu}}} -> {:ok, mu}
+      _no_measurement_unit -> :none
+    end
+  end
+
+  defp convertible_override(unit, mu) do
+    if convertible_from?(unit, mu), do: {:ok, [mu], []}, else: nil
   end
 
   defp convertible_from?(%Unit{name: name}, target) do
@@ -481,12 +501,15 @@ defmodule Localize.Unit.Preference do
 
   @dialyzer {:nowarn_function, converted_value_gte_1?: 2}
   defp converted_value_gte_1?(base_value, unit_name) do
-    with {:ok, parsed} <- Parser.parse(unit_name),
-         {:ok, base} <- BaseUnit.base_unit(parsed),
-         {:ok, converted} <- Conversion.convert(base_value, base, unit_name) do
-      abs(converted) >= 1.0 - 1.0e-8
-    else
-      _ -> false
+    case converted_from_base(base_value, unit_name) do
+      {:ok, converted} -> abs(converted) >= 1.0 - 1.0e-8
+      {:error, _not_convertible} -> false
+    end
+  end
+
+  defp converted_from_base(base_value, unit_name) do
+    with {:ok, base} <- parsed_base_unit(unit_name) do
+      Conversion.convert(base_value, base, unit_name)
     end
   end
 

@@ -417,11 +417,9 @@ defmodule Localize.Number.Formatter.Decimal do
 
   defp parts_transliteration_map(%{number_system: system})
        when system not in [nil, :latn] do
-    with {:ok, digits} <- Localize.Number.System.number_system_digits(system),
-         {:ok, latn_digits} <- Localize.Number.System.number_system_digits(:latn) do
-      Localize.Number.System.generate_transliteration_map(latn_digits, digits)
-    else
-      _ -> nil
+    case transliteration_map(system) do
+      {:ok, map} -> map
+      {:error, _no_digits} -> nil
     end
   end
 
@@ -1199,19 +1197,26 @@ defmodule Localize.Number.Formatter.Decimal do
   end
 
   defp transliterate_string(number_string, %{number_system: number_system} = options) do
-    translated =
-      with {:ok, digits} <- Localize.Number.System.number_system_digits(number_system),
-           {:ok, latn_digits} <- Localize.Number.System.number_system_digits(:latn) do
-        map = Localize.Number.System.generate_transliteration_map(latn_digits, digits)
-        Localize.Number.Transliterate.transliterate_digits(number_string, map)
-      else
-        # `:latn` digits are bundled in the supplemental data and should
-        # always resolve, but if either side fails we leave the digits
-        # untransliterated rather than crashing the whole format pipeline.
-        _ -> number_string
-      end
+    number_string
+    |> transliterated_digits(number_system)
+    |> transliterate_separators(options)
+  end
 
-    transliterate_separators(translated, options)
+  # The `:latn` digits are bundled in the supplemental data and should always
+  # resolve, but if either side is missing the digits are left as they are
+  # rather than failing the whole format pipeline.
+  defp transliterated_digits(number_string, number_system) do
+    case transliteration_map(number_system) do
+      {:ok, map} -> Localize.Number.Transliterate.transliterate_digits(number_string, map)
+      {:error, _no_digits} -> number_string
+    end
+  end
+
+  defp transliteration_map(number_system) do
+    with {:ok, digits} <- Localize.Number.System.number_system_digits(number_system),
+         {:ok, latn_digits} <- Localize.Number.System.number_system_digits(:latn) do
+      {:ok, Localize.Number.System.generate_transliteration_map(latn_digits, digits)}
+    end
   end
 
   # Replace placeholder separators (,.) with locale-specific symbols

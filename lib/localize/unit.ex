@@ -1077,17 +1077,20 @@ defmodule Localize.Unit do
   defp validate_system_for_base(_system, _base_name), do: :ok
 
   defp humanizable_base_unit(%__MODULE__{parsed: {:unit, parts}} = unit) do
-    with [single_unit: single_unit] <- Keyword.get(parts, :numerator),
-         [] <- Keyword.get(parts, :denominator),
-         base when base in @si_humanize_bases <- Keyword.get(single_unit, :base),
-         power when power in [nil, 1] <- Keyword.get(single_unit, :power) do
-      {:ok, base}
-    else
-      _other -> not_humanizable_error(unit)
+    case {Keyword.get(parts, :numerator), Keyword.get(parts, :denominator)} do
+      {[single_unit: single_unit], []} -> humanizable_single_unit(single_unit, unit)
+      _not_one_simple_unit -> not_humanizable_error(unit)
     end
   end
 
   defp humanizable_base_unit(%__MODULE__{} = unit), do: not_humanizable_error(unit)
+
+  defp humanizable_single_unit(single_unit, unit) do
+    case {Keyword.get(single_unit, :base), Keyword.get(single_unit, :power)} do
+      {base, power} when base in @si_humanize_bases and power in [nil, 1] -> {:ok, base}
+      _not_a_bare_si_base -> not_humanizable_error(unit)
+    end
+  end
 
   defp not_humanizable_error(unit) do
     {:error,
@@ -2541,17 +2544,19 @@ defmodule Localize.Unit do
   def compatible?(unit_1, %__MODULE__{name: name_2}), do: compatible?(unit_1, name_2)
 
   def compatible?(name_1, name_2) when is_binary(name_1) and is_binary(name_2) do
-    with {:ok, parsed_1} <- Localize.Unit.Parser.parse(name_1),
-         {:ok, base_1} <- Localize.Unit.BaseUnit.base_unit(parsed_1),
-         {:ok, parsed_2} <- Localize.Unit.Parser.parse(name_2),
-         {:ok, base_2} <- Localize.Unit.BaseUnit.base_unit(parsed_2) do
-      base_1 == base_2
-    else
-      _ -> false
+    case {base_unit_of(name_1), base_unit_of(name_2)} do
+      {{:ok, base}, {:ok, base}} -> true
+      _no_shared_base -> false
     end
   end
 
   def compatible?(_unit_1, _unit_2), do: false
+
+  defp base_unit_of(name) do
+    with {:ok, parsed} <- Localize.Unit.Parser.parse(name) do
+      Localize.Unit.BaseUnit.base_unit(parsed)
+    end
+  end
 
   @doc """
   Returns the localized stand-alone display name of a unit.
