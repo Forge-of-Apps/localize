@@ -233,14 +233,62 @@ defmodule Localize.DateTime.Relative do
   # `to_string/2` joins these parts, so the two always agree. A unit the
   # locale has no data for formats as the number alone.
   defp relative_parts(relative, unit, format, locale, numeric) do
-    with {:ok, date_fields} <- Localize.Locale.get(locale, [:date_fields]),
-         %{} = unit_data <- get_in(date_fields, [unit, format]) do
-      case named_form(relative, unit_data, numeric) do
-        nil -> pattern_parts(relative, unit, unit_data, locale)
-        name -> [%{type: :literal, value: name}]
-      end
-    else
-      _no_data -> number_parts(relative, unit, locale)
+    case unit_format_data(locale, unit, format) do
+      {:ok, unit_data} -> named_or_pattern_parts(relative, unit, unit_data, locale, numeric)
+      {:error, _no_data} -> number_parts(relative, unit, locale)
+    end
+  end
+
+  defp named_or_pattern_parts(relative, unit, unit_data, locale, numeric) do
+    case named_form(relative, unit_data, numeric) do
+      nil -> pattern_parts(relative, unit, unit_data, locale)
+      name -> [%{type: :literal, value: name}]
+    end
+  end
+
+  # A locale may carry no relative-time data at all, and one that does may
+  # carry none for a unit in a format.
+  defp unit_format_data(locale, unit, format) do
+    with {:ok, date_fields} <- Localize.Locale.get(locale, [:date_fields]) do
+      fetch_unit_format(date_fields, unit, format)
+    end
+  end
+
+  defp fetch_unit_format(date_fields, unit, format) do
+    case get_in(date_fields, [unit, format]) do
+      %{} = unit_data -> {:ok, unit_data}
+      _absent -> {:error, :no_unit_format_data}
+    end
+  end
+
+  # The parts of the pattern the unit gives for the direction and the plural
+  # category of the number as displayed. A unit may carry no pattern for the
+  # direction, and a direction none for the category, so the caller formats
+  # the number plainly instead.
+  defp direction_pattern_parts(magnitude, unit, unit_data, direction, locale) do
+    with {:ok, patterns} <- fetch_direction(unit_data, direction),
+         {:ok, number} <- Localize.Number.to_parts(magnitude, locale: locale),
+         {:ok, pattern} <- fetch_category(patterns, magnitude, locale) do
+      {:ok, Localize.Substitution.substitute_parts([with_unit(number, unit)], pattern)}
+    end
+  end
+
+  defp fetch_direction(unit_data, direction) do
+    case unit_data[direction] do
+      %{} = patterns -> {:ok, patterns}
+      _absent -> {:error, :no_direction_pattern}
+    end
+  end
+
+  defp fetch_category(patterns, magnitude, locale) do
+    category =
+      magnitude
+      |> Localize.Number.source_number(locale: locale)
+      |> Localize.Number.PluralRule.Cardinal.plural_rule(Localize.Locale.data_locale_id(locale))
+
+    case Map.get(patterns, category) || Map.get(patterns, :other) do
+      nil -> {:error, :no_category_pattern}
+      pattern -> {:ok, pattern}
     end
   end
 
@@ -272,19 +320,9 @@ defmodule Localize.DateTime.Relative do
     direction = if relative < 0, do: :relative_past, else: :relative_future
     magnitude = abs(relative)
 
-    with %{} = patterns <- unit_data[direction],
-         {:ok, number} <- Localize.Number.to_parts(magnitude, locale: locale) do
-      category =
-        magnitude
-        |> Localize.Number.source_number(locale: locale)
-        |> Localize.Number.PluralRule.Cardinal.plural_rule(Localize.Locale.data_locale_id(locale))
-
-      case Map.get(patterns, category) || Map.get(patterns, :other) do
-        nil -> number_parts(relative, unit, locale)
-        pattern -> Localize.Substitution.substitute_parts([with_unit(number, unit)], pattern)
-      end
-    else
-      _no_pattern -> number_parts(relative, unit, locale)
+    case direction_pattern_parts(magnitude, unit, unit_data, direction, locale) do
+      {:ok, parts} -> parts
+      {:error, _no_pattern} -> number_parts(relative, unit, locale)
     end
   end
 
@@ -675,12 +713,19 @@ defmodule Localize.DateTime.Relative do
   defp reached?(%{zone: nil}, _date, _earlier), do: true
 
   defp reached?(%{zone: {time_zone, offset, database}} = later, date, earlier) do
+    case wall_clock_reached?(later, date, earlier, time_zone, offset, database) do
+      {:ok, reached?} -> reached?
+      {:error, _unresolved} -> true
+    end
+  end
+
+  # A zone the database cannot resolve, or a wall clock that is not a valid
+  # date and time, counts as reached rather than stopping the comparison.
+  defp wall_clock_reached?(later, date, earlier, time_zone, offset, database) do
     with {:ok, wall} <- NaiveDateTime.new(date, earlier.time),
          {:ok, resolved} <- WallClock.offset_at(wall, time_zone, database),
          {:ok, later_clock} <- NaiveDateTime.new(later.clock.date, later.clock.time) do
-      NaiveDateTime.compare(NaiveDateTime.add(wall, offset - resolved), later_clock) != :gt
-    else
-      _unresolved -> true
+      {:ok, NaiveDateTime.compare(NaiveDateTime.add(wall, offset - resolved), later_clock) != :gt}
     end
   end
 
