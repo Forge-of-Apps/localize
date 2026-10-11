@@ -109,16 +109,23 @@ defmodule Localize.Inflection.Quantify.Numeral do
 
   defp language_specific("it", locale, number, concept) do
     # One is the noun's indefinite article, as it is spoken.
-    with 1 <- NumberConcept.whole(number),
-         article when not is_nil(article) <- Concept.feature_value(concept, "indefArticle") do
-      {:ok, article_print(article)}
-    else
-      _other -> NumberConcept.spoken_words(number, locale, "cardinal-masculine")
-    end
+    indefinite_article(NumberConcept.whole(number), locale, number, concept)
   end
 
   defp language_specific(_language, locale, number, _concept) do
     NumberConcept.digits(number, locale)
+  end
+
+  # Only one, and only where the concept names an article, is spoken as one.
+  defp indefinite_article(1, locale, number, concept) do
+    case Concept.feature_value(concept, "indefArticle") do
+      nil -> NumberConcept.spoken_words(number, locale, "cardinal-masculine")
+      article -> {:ok, article_print(article)}
+    end
+  end
+
+  defp indefinite_article(_whole, locale, number, _concept) do
+    NumberConcept.spoken_words(number, locale, "cardinal-masculine")
   end
 
   defp gendered(rule_sets, locale, number, concept) do

@@ -378,33 +378,43 @@ defmodule Localize.Inflection.Synthesizer.De do
 
   @impl true
   def display_value(display_data, constraints, guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      result =
-        if map_size(constraints) > 0 do
-          apply_constraints(display_data, display_value, display_string, constraints, guess?)
-        else
-          {:ok, display_string}
-        end
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} ->
+        nil
 
-      case result do
-        :error ->
-          nil
+      %DisplayValue{} = display_value ->
+        inflected_display(display_data, display_value, constraints, guess?)
 
-        {:done, done_value} ->
-          done_value
+      _no_display_value ->
+        nil
+    end
+  end
 
-        {:ok, display_string} when display_string != "" ->
-          add_definiteness(
-            %DisplayValue{display_string: display_string, constraints: constraints},
-            constraints
-          )
+  defp inflected_display(display_data, display_value, constraints, guess?) do
+    display_string = display_value.display_string
 
-        _other ->
-          nil
+    result =
+      if map_size(constraints) > 0 do
+        apply_constraints(display_data, display_value, display_string, constraints, guess?)
+      else
+        {:ok, display_string}
       end
-    else
-      _other -> nil
+
+    case result do
+      :error ->
+        nil
+
+      {:done, done_value} ->
+        done_value
+
+      {:ok, display_string} when display_string != "" ->
+        add_definiteness(
+          %DisplayValue{display_string: display_string, constraints: constraints},
+          constraints
+        )
+
+      _other ->
+        nil
     end
   end
 

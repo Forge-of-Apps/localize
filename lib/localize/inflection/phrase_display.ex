@@ -25,35 +25,45 @@ defmodule Localize.Inflection.PhraseDisplay do
 
   """
   def display_value(locale, display_data, constraints, options) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      value_constraints = Map.merge(display_value.constraints, constraints)
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} ->
+        nil
 
-      wants_inflection? =
-        Enum.any?(["case", "number", "gender"], &(Map.get(constraints, &1) not in [nil, ""]))
+      %DisplayValue{} = display_value ->
+        inflected_display(locale, display_value, constraints, options)
 
-      result =
-        if wants_inflection? do
-          case Dictionary.combined_grammemes(locale, display_string) do
-            nil ->
-              {:ok, inflect_compound(locale, display_string, constraints, options)}
+      _no_display_value ->
+        nil
+    end
+  end
 
-            grammemes ->
-              inflect_word(locale, display_string, grammemes, constraints, options)
-          end
-        else
-          {:ok, display_string}
+  defp inflected_display(locale, display_value, constraints, options) do
+    display_string = display_value.display_string
+
+    value_constraints = Map.merge(display_value.constraints, constraints)
+
+    wants_inflection? =
+      Enum.any?(["case", "number", "gender"], &(Map.get(constraints, &1) not in [nil, ""]))
+
+    result =
+      if wants_inflection? do
+        case Dictionary.combined_grammemes(locale, display_string) do
+          nil ->
+            {:ok, inflect_compound(locale, display_string, constraints, options)}
+
+          grammemes ->
+            inflect_word(locale, display_string, grammemes, constraints, options)
         end
-
-      case result do
-        {:ok, inflected} ->
-          %DisplayValue{display_string: inflected, constraints: value_constraints}
-
-        :error ->
-          %DisplayValue{display_string: display_string, constraints: value_constraints}
+      else
+        {:ok, display_string}
       end
-    else
-      _other -> nil
+
+    case result do
+      {:ok, inflected} ->
+        %DisplayValue{display_string: inflected, constraints: value_constraints}
+
+      :error ->
+        %DisplayValue{display_string: display_string, constraints: value_constraints}
     end
   end
 

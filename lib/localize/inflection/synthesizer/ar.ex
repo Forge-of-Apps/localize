@@ -211,17 +211,23 @@ defmodule Localize.Inflection.Synthesizer.Ar do
   defp pronoun_suffixed_noun?(display_string) do
     definite_pos = Dictionary.binary_properties(@locale, ["noun", "adjective", "particle"]) || 0
 
-    Enum.any?(@pronoun_suffixes, fn suffix ->
-      with true <- String.ends_with?(display_string, suffix),
-           prefix =
-             binary_part(display_string, 0, byte_size(display_string) - byte_size(suffix)),
-           grammemes when is_integer(grammemes) <-
-             Dictionary.combined_grammemes(@locale, prefix) do
-        (grammemes &&& definite_pos) != 0
-      else
-        _other -> false
-      end
-    end)
+    Enum.any?(@pronoun_suffixes, &definite_stem?(display_string, &1, definite_pos))
+  end
+
+  defp definite_stem?(display_string, suffix, definite_pos) do
+    String.ends_with?(display_string, suffix) and
+      definite?(stem_before(display_string, suffix), definite_pos)
+  end
+
+  defp definite?(stem, definite_pos) do
+    case Dictionary.combined_grammemes(@locale, stem) do
+      grammemes when is_integer(grammemes) -> (grammemes &&& definite_pos) != 0
+      _not_in_the_dictionary -> false
+    end
+  end
+
+  defp stem_before(word, suffix) do
+    binary_part(word, 0, byte_size(word) - byte_size(suffix))
   end
 
   # ── Display function ─────────────────────────────────────────
@@ -361,24 +367,27 @@ defmodule Localize.Inflection.Synthesizer.Ar do
   end
 
   defp inflect_with_pronoun_suffix(word, context) do
-    split =
-      Enum.find_value(@pronoun_suffixes, fn suffix ->
-        with true <- String.ends_with?(word, suffix),
-             stem = binary_part(word, 0, byte_size(word) - byte_size(suffix)),
-             grammemes when is_integer(grammemes) <-
-               Dictionary.combined_grammemes(@locale, stem) do
-          {stem, grammemes, suffix}
-        else
-          _other -> nil
-        end
-      end)
-
-    case split do
+    case Enum.find_value(@pronoun_suffixes, &split_suffix(word, &1)) do
       nil ->
         perform_inflection(word, 0, context)
 
       {stem, grammemes, suffix} ->
         perform_inflection(stem, grammemes, context) <> suffix
+    end
+  end
+
+  # `nil` where the word does not end in the suffix, or where what precedes
+  # it is not a word the dictionary knows.
+  defp split_suffix(word, suffix) do
+    if String.ends_with?(word, suffix) do
+      known_stem(stem_before(word, suffix), suffix)
+    end
+  end
+
+  defp known_stem(stem, suffix) do
+    case Dictionary.combined_grammemes(@locale, stem) do
+      grammemes when is_integer(grammemes) -> {stem, grammemes, suffix}
+      _not_in_the_dictionary -> nil
     end
   end
 

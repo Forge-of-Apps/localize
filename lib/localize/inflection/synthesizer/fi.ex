@@ -80,18 +80,28 @@ defmodule Localize.Inflection.Synthesizer.Fi do
            disambiguation: ["noun", "adjective"]
          ) do
       "" ->
-        with exemplar when is_binary(exemplar) <- exemplar_for(word),
-             out when out != "" <-
-               Lookup.determine(@locale, exemplar, ["singular", "plural"],
-                 disambiguation: ["noun", "adjective"]
-               ) do
-          out
-        else
-          _other -> "singular"
-        end
+        exemplar_number(word)
 
       out ->
         out
+    end
+  end
+
+  # A word the dictionary does not number is numbered by its exemplar, and
+  # is singular where the exemplar names no number either.
+  defp exemplar_number(word) do
+    case exemplar_for(word) do
+      exemplar when is_binary(exemplar) -> determined_number(exemplar)
+      _no_exemplar -> "singular"
+    end
+  end
+
+  defp determined_number(exemplar) do
+    case Lookup.determine(@locale, exemplar, ["singular", "plural"],
+           disambiguation: ["noun", "adjective"]
+         ) do
+      "" -> "singular"
+      out -> out
     end
   end
 
@@ -291,16 +301,27 @@ defmodule Localize.Inflection.Synthesizer.Fi do
       Enum.find_value(3..(length - 3)//1, fn start ->
         suffix = String.slice(lemma, start, length - start)
 
-        with grammemes when is_integer(grammemes) <-
-               Dictionary.combined_grammemes(@locale, suffix),
-             true <- (grammemes &&& nouns) != 0,
-             true <- (grammemes &&& nominative) != 0,
-             true <- Dictionary.patterns_for_word(@locale, suffix) != [] do
-          {suffix, grammemes &&& bnot(outer_mask())}
-        else
-          _other -> nil
-        end
+        nominative_noun_suffix(suffix, nouns, nominative)
       end)
+    end
+  end
+
+  # `nil` unless the suffix is a nominative noun of the dictionary with
+  # inflection patterns of its own.
+  defp nominative_noun_suffix(suffix, nouns, nominative) do
+    case Dictionary.combined_grammemes(@locale, suffix) do
+      grammemes when is_integer(grammemes) ->
+        nominative_noun(suffix, grammemes, nouns, nominative)
+
+      _not_in_the_dictionary ->
+        nil
+    end
+  end
+
+  defp nominative_noun(suffix, grammemes, nouns, nominative) do
+    if (grammemes &&& nouns) != 0 and (grammemes &&& nominative) != 0 and
+         Dictionary.patterns_for_word(@locale, suffix) != [] do
+      {suffix, grammemes &&& bnot(outer_mask())}
     end
   end
 

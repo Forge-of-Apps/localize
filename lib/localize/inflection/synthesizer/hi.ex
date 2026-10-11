@@ -77,30 +77,35 @@ defmodule Localize.Inflection.Synthesizer.Hi do
 
   @impl true
   def display_value(display_data, constraints, guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      value_constraints = Map.merge(display_value.constraints, constraints)
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} -> nil
+      %DisplayValue{} = display_value -> inflected_display(display_value, constraints, guess?)
+      _no_display_value -> nil
+    end
+  end
 
-      result =
-        if map_size(constraints) == 0 do
-          {:ok, display_string}
-        else
-          inflect_string(display_string, constraints, guess?)
-        end
+  defp inflected_display(display_value, constraints, guess?) do
+    display_string = display_value.display_string
 
-      case result do
-        {:ok, inflected} ->
-          %DisplayValue{display_string: inflected, constraints: value_constraints}
+    value_constraints = Map.merge(display_value.constraints, constraints)
 
-        :error ->
-          if guess? do
-            %DisplayValue{display_string: display_string, constraints: value_constraints}
-          else
-            nil
-          end
+    result =
+      if map_size(constraints) == 0 do
+        {:ok, display_string}
+      else
+        inflect_string(display_string, constraints, guess?)
       end
-    else
-      _other -> nil
+
+    case result do
+      {:ok, inflected} ->
+        %DisplayValue{display_string: inflected, constraints: value_constraints}
+
+      :error ->
+        if guess? do
+          %DisplayValue{display_string: display_string, constraints: value_constraints}
+        else
+          nil
+        end
     end
   end
 

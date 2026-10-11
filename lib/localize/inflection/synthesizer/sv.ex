@@ -130,19 +130,24 @@ defmodule Localize.Inflection.Synthesizer.Sv do
 
   @impl true
   def display_value(display_data, constraints, _guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      display_string =
-        if Dictionary.combined_grammemes(@locale, display_string) != nil do
-          inflect_word(constraints, display_string, true)
-        else
-          inflect_token_chain(display_string, constraints)
-        end
-
-      %DisplayValue{display_string: display_string, constraints: constraints}
-    else
-      _other -> nil
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} -> nil
+      %DisplayValue{} = display_value -> inflected_display(display_value, constraints)
+      _no_display_value -> nil
     end
+  end
+
+  defp inflected_display(display_value, constraints) do
+    display_string = display_value.display_string
+
+    display_string =
+      if Dictionary.combined_grammemes(@locale, display_string) != nil do
+        inflect_word(constraints, display_string, true)
+      else
+        inflect_token_chain(display_string, constraints)
+      end
+
+    %DisplayValue{display_string: display_string, constraints: constraints}
   end
 
   defp inflect_token_chain(display_string, constraints) do

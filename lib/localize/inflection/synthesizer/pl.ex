@@ -102,12 +102,13 @@ defmodule Localize.Inflection.Synthesizer.Pl do
   defp two_consonant?(word, prefix_letters) do
     {first, rest} = String.next_codepoint(word)
 
-    with true <- first in prefix_letters,
-         {second, _rest} when not is_nil(second) <- String.next_codepoint(rest),
-         <<c2::utf8>> <- second do
-      not PhraseProperties.default_vowel?(c2)
-    else
-      _other -> false
+    first in prefix_letters and consonant_follows?(rest)
+  end
+
+  defp consonant_follows?(rest) do
+    case String.next_codepoint(rest) do
+      {<<second::utf8>>, _rest} -> not PhraseProperties.default_vowel?(second)
+      _no_second_letter -> false
     end
   end
 
@@ -133,20 +134,50 @@ defmodule Localize.Inflection.Synthesizer.Pl do
     lowercased = String.downcase(word)
 
     Enum.find_value(["nie", "naj"], fn prefix ->
-      with true <- String.starts_with?(lowercased, prefix),
-           rest = binary_part(word, byte_size(prefix), byte_size(word) - byte_size(prefix)),
-           grammemes when is_integer(grammemes) <- Dictionary.combined_grammemes(@locale, rest),
-           {:ok, inflected} <-
-             Inflector.inflect(@locale, rest, grammemes, constraint_values,
-               disambiguation: disambiguation,
-               priorities: @priorities,
-               fallback: false
-             ) do
-        binary_part(word, 0, byte_size(prefix)) <> inflected
-      else
-        _other -> nil
-      end
+      inflected_behind(word, lowercased, prefix, constraint_values, disambiguation)
     end)
+  end
+
+  # `nil` where the word does not carry the prefix, or where what follows it
+  # is not a word the dictionary inflects.
+  defp inflected_behind(word, lowercased, prefix, constraint_values, disambiguation) do
+    if String.starts_with?(lowercased, prefix) do
+      rest = binary_part(word, byte_size(prefix), byte_size(word) - byte_size(prefix))
+      inflected = inflected_stem(rest, constraint_values, disambiguation)
+
+      inflected && binary_part(word, 0, byte_size(prefix)) <> inflected
+    end
+  end
+
+  # `nil` where the suffix has no exemplar, or where the exemplar will not
+  # inflect: the next shorter suffix is tried.
+  defp spliced_exemplar(_word, [], _constraint_values, _disambiguation), do: nil
+
+  defp spliced_exemplar(word, [exemplar | _rest], constraint_values, disambiguation) do
+    inflected = inflected_stem(exemplar, constraint_values, disambiguation)
+
+    inflected && splice(word, exemplar, inflected)
+  end
+
+  defp inflected_stem(stem, constraint_values, disambiguation) do
+    case Dictionary.combined_grammemes(@locale, stem) do
+      grammemes when is_integer(grammemes) ->
+        inflected_form(stem, grammemes, constraint_values, disambiguation)
+
+      _not_in_the_dictionary ->
+        nil
+    end
+  end
+
+  defp inflected_form(word, grammemes, constraint_values, disambiguation) do
+    case Inflector.inflect(@locale, word, grammemes, constraint_values,
+           disambiguation: disambiguation,
+           priorities: @priorities,
+           fallback: false
+         ) do
+      {:ok, inflected} -> inflected
+      :error -> nil
+    end
   end
 
   defp exemplar_guess(word, word_type, constraint_values, disambiguation, guess?) do
@@ -160,19 +191,12 @@ defmodule Localize.Inflection.Synthesizer.Pl do
         fn suffix_length ->
           suffix = String.slice(word, length - suffix_length, suffix_length)
 
-          with [exemplar | _rest] <- Map.get(exemplars, suffix, []),
-               grammemes when is_integer(grammemes) <-
-                 Dictionary.combined_grammemes(@locale, exemplar),
-               {:ok, inflected} <-
-                 Inflector.inflect(@locale, exemplar, grammemes, constraint_values,
-                   disambiguation: disambiguation,
-                   priorities: @priorities,
-                   fallback: false
-                 ) do
-            splice(word, exemplar, inflected)
-          else
-            _other -> nil
-          end
+          spliced_exemplar(
+            word,
+            Map.get(exemplars, suffix, []),
+            constraint_values,
+            disambiguation
+          )
         end
       )
     end
@@ -194,31 +218,37 @@ defmodule Localize.Inflection.Synthesizer.Pl do
 
   @impl true
   def display_value(display_data, constraints, guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      value_constraints = Map.merge(display_value.constraints, constraints)
-
-      display_string =
-        if map_size(constraints) > 0 do
-          inflected =
-            case Dictionary.combined_grammemes(@locale, display_string) do
-              nil ->
-                inflect_token_chain(display_string, constraints, guess?)
-
-              word_grammemes ->
-                inflect_known(display_string, word_grammemes, constraints, guess?)
-            end
-
-          inflected || display_string
-        else
-          display_string
-        end
-
-      display_string = prepend_preposition(display_string, constraints)
-      %DisplayValue{display_string: display_string, constraints: value_constraints}
-    else
-      _other -> nil
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} -> nil
+      %DisplayValue{} = display_value -> inflected_display(display_value, constraints, guess?)
+      _no_display_value -> nil
     end
+  end
+
+  defp inflected_display(display_value, constraints, guess?) do
+    display_string =
+      display_value.display_string
+      |> inflected_string(constraints, guess?)
+      |> prepend_preposition(constraints)
+
+    %DisplayValue{
+      display_string: display_string,
+      constraints: Map.merge(display_value.constraints, constraints)
+    }
+  end
+
+  defp inflected_string(display_string, constraints, _guess?) when map_size(constraints) == 0 do
+    display_string
+  end
+
+  defp inflected_string(display_string, constraints, guess?) do
+    inflected =
+      case Dictionary.combined_grammemes(@locale, display_string) do
+        nil -> inflect_token_chain(display_string, constraints, guess?)
+        word_grammemes -> inflect_known(display_string, word_grammemes, constraints, guess?)
+      end
+
+    inflected || display_string
   end
 
   defp inflect_known(display_string, word_grammemes, constraints, guess?) do

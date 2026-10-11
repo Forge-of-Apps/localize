@@ -168,25 +168,39 @@ defmodule Localize.Inflection do
 
   """
   def known?(phrase, locale) when is_binary(phrase) do
-    with true <- String.valid?(phrase),
-         {:ok, locale} <- Localize.Inflection.Locale.resolve(locale),
-         :ok <- Data.ensure_loaded(locale) do
-      words =
-        locale
-        |> Tokenizer.word_tokens(phrase)
-        |> Enum.reject(&Regex.match?(@digits_only, &1.clean))
-
-      words != [] and
-        Enum.all?(words, fn token ->
-          Dictionary.combined_grammemes(locale, token.value) != nil or
-            Dictionary.combined_grammemes(locale, token.clean) != nil
-        end)
-    else
-      _invalid_or_unknown -> false
-    end
+    String.valid?(phrase) and known_in_loaded?(phrase, locale)
   end
 
   def known?(_phrase, _locale), do: false
+
+  defp known_in_loaded?(phrase, locale) do
+    case Localize.Inflection.Locale.resolve(locale) do
+      {:ok, locale} -> known_words?(phrase, locale)
+      {:error, _unsupported_locale} -> false
+    end
+  end
+
+  defp known_words?(phrase, locale) do
+    case Data.ensure_loaded(locale) do
+      :ok -> every_word_known?(phrase, locale)
+      {:error, _no_data} -> false
+    end
+  end
+
+  # A phrase of nothing but digits names no words, so it is not known.
+  defp every_word_known?(phrase, locale) do
+    words =
+      locale
+      |> Tokenizer.word_tokens(phrase)
+      |> Enum.reject(&Regex.match?(@digits_only, &1.clean))
+
+    words != [] and Enum.all?(words, &known_token?(locale, &1))
+  end
+
+  defp known_token?(locale, token) do
+    Dictionary.combined_grammemes(locale, token.value) != nil or
+      Dictionary.combined_grammemes(locale, token.clean) != nil
+  end
 
   @doc """
   Returns the grammatical features defined for a locale.

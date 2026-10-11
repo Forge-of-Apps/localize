@@ -193,50 +193,55 @@ defmodule Localize.Inflection.Synthesizer.En do
 
   @impl true
   def display_value(display_data, constraints, guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      count = Map.get(constraints, "number")
-      requesting_plural? = count == "plural"
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} -> nil
+      %DisplayValue{} = display_value -> inflected_display(display_value, constraints, guess?)
+      _no_display_value -> nil
+    end
+  end
 
-      inflected =
-        if count in ["singular", "plural"] do
-          inflect_phrase(display_string, constraints, guess?)
-        else
-          {:ok, :uninflected}
-        end
+  defp inflected_display(display_value, constraints, guess?) do
+    display_string = display_value.display_string
 
-      case inflected do
-        :error ->
-          nil
+    count = Map.get(constraints, "number")
+    requesting_plural? = count == "plural"
 
-        {:ok, result} ->
-          {display_string, value_constraints} =
-            case result do
-              :uninflected ->
-                # Preserve the speak value only when not morphologically changing.
-                case Map.get(display_value.constraints, @speak) do
-                  nil -> {display_string, constraints}
-                  speak -> {display_string, Map.put(constraints, @speak, speak)}
-                end
-
-              inflected_string ->
-                {inflected_string, constraints}
-            end
-
-          {display_string, value_constraints} =
-            if Map.get(constraints, "case") == "genitive" do
-              inflect_possessive(display_string, value_constraints, requesting_plural?)
-            else
-              {display_string, value_constraints}
-            end
-
-          add_definiteness(
-            %DisplayValue{display_string: display_string, constraints: value_constraints},
-            constraints
-          )
+    inflected =
+      if count in ["singular", "plural"] do
+        inflect_phrase(display_string, constraints, guess?)
+      else
+        {:ok, :uninflected}
       end
-    else
-      _other -> nil
+
+    case inflected do
+      :error ->
+        nil
+
+      {:ok, result} ->
+        {display_string, value_constraints} =
+          case result do
+            :uninflected ->
+              # Preserve the speak value only when not morphologically changing.
+              case Map.get(display_value.constraints, @speak) do
+                nil -> {display_string, constraints}
+                speak -> {display_string, Map.put(constraints, @speak, speak)}
+              end
+
+            inflected_string ->
+              {inflected_string, constraints}
+          end
+
+        {display_string, value_constraints} =
+          if Map.get(constraints, "case") == "genitive" do
+            inflect_possessive(display_string, value_constraints, requesting_plural?)
+          else
+            {display_string, value_constraints}
+          end
+
+        add_definiteness(
+          %DisplayValue{display_string: display_string, constraints: value_constraints},
+          constraints
+        )
     end
   end
 
@@ -428,25 +433,35 @@ defmodule Localize.Inflection.Synthesizer.En do
   # ends in s (Jones’s). Proper nouns keep ’s even when a plural
   # reading exists.
   defp plural_noun?(display_string) do
-    with last_word when not is_nil(last_word) <- Tokenizer.last_word(@locale, display_string),
-         noun when is_integer(noun) <- Dictionary.binary_properties(@locale, ["noun"]),
-         plural when is_integer(plural) <- Dictionary.binary_properties(@locale, ["plural"]),
-         singular when is_integer(singular) <- Dictionary.binary_properties(@locale, ["singular"]),
-         proper when is_integer(proper) <- Dictionary.binary_properties(@locale, ["proper-noun"]) do
-      combined = Dictionary.combined_grammemes(@locale, last_word.value) || 0
+    bits =
+      Enum.map(
+        ["noun", "plural", "singular", "proper-noun"],
+        &Dictionary.binary_properties(@locale, [&1])
+      )
 
-      plural_reading? =
-        @locale
-        |> Dictionary.grammeme_sets(last_word.value)
-        |> Enum.any?(fn reading ->
-          (reading &&& noun) == noun and (reading &&& plural) == plural and
-            (reading &&& singular) == 0
-        end)
+    plural_noun?(Tokenizer.last_word(@locale, display_string), bits)
+  end
 
-      plural_reading? and (combined &&& proper) == 0
-    else
-      _other -> false
-    end
+  defp plural_noun?(nil, _bits), do: false
+
+  defp plural_noun?(last_word, [noun, plural, singular, proper])
+       when is_integer(noun) and is_integer(plural) and is_integer(singular) and
+              is_integer(proper) do
+    combined = Dictionary.combined_grammemes(@locale, last_word.value) || 0
+
+    plural_reading?(last_word, noun, plural, singular) and (combined &&& proper) == 0
+  end
+
+  # The dictionary names none of these properties, so no reading is plural.
+  defp plural_noun?(_last_word, _bits), do: false
+
+  defp plural_reading?(last_word, noun, plural, singular) do
+    @locale
+    |> Dictionary.grammeme_sets(last_word.value)
+    |> Enum.any?(fn reading ->
+      (reading &&& noun) == noun and (reading &&& plural) == plural and
+        (reading &&& singular) == 0
+    end)
   end
 
   defp contractions do

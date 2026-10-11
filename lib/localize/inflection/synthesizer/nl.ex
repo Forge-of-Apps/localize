@@ -539,42 +539,47 @@ defmodule Localize.Inflection.Synthesizer.Nl do
 
   @impl true
   def display_value(display_data, constraints, _guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      display_string =
-        if map_size(constraints) > 0 do
-          word_grammemes = Dictionary.combined_grammemes(@locale, display_string) || 0
-
-          inflected =
-            first_non_empty([
-              fn -> noun_inflect(display_string, word_grammemes, constraints) end,
-              fn -> adjective_inflect(display_string, word_grammemes, constraints) end,
-              fn -> verb_inflect(display_string, word_grammemes, constraints) end,
-              fn ->
-                if word_grammemes == 0 do
-                  inflect_phrase(display_string, constraints)
-                else
-                  ""
-                end
-              end
-            ])
-
-          if inflected == "", do: display_string, else: inflected
-        else
-          display_string
-        end
-
-      Articles.add_definiteness(
-        %DisplayValue{display_string: display_string, constraints: constraints},
-        constraints,
-        Articles.article_prefixes(@locale, ["de"]),
-        Articles.article_prefixes(@locale, ["indefArticle"]),
-        fn base, _constraints -> definite_article(base, true) end,
-        fn base, _constraints -> static_indefinite_article(base) end
-      )
-    else
-      _other -> nil
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} -> nil
+      %DisplayValue{} = display_value -> inflected_display(display_value, constraints)
+      _no_display_value -> nil
     end
+  end
+
+  defp inflected_display(display_value, constraints) do
+    display_string = display_value.display_string
+
+    display_string =
+      if map_size(constraints) > 0 do
+        word_grammemes = Dictionary.combined_grammemes(@locale, display_string) || 0
+
+        inflected =
+          first_non_empty([
+            fn -> noun_inflect(display_string, word_grammemes, constraints) end,
+            fn -> adjective_inflect(display_string, word_grammemes, constraints) end,
+            fn -> verb_inflect(display_string, word_grammemes, constraints) end,
+            fn ->
+              if word_grammemes == 0 do
+                inflect_phrase(display_string, constraints)
+              else
+                ""
+              end
+            end
+          ])
+
+        if inflected == "", do: display_string, else: inflected
+      else
+        display_string
+      end
+
+    Articles.add_definiteness(
+      %DisplayValue{display_string: display_string, constraints: constraints},
+      constraints,
+      Articles.article_prefixes(@locale, ["de"]),
+      Articles.article_prefixes(@locale, ["indefArticle"]),
+      fn base, _constraints -> definite_article(base, true) end,
+      fn base, _constraints -> static_indefinite_article(base) end
+    )
   end
 
   defp static_indefinite_article(display_value) do

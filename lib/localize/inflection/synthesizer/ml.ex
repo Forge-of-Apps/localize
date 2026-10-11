@@ -121,26 +121,31 @@ defmodule Localize.Inflection.Synthesizer.Ml do
 
   @impl true
   def display_value(display_data, constraints, guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      if map_size(constraints) == 0 or
-           not Regex.match?(~r/\p{Malayalam}/u, display_string) or
-           Regex.match?(~r/[\p{Latin}\p{Nd}\p{P}]/u, display_string) do
-        %DisplayValue{display_string: display_string, constraints: constraints}
-      else
-        constraint_values = build_constraint_values(constraints)
-        inflected = inflect_phrase(display_string, constraint_values, guess?)
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} -> nil
+      %DisplayValue{} = display_value -> inflected_display(display_value, constraints, guess?)
+      _no_display_value -> nil
+    end
+  end
 
-        # An unchanged result means no display value, even with
-        # guessing enabled.
-        if inflected != "" and inflected != display_string do
-          %DisplayValue{display_string: inflected, constraints: constraints}
-        else
-          nil
-        end
-      end
+  defp inflected_display(display_value, constraints, guess?) do
+    display_string = display_value.display_string
+
+    if map_size(constraints) == 0 or
+         not Regex.match?(~r/\p{Malayalam}/u, display_string) or
+         Regex.match?(~r/[\p{Latin}\p{Nd}\p{P}]/u, display_string) do
+      %DisplayValue{display_string: display_string, constraints: constraints}
     else
-      _other -> nil
+      constraint_values = build_constraint_values(constraints)
+      inflected = inflect_phrase(display_string, constraint_values, guess?)
+
+      # An unchanged result means no display value, even with
+      # guessing enabled.
+      if inflected != "" and inflected != display_string do
+        %DisplayValue{display_string: inflected, constraints: constraints}
+      else
+        nil
+      end
     end
   end
 

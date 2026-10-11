@@ -156,29 +156,34 @@ defmodule Localize.Inflection.Synthesizer.Pt do
 
   @impl true
   def display_value(display_data, constraints, guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      value_constraints = Map.merge(display_value.constraints, constraints)
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} -> nil
+      %DisplayValue{} = display_value -> inflected_display(display_value, constraints, guess?)
+      _no_display_value -> nil
+    end
+  end
 
-      inflected =
-        if Map.get(constraints, "number") || Map.get(constraints, "gender") do
-          inflect_string(display_string, constraints, guess?)
-        else
-          {:ok, display_string}
-        end
+  defp inflected_display(display_value, constraints, guess?) do
+    display_string = display_value.display_string
 
-      case inflected do
-        :error ->
-          nil
+    value_constraints = Map.merge(display_value.constraints, constraints)
 
-        {:ok, display_string} ->
-          add_definiteness(
-            %DisplayValue{display_string: display_string, constraints: value_constraints},
-            constraints
-          )
+    inflected =
+      if Map.get(constraints, "number") || Map.get(constraints, "gender") do
+        inflect_string(display_string, constraints, guess?)
+      else
+        {:ok, display_string}
       end
-    else
-      _other -> nil
+
+    case inflected do
+      :error ->
+        nil
+
+      {:ok, display_string} ->
+        add_definiteness(
+          %DisplayValue{display_string: display_string, constraints: value_constraints},
+          constraints
+        )
     end
   end
 
@@ -299,12 +304,7 @@ defmodule Localize.Inflection.Synthesizer.Pt do
           end
 
         :inflect_both ->
-          with {:ok, first_inflected} <- inflect_word(first, first_type, constraints, guess?),
-               {:ok, last_inflected} <- inflect_word(last, last_type, constraints, guess?) do
-            {:ok, [first_inflected, last_inflected]}
-          else
-            :error -> :fallthrough
-          end
+          inflected_pair(first, first_type, last, last_type, constraints, guess?)
 
         :fallthrough ->
           :fallthrough
@@ -314,6 +314,21 @@ defmodule Localize.Inflection.Synthesizer.Pt do
       {:ok, _words} = ok -> ok
       :fallthrough when guess? -> {:ok, [first, last]}
       :fallthrough -> :error
+    end
+  end
+
+  # Either word refusing to inflect falls through to the pair as given.
+  defp inflected_pair(first, first_type, last, last_type, constraints, guess?) do
+    case inflect_word(first, first_type, constraints, guess?) do
+      {:ok, inflected} -> inflected_with_last(inflected, last, last_type, constraints, guess?)
+      :error -> :fallthrough
+    end
+  end
+
+  defp inflected_with_last(first_inflected, last, last_type, constraints, guess?) do
+    case inflect_word(last, last_type, constraints, guess?) do
+      {:ok, last_inflected} -> {:ok, [first_inflected, last_inflected]}
+      :error -> :fallthrough
     end
   end
 

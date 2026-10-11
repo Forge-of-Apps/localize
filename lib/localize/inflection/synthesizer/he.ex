@@ -123,35 +123,40 @@ defmodule Localize.Inflection.Synthesizer.He do
 
   @impl true
   def display_value(display_data, constraints, _guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      count = Map.get(constraints, "number", "")
-      person = Map.get(constraints, "person", "")
-      gender = Map.get(constraints, "gender", "")
-
-      disambiguation =
-        for feature <- ["person", "pos"],
-            value = Map.get(constraints, feature),
-            value not in [nil, ""],
-            do: value
-
-      display_string =
-        if count != "" or gender != "" do
-          inflect_display_string(display_string, count, gender, person, disambiguation)
-        else
-          display_string
-        end
-
-      display_string =
-        case Map.get(constraints, "definiteness", "") do
-          "" -> display_string
-          definiteness -> apply_definiteness(display_string, definiteness)
-        end
-
-      %DisplayValue{display_string: display_string, constraints: constraints}
-    else
-      _other -> nil
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} -> nil
+      %DisplayValue{} = display_value -> inflected_display(display_value, constraints)
+      _no_display_value -> nil
     end
+  end
+
+  defp inflected_display(display_value, constraints) do
+    display_string = display_value.display_string
+
+    count = Map.get(constraints, "number", "")
+    person = Map.get(constraints, "person", "")
+    gender = Map.get(constraints, "gender", "")
+
+    disambiguation =
+      for feature <- ["person", "pos"],
+          value = Map.get(constraints, feature),
+          value not in [nil, ""],
+          do: value
+
+    display_string =
+      if count != "" or gender != "" do
+        inflect_display_string(display_string, count, gender, person, disambiguation)
+      else
+        display_string
+      end
+
+    display_string =
+      case Map.get(constraints, "definiteness", "") do
+        "" -> display_string
+        definiteness -> apply_definiteness(display_string, definiteness)
+      end
+
+    %DisplayValue{display_string: display_string, constraints: constraints}
   end
 
   defp inflect_display_string(display_string, count, gender, person, disambiguation) do
@@ -342,18 +347,24 @@ defmodule Localize.Inflection.Synthesizer.He do
 
     case Dictionary.combined_grammemes(@locale, word) do
       nil ->
-        with true <- String.length(word) > 1,
-             {first, rest} <- String.split_at(word, 1),
-             true <- first in @inseparable_prefixes do
-          Dictionary.combined_grammemes(@locale, rest) != nil
-        else
-          _other -> false
-        end
+        prefixed_word?(word)
 
       grammemes ->
         (grammemes &&& adposition) != 0
     end
   end
+
+  # A word the dictionary does not know may be one of its words behind an
+  # inseparable prefix.
+  defp prefixed_word?(word) do
+    String.length(word) > 1 and known_behind_prefix?(String.split_at(word, 1))
+  end
+
+  defp known_behind_prefix?({first, rest}) when first in @inseparable_prefixes do
+    Dictionary.combined_grammemes(@locale, rest) != nil
+  end
+
+  defp known_behind_prefix?(_not_prefixed), do: false
 
   defp empty_to_nil(""), do: nil
   defp empty_to_nil(value), do: value

@@ -60,21 +60,21 @@ defmodule Localize.Inflection.GrammemeLookup do
         last_word_determine(locale, tokens, tags, disambiguation, relevant)
       end
 
-    out =
-      with "" <- out,
-           suffix_function when is_function(suffix_function, 1) <-
-             Keyword.get(options, :suffix_function) do
-        case List.first(tokens) do
-          nil -> ""
-          token -> suffix_function.(token.clean)
-        end
-      else
-        other when is_binary(other) -> other
-        nil -> ""
-      end
+    out = out_or_suffix(out, tokens, Keyword.get(options, :suffix_function))
 
     if out == "", do: Keyword.get(options, :default, ""), else: out
   end
+
+  # Where the words determine nothing, a locale may name a suffix function
+  # that reads the first word's ending instead.
+  defp out_or_suffix("", tokens, suffix_function) when is_function(suffix_function, 1) do
+    case List.first(tokens) do
+      nil -> ""
+      token -> suffix_function.(token.clean)
+    end
+  end
+
+  defp out_or_suffix(out, _tokens, _suffix_function) when is_binary(out), do: out
 
   defp first_word_determine(locale, tokens, tags, disambiguation, relevant) do
     first_relevant =
