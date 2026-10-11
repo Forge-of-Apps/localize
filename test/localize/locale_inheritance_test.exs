@@ -143,6 +143,26 @@ defmodule Localize.LocaleInheritanceTest do
   # ancestor must name its own, following CLDR's locale inheritance:
   # ar-SA's parent is ar, not ar-SA again.
   describe "parent/1 of a validated tag" do
+    # A parent built by stripping subtags from a validated child must not keep
+    # the child's CLDR locale id: `PersistentTerm.get/3` reads `cldr_locale_id`
+    # straight out of a tag rather than re-resolving it, so a stale id would
+    # read the child's data for the parent (#48). Main resolves this already;
+    # these pin it.
+    test "resolves the parent's own CLDR locale id, not the child's" do
+      for {locale, parent_id} <- [{:"fr-CA", :fr}, {:"de-AT", :de}, {:"ar-SA", :ar}] do
+        {:ok, tag} = Localize.validate_locale(locale)
+        {:ok, parent} = Locale.parent(tag)
+
+        assert Locale.cldr_locale_id_from(parent) == {:ok, parent_id},
+               "the parent of #{locale} did not resolve to #{inspect(parent_id)}"
+      end
+    end
+
+    test "spells a number with the rules of the parent its data comes from" do
+      assert Localize.Number.to_string(21, format: :spellout, locale: :"fr-CA") ==
+               {:ok, "vingt-et-un"}
+    end
+
     test "a parent found by dropping a subtag resolves its own CLDR locale" do
       for {locale, expected} <- [
             {"ar-SA", [:ar, :ar, :und]},
