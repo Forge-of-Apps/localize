@@ -133,11 +133,12 @@ defmodule Localize.Calendar.ISO do
           Date.t() | {:error, :invalid_date}
   def date_from_day_of_year(year, day_of_year)
       when is_integer(year) and is_integer(day_of_year) and day_of_year >= 1 do
-    with {:ok, first} <- Date.new(year, 1, 1),
-         true <- day_of_year <= days_in_year(year) do
-      Date.add(first, day_of_year - 1)
+    if day_of_year <= days_in_year(year) do
+      with {:ok, first} <- Date.new(year, 1, 1) do
+        Date.add(first, day_of_year - 1)
+      end
     else
-      _no_such_day -> {:error, :invalid_date}
+      {:error, :invalid_date}
     end
   end
 
@@ -368,8 +369,6 @@ defmodule Localize.Calendar.ISO do
       if days < 0,
         do: -count(to, from, -days, date_part),
         else: count(from, to, days, date_part)
-    else
-      {:error, _reason} -> {:error, :invalid_date}
     end
   end
 
@@ -503,16 +502,19 @@ defmodule Localize.Calendar.ISO do
   @spec month_week(Calendar.year(), Calendar.month(), pos_integer()) ::
           Date.Range.t() | {:error, :invalid_date}
   def month_week(year, month, week) when is_integer(week) and week >= 1 do
-    with {:ok, first_week, next_first_week} <- weeks_of_month(year, month),
-         first = first_week + (week - 1) * 7,
-         true <- first < next_first_week do
-      Date.range(Date.from_gregorian_days(first), Date.from_gregorian_days(first + 6))
-    else
-      _not_a_week -> {:error, :invalid_date}
+    with {:ok, first_week, next_first_week} <- weeks_of_month(year, month) do
+      week_of_month(first_week + (week - 1) * 7, next_first_week)
     end
   end
 
   def month_week(_year, _month, _week), do: {:error, :invalid_date}
+
+  # A week belongs to the period when it starts before the next period does.
+  defp week_of_month(first, next_first) when first < next_first do
+    Date.range(Date.from_gregorian_days(first), Date.from_gregorian_days(first + 6))
+  end
+
+  defp week_of_month(_first, _next_first), do: {:error, :invalid_date}
 
   # The first day of a month's week 1 and of the next month's.
   defp weeks_of_month(year, month) when is_integer(year) and is_integer(month) do
@@ -546,13 +548,11 @@ defmodule Localize.Calendar.ISO do
   @spec week(Calendar.year(), pos_integer(), week_data()) ::
           Date.Range.t() | {:error, :invalid_date}
   def week(year, week, week_data) when is_integer(year) and is_integer(week) and week >= 1 do
-    with {:ok, january_1} <- Date.new(year, 1, 1),
-         january_1 = Date.to_gregorian_days(january_1),
-         first = week_one(january_1, week_data) + (week - 1) * 7,
-         true <- first < week_one(january_1 + days_in_year(year), week_data) do
-      Date.range(Date.from_gregorian_days(first), Date.from_gregorian_days(first + 6))
-    else
-      _not_a_week -> {:error, :invalid_date}
+    with {:ok, january_1} <- Date.new(year, 1, 1) do
+      january_1 = Date.to_gregorian_days(january_1)
+      next_year = week_one(january_1 + days_in_year(year), week_data)
+
+      week_of_month(week_one(january_1, week_data) + (week - 1) * 7, next_year)
     end
   end
 
@@ -583,8 +583,6 @@ defmodule Localize.Calendar.ISO do
     with {:ok, first} <- Date.new(year, first_month, 1),
          {:ok, last} <- Date.new(year, last_month, 1) do
       Date.range(first, Date.end_of_month(last))
-    else
-      {:error, _reason} -> {:error, :invalid_date}
     end
   end
 
