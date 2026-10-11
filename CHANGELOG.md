@@ -196,6 +196,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Locale.gettext_locale_id/2` caches its match per locale and known Gettext locales, so a repeated call takes about 0.4 µs where it took about 34 µs.
 
+* `Localize.Currency.currency_strings/2` caches its map per locale and filter, so a repeated call takes about 19 µs where it took about 1.1 ms. `Localize.Locale.store/3` clears the cache, and a map built while the data it came from was being replaced is dropped rather than cached.
+
 * `Localize.validate_locale/1` returns `{:error, %Localize.InvalidLocaleError{}}` for an unknown `-u-tz-` timezone id (`"de-u-tz-zzz"`), a `-t-` numeric value that is not a 4, 6 or 8 digit date (`"de-t-d0-123"`) and a `-t-` keyword without a value (`"de-t-en-m0"`), where it raised. A `-u-vt-` value of several codepoints (`"de-u-vt-0020-0041"`) is accepted, where it raised too.
 
 * A display name is the name of the code it is keyed by, not of a code CLDR retired in that code's favour: `ak` is "Akan" where it was "Twi", and `fil` is "Filipino" in every locale rather than only on some toolchains. CLDR names both a canonical code and its deprecated aliases, which normalize onto one key, and the winner was decided by map iteration order — so the same CLDR sources generated different locale data on different OTP releases (#59).

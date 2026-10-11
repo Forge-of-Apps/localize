@@ -1,5 +1,6 @@
 defmodule Localize.FormatCache do
-  # An ETS-backed cache for compiled format patterns.
+  # An ETS-backed cache for compiled format patterns and for data derived
+  # from locale data.
   #
   # Number format metadata and datetime format tokens are cached
   # here after first compilation. The cache is hard-bounded: when
@@ -75,17 +76,44 @@ defmodule Localize.FormatCache do
 
   * `value` is the compiled artifact to cache.
 
+  * `generation` is the value `generation/0` returned before the value was
+    built from locale data. The value is dropped when `clear/0` has run since
+    then, so a cached value cannot outlive the data it came from. The default
+    `:any` always stores.
+
   ### Returns
 
   * `:ok`.
 
   """
-  @spec store(term(), term()) :: :ok
-  def store(key, value) do
+  @spec store(term(), term(), non_neg_integer() | :any) :: :ok
+  def store(key, value, generation \\ :any) do
     if Process.whereis(__MODULE__) do
-      GenServer.call(__MODULE__, {:store, key, value})
+      GenServer.call(__MODULE__, {:store, key, value, generation})
     else
       :ok
+    end
+  end
+
+  @doc """
+  Returns the number of times the cache has been cleared, for `store/3`.
+
+  ### Returns
+
+  * The current generation as a non-negative integer.
+
+  ### Examples
+
+      iex> is_integer(Localize.FormatCache.generation())
+      true
+
+  """
+  @spec generation() :: non_neg_integer()
+  def generation do
+    if Process.whereis(__MODULE__) do
+      GenServer.call(__MODULE__, :generation)
+    else
+      0
     end
   end
 
@@ -141,11 +169,12 @@ defmodule Localize.FormatCache do
   @impl true
   def init(_options) do
     ensure_table()
-    {:ok, []}
+    {:ok, 0}
   end
 
   @impl true
-  def handle_call({:store, key, value}, _from, state) do
+  def handle_call({:store, key, value, generation}, _from, current)
+      when generation in [:any, current] do
     cap = max_entries()
     size = :ets.info(@table, :size)
 
@@ -163,16 +192,25 @@ defmodule Localize.FormatCache do
         :ets.insert(@table, {key, value})
     end
 
-    {:reply, :ok, state}
+    {:reply, :ok, current}
   end
 
-  @impl true
-  def handle_call(:clear, _from, state) do
+  # The cache was cleared while this value was being built from locale data,
+  # so the value describes data that is no longer current and is dropped.
+  def handle_call({:store, _key, _value, _stale_generation}, _from, current) do
+    {:reply, :ok, current}
+  end
+
+  def handle_call(:generation, _from, current) do
+    {:reply, current, current}
+  end
+
+  def handle_call(:clear, _from, current) do
     if :ets.whereis(@table) != :undefined do
       :ets.delete_all_objects(@table)
     end
 
-    {:reply, :ok, state}
+    {:reply, :ok, current + 1}
   end
 
   defp ensure_table do
