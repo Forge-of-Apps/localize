@@ -114,7 +114,7 @@ defmodule Localize.Unit.Formatter do
            Localize.Number.PluralRule.Range.plural_rule_for(
              unit_1.value,
              unit_2.value,
-             language_tag
+             Localize.Locale.data_locale_id(language_tag)
            ),
          grammatical_case = Keyword.get(options, :grammatical_case, :nominative),
          tokens when is_list(tokens) <-
@@ -229,7 +229,7 @@ defmodule Localize.Unit.Formatter do
     unit_name = normalize_unit_name(name)
 
     with unit_formats when is_map(unit_formats) <- find_unit_formats(unit_data, unit_name),
-         plural = plural_form(value, language_tag, options),
+         plural = plural_form(value, Localize.Locale.data_locale_id(language_tag), options),
          grammatical_case = Keyword.get(options, :grammatical_case, :nominative),
          {:ok, pattern} <-
            select_pattern(unit_formats, grammatical_case, plural, language_tag, options),
@@ -612,7 +612,7 @@ defmodule Localize.Unit.Formatter do
   # CLDR unit pattern resolution: grammatical-case, plural-form, and
   # pattern-shape fallbacks each contribute a branch.
   defp format_with_pattern(value, unit_formats, locale, grammatical_case, options) do
-    plural = plural_form(value, locale, options)
+    plural = plural_form(value, Localize.Locale.data_locale_id(locale), options)
 
     case select_pattern(unit_formats, grammatical_case, plural, locale, options) do
       {:error, _reason} = error -> error
@@ -880,7 +880,7 @@ defmodule Localize.Unit.Formatter do
 
   defp format_prefixed_unit(value, prefix, base, unit_data, locale, options) do
     grammatical_case = Keyword.get(options, :grammatical_case, :nominative)
-    count_plural = plural_form(value, locale, options)
+    count_plural = plural_form(value, Localize.Locale.data_locale_id(locale), options)
 
     with prefix_tokens when is_list(prefix_tokens) <- si_prefix_pattern_tokens(unit_data, prefix),
          base_formats when not is_nil(base_formats) <-
@@ -1017,7 +1017,7 @@ defmodule Localize.Unit.Formatter do
 
   defp format_times_compound(value, single_units, unit_data, locale, options) do
     grammatical_case = Keyword.get(options, :grammatical_case, :nominative)
-    count_plural = plural_form(value, locale, options)
+    count_plural = plural_form(value, Localize.Locale.data_locale_id(locale), options)
 
     # CLDR derives each component's plural and case from the compound as a
     # whole (grammaticalFeatures.xml `deriveComponent structure="times"`):
@@ -1132,7 +1132,13 @@ defmodule Localize.Unit.Formatter do
   defp resolve_derived_category(:compound, compound_category), do: compound_category
   defp resolve_derived_category(category, _compound_category), do: category
 
-  defp times_language(%Localize.LanguageTag{language: language}), do: Atom.to_string(language)
+  defp times_language(locale) do
+    locale
+    |> Localize.Locale.data_locale_id()
+    |> Atom.to_string()
+    |> String.split("-")
+    |> hd()
+  end
 
   # ── Custom unit formatting ─────────────────────────────────
   #

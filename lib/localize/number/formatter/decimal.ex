@@ -477,7 +477,8 @@ defmodule Localize.Number.Formatter.Decimal do
   # The plural category is taken from the digits the number displays, as
   # TR35's operands are (`v`, "the number of visible fraction digits in N,
   # with trailing zeros"), so "1.00" (v=2) selects `other` in English. NaN
-  # and infinity display no digits and select `other`.
+  # and infinity display no digits and select `other`. The rules are those of
+  # the loaded locale data, whose currency names they select.
   defp currency_plural_name(digits, %{currency: currency, locale: locale}) do
     category =
       case digits do
@@ -485,7 +486,10 @@ defmodule Localize.Number.Formatter.Decimal do
           :other
 
         digits ->
-          Localize.Number.PluralRule.Cardinal.plural_rule(displayed_decimal(digits), locale)
+          Localize.Number.PluralRule.Cardinal.plural_rule(
+            displayed_decimal(digits),
+            Localize.Locale.data_locale_id(locale)
+          )
       end
 
     counts = currency.count || %{}
