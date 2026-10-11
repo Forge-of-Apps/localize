@@ -115,5 +115,22 @@ defmodule Localize.LanguageTag.TExtensionTest do
       assert {:error, %Localize.InvalidSubtagError{key: "m0", value: "bogus"}} =
                T.canonicalize_transform_keys(parsed)
     end
+
+    # A `-t-` field value is a date of 4, 6 or 8 digits. Any other run of
+    # digits reached `make_date_tuple/1`, which has no clause for it, so
+    # `validate_locale/1` raised where it documents an error tuple.
+    test "rejects a numeric value that is not a date" do
+      assert {:error, %Localize.InvalidLocaleError{}} = Localize.validate_locale("de-t-d0-123")
+
+      assert {:error, %Localize.InvalidLocaleError{}} =
+               Localize.validate_locale("en-t-m0-12345")
+    end
+
+    test "rejects a keyword without a value" do
+      assert {:error, %Localize.InvalidLocaleError{}} = Localize.validate_locale("de-t-en-m0")
+
+      assert {:error, %Localize.InvalidLocaleError{}} =
+               Localize.validate_locale("de-t-en-m0-9-iso")
+    end
   end
 end

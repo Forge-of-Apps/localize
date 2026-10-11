@@ -172,6 +172,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+* `Localize.validate_locale/1` returns `{:error, %Localize.InvalidLocaleError{}}` for an unknown `-u-tz-` timezone id (`"de-u-tz-zzz"`), a `-t-` numeric value that is not a 4, 6 or 8 digit date (`"de-t-d0-123"`) and a `-t-` keyword without a value (`"de-t-en-m0"`), where it raised. A `-u-vt-` value of several codepoints (`"de-u-vt-0020-0041"`) is accepted, where it raised too.
+
 * A display name is the name of the code it is keyed by, not of a code CLDR retired in that code's favour: `ak` is "Akan" where it was "Twi", and `fil` is "Filipino" in every locale rather than only on some toolchains. CLDR names both a canonical code and its deprecated aliases, which normalize onto one key, and the winner was decided by map iteration order — so the same CLDR sources generated different locale data on different OTP releases (#59).
 
 * Inflection artifacts are addressed under their data version, so an artifact of an earlier version is never read in place of a current one: a `zh` artifact predating the Traditional Chinese pronoun table resolved `zh-TW` to the Simplified table, where the download task skipped any file already on disk. `mix localize.download_inflection --prune` removes the directories of superseded versions.

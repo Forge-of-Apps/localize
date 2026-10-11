@@ -176,4 +176,22 @@ defmodule Localize.LanguageTag.UExtensionTest do
       assert {"ca", "gregory"} = Validity.encode(:ca, :gregorian)
     end
   end
+
+  describe "values the extension does not know" do
+    # An unknown timezone id failed the `case` that resolved it, and a `-u-vt-`
+    # value of several codepoints arrives as a list that the encoder had no
+    # clause for. Both raised out of `validate_locale/1`.
+    test "returns an InvalidSubtagError for an unknown timezone id" do
+      assert {:error, %Localize.InvalidSubtagError{key: "tz", value: "zzz"}} =
+               U.parse("tz-zzz")
+
+      assert {:error, %Localize.InvalidLocaleError{}} =
+               Localize.validate_locale("de-u-tz-gpbkce")
+    end
+
+    test "round-trips a vt value of two codepoints" do
+      {:ok, tag} = Localize.validate_locale("de-u-vt-0020-0041")
+      assert tag.canonical_locale_id == "de-u-vt-0020-0041"
+    end
+  end
 end
