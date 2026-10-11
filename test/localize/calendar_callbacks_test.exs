@@ -52,13 +52,21 @@ defmodule Localize.CalendarCallbacksTest do
     def write(year, week, day), do: "#{pad(year, 4)}-W#{pad(week, 2)}-#{pad(day, 1)}"
 
     def read(text, calendar) do
-      with [_text, year, week, day] <- Regex.run(~r/\A(\d{4})-W?(\d{2})-(\d{1,2})\z/, text),
-           {year, week, day} =
-             {String.to_integer(year), String.to_integer(week), String.to_integer(day)},
-           true <- calendar.valid_date?(year, week, day) do
+      case Regex.run(~r/\A(\d{4})-W?(\d{2})-(\d{1,2})\z/, text) do
+        [_text, year, week, day] -> valid_week_date(year, week, day, calendar)
+        nil -> {:error, :invalid_date}
+      end
+    end
+
+    defp valid_week_date(year, week, day, calendar) do
+      year = String.to_integer(year)
+      week = String.to_integer(week)
+      day = String.to_integer(day)
+
+      if calendar.valid_date?(year, week, day) do
         {:ok, {year, week, day}}
       else
-        _not_a_date -> {:error, :invalid_date}
+        {:error, :invalid_date}
       end
     end
 
