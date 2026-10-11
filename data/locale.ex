@@ -79,7 +79,29 @@ defmodule Localize.Data.Locale do
     locale
     |> generate_locale()
     |> Localize.Data.LocaleTransformer.transform()
+    |> put_currency_strings()
   end
+
+  # The index from every string that names a currency — its name, symbol,
+  # code and plural forms — to that currency's code, which
+  # `Localize.Currency.currency_strings/2` returns and the number parser
+  # matches against. Building it walks every currency of the locale and costs
+  # about 1.2 ms, so it is built once here rather than on each first call.
+  #
+  # It comes from `Localize.Currency.build_currency_strings/1`, the module
+  # that consumes it, so the two cannot drift apart; a change to that function
+  # means regenerating the locale data. It runs after the transform because it
+  # reads `Localize.Currency` structs.
+  #
+  # Only the unfiltered index is stored. A filter changes which strings are
+  # unambiguous — "kr" names no single currency among all of them but names
+  # the krone alone among `only: [:NOK]` — so a filtered index cannot be
+  # selected out of this one and is still built on demand.
+  defp put_currency_strings(%{currencies: currencies} = content) when is_map(currencies) do
+    Map.put(content, :currency_strings, Localize.Currency.build_currency_strings(currencies))
+  end
+
+  defp put_currency_strings(content), do: content
 
   @doc """
   Generates, transforms, and saves a locale ETF file.

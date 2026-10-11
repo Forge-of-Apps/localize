@@ -196,7 +196,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Locale.gettext_locale_id/2` caches its match per locale and known Gettext locales, so a repeated call takes about 0.4 µs where it took about 34 µs.
 
-* `Localize.Currency.currency_strings/2` caches its map per locale and filter, so a repeated call takes about 19 µs where it took about 1.1 ms. `Localize.Locale.store/3` clears the cache, and a map built while the data it came from was being replaced is dropped rather than cached.
+* `Localize.Currency.currency_strings/2` reads the index of currency-naming strings from the locale data, where the pipeline now generates it, so a call takes about 0.6 µs where it built the index each time for about 1.2 ms. A filtered call is still built, because a filter changes which strings name a single currency.
 
 * `Localize.validate_locale/1` returns `{:error, %Localize.InvalidLocaleError{}}` for an unknown `-u-tz-` timezone id (`"de-u-tz-zzz"`), a `-t-` numeric value that is not a 4, 6 or 8 digit date (`"de-t-d0-123"`) and a `-t-` keyword without a value (`"de-t-en-m0"`), where it raised. A `-u-vt-` value of several codepoints (`"de-u-vt-0020-0041"`) is accepted, where it raised too.
 
