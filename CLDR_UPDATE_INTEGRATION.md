@@ -210,6 +210,8 @@ Data regeneration alone is not an update. Work through the Phase 0 artifacts:
 
 4. Commit the manifest with the data and push to `main`. CI's `check-locales` job confirms that R2 records the committed manifest before the tests download from it.
 
+   **Publish before pushing, not after.** The job compares R2's recorded manifest with the committed one, so a push that lands before the upload finishes fails it for the whole window between the two — it is reading a manifest the commit has not been published for yet. The failure is real, not spurious: for as long as it lasts, a consumer who downloads the data gets bytes the committed manifest refuses. Committing locally, publishing, then pushing keeps the published bytes tied to a commit without ever opening that window. This happened on 2026-10-11 and the push had to wait for a re-run.
+
 5. Run the release-review checklist (README install snippet, hexdocs links, executed doc examples, changelog claims) and `mix hex.publish`.
 
 6. Tag hygiene: the repo convention is a lightweight `vX.Y.Z` tag on the commit that was published. From then on the data version is released: `publish_locales` refuses to replace it, and changed data needs `mix localize.bump_patch_version` first.
