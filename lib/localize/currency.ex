@@ -670,10 +670,14 @@ defmodule Localize.Currency do
   * `:only` is a filter of currencies to include: a currency
     status (`:all`, `:current`, `:historic`, `:tender` or
     `:unannotated`), a currency code, or a list combining them.
-    The default is `:all`.
+    The default is `:all`. An **empty** list includes no
+    currency, so a filter built from a list that may be empty
+    needs `:all` rather than `[]` to mean "no restriction".
 
   * `:except` is a filter of currencies to exclude, in the same
-    form as `:only`. The default is `nil` (exclude none).
+    form as `:only`. The default is `nil` (exclude none). An
+    empty list excludes none, so `except: []` and `except: nil`
+    agree.
 
   ### Returns
 
@@ -738,10 +742,14 @@ defmodule Localize.Currency do
   * `:only` is a filter of currencies to include: a currency
     status (`:all`, `:current`, `:historic`, `:tender` or
     `:unannotated`), a currency code, or a list combining them.
-    The default is `:all`.
+    The default is `:all`. An **empty** list includes no
+    currency, so a filter built from a list that may be empty
+    needs `:all` rather than `[]` to mean "no restriction".
 
   * `:except` is a filter of currencies to exclude, in the same
-    form as `:only`. The default is `nil` (exclude none).
+    form as `:only`. The default is `nil` (exclude none). An
+    empty list excludes none, so `except: []` and `except: nil`
+    agree.
 
   ### Returns
 
@@ -1136,10 +1144,14 @@ defmodule Localize.Currency do
   * `:only` is a filter of currencies to include: a currency
     status (`:all`, `:current`, `:historic`, `:tender` or
     `:unannotated`), a currency code, or a list combining them.
-    The default is `:all`.
+    The default is `:all`. An **empty** list includes no
+    currency, so a filter built from a list that may be empty
+    needs `:all` rather than `[]` to mean "no restriction".
 
   * `:except` is a filter of currencies to exclude, in the same
-    form as `:only`. The default is `nil` (exclude none).
+    form as `:only`. The default is `nil` (exclude none). An
+    empty list excludes none, so `except: []` and `except: nil`
+    agree.
 
   ### Returns
 
@@ -1182,10 +1194,14 @@ defmodule Localize.Currency do
   * `:only` is a filter of currencies to include: a currency
     status (`:all`, `:current`, `:historic`, `:tender` or
     `:unannotated`), a currency code, or a list combining them.
-    The default is `:all`.
+    The default is `:all`. An **empty** list includes no
+    currency, so a filter built from a list that may be empty
+    needs `:all` rather than `[]` to mean "no restriction".
 
   * `:except` is a filter of currencies to exclude, in the same
-    form as `:only`. The default is `nil` (exclude none).
+    form as `:only`. The default is `nil` (exclude none). An
+    empty list excludes none, so `except: []` and `except: nil`
+    agree.
 
   ### Returns
 
