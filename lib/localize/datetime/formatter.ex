@@ -526,13 +526,34 @@ defmodule Localize.DateTime.Formatter do
     overrides = options[:number_system_overrides] || %{}
     locale = formatting_locale(options[:locale], locale_id)
 
-    with %{} <- overrides,
-         false <- Map.has_key?(overrides, "all"),
-         {:ok, system} when system != :latn <-
-           Localize.Number.System.number_system_from_locale(locale) do
-      Map.put(options, :number_system_overrides, Map.put(overrides, "all", system))
+    case locale_default_system(overrides, locale) do
+      {:ok, system} ->
+        Map.put(options, :number_system_overrides, Map.put(overrides, "all", system))
+
+      {:error, _no_default_needed} ->
+        options
+    end
+  end
+
+  # The locale's own number system becomes the `"all"` override, so every
+  # numeric field of a pattern renders in it. An override map that already
+  # names `"all"` is left alone, and a locale whose system is `latn` needs no
+  # override because `latn` is what the patterns already produce.
+  defp locale_default_system(overrides, locale) when is_map(overrides) do
+    if Map.has_key?(overrides, "all") do
+      {:error, :already_overridden}
     else
-      _ -> options
+      non_latn_system(locale)
+    end
+  end
+
+  defp locale_default_system(_overrides, _locale), do: {:error, :no_overrides}
+
+  defp non_latn_system(locale) do
+    case Localize.Number.System.number_system_from_locale(locale) do
+      {:ok, :latn} -> {:error, :latn_needs_no_override}
+      {:ok, system} -> {:ok, system}
+      {:error, _unknown} -> {:error, :no_locale_system}
     end
   end
 
@@ -753,16 +774,32 @@ defmodule Localize.DateTime.Formatter do
       ) do
     pattern = skeleton |> Kernel.to_string() |> String.replace(["j", "J", "C"], "h")
 
-    with {:ok, tokens, _end_line} <- tokenize_cached(pattern),
-         {:error, %Localize.DateTimeInvalidInputError{} = missing} <-
-           validate_fields(value, tokens, pattern) do
-      {:error, %{missing | format: skeleton}}
-    else
-      _fields_present -> error
+    case missing_field_error(value, pattern) do
+      {:ok, missing} -> {:error, %{missing | format: skeleton}}
+      {:error, _fields_present} -> error
     end
   end
 
   def explain_unresolved(result, _value, _skeleton), do: result
+
+  # The field a value lacks for a pattern, if it lacks one. A pattern that does
+  # not tokenize, and a value with every field the pattern asks for, both mean
+  # there is nothing to explain.
+  # `with` chains successes, and here the second step succeeds by returning an
+  # error — the field a value lacks — so a `case` says what is happening.
+  defp missing_field_error(value, pattern) do
+    case tokenize_cached(pattern) do
+      {:ok, tokens, _end_line} -> validation_error(value, tokens, pattern)
+      {:error, _untokenizable} -> {:error, :untokenizable}
+    end
+  end
+
+  defp validation_error(value, tokens, pattern) do
+    case validate_fields(value, tokens, pattern) do
+      {:error, %Localize.DateTimeInvalidInputError{} = missing} -> {:ok, missing}
+      _fields_present -> {:error, :fields_present}
+    end
+  end
 
   defp validate_fields(value, tokens, format_string) do
     fields =
@@ -1127,18 +1164,31 @@ defmodule Localize.DateTime.Formatter do
       when is_integer(year) and count in 1..5 do
     calendar_type = cldr_calendar_for_datetime(date)
 
-    with {:ok, number} <- cyclic_year_number(date),
-         position = Localize.Utils.Math.amod(number, 60),
-         {:ok, cyclic_data} <- Localize.Calendar.cyclic_years(locale_id, calendar_type),
-         name when is_binary(name) <-
-           get_in(cyclic_data, [:years, :format, cyclic_year_width(count), position]) do
-      name
-    else
-      _no_cyclic_name -> year(date, count, locale_id, options)
+    case cyclic_year_name(date, count, locale_id, calendar_type) do
+      {:ok, name} -> name
+      {:error, _no_cyclic_name} -> year(date, count, locale_id, options)
     end
   end
 
   def cyclic_year(_date, _count, _locale_id, _options), do: ""
+
+  # A date may name no cyclic year, a locale may carry none for the calendar,
+  # and a calendar may name none at the width asked for; the caller writes the
+  # ordinary year instead.
+  defp cyclic_year_name(date, count, locale_id, calendar_type) do
+    with {:ok, number} <- cyclic_year_number(date),
+         {:ok, cyclic_data} <- Localize.Calendar.cyclic_years(locale_id, calendar_type) do
+      position = Localize.Utils.Math.amod(number, 60)
+      fetch_cyclic_name(cyclic_data, cyclic_year_width(count), position)
+    end
+  end
+
+  defp fetch_cyclic_name(cyclic_data, width, position) do
+    case get_in(cyclic_data, [:years, :format, width, position]) do
+      name when is_binary(name) -> {:ok, name}
+      _absent -> {:error, :no_cyclic_name}
+    end
+  end
 
   defp cyclic_year_width(count) when count in 1..3, do: :abbreviated
   defp cyclic_year_width(4), do: :wide
@@ -1300,12 +1350,28 @@ defmodule Localize.DateTime.Formatter do
   end
 
   defp in_numeric_leap_pattern(formatted, date, locale_id) do
+    case numeric_leap_pattern(date, locale_id) do
+      {:ok, leap_pattern} ->
+        [formatted] |> Localize.Substitution.substitute(leap_pattern) |> IO.iodata_to_binary()
+
+      {:error, _no_numeric_leap_pattern} ->
+        formatted
+    end
+  end
+
+  # A locale may carry no month patterns for the calendar, and its patterns
+  # may carry none for a numeric leap month.
+  defp numeric_leap_pattern(date, locale_id) do
     with {:ok, patterns} <-
-           Localize.Calendar.month_patterns(locale_id, cldr_calendar_for_datetime(date)),
-         [_ | _] = leap_pattern <- get_in(patterns, [:numeric, :all, :leap]) do
-      [formatted] |> Localize.Substitution.substitute(leap_pattern) |> IO.iodata_to_binary()
-    else
-      _no_numeric_leap_pattern -> formatted
+           Localize.Calendar.month_patterns(locale_id, cldr_calendar_for_datetime(date)) do
+      fetch_leap_pattern(patterns)
+    end
+  end
+
+  defp fetch_leap_pattern(patterns) do
+    case get_in(patterns, [:numeric, :all, :leap]) do
+      [_ | _] = leap_pattern -> {:ok, leap_pattern}
+      _absent -> {:error, :no_numeric_leap_pattern}
     end
   end
 
@@ -1387,16 +1453,37 @@ defmodule Localize.DateTime.Formatter do
     end
   end
 
+  # `:error` rather than an error tuple, because the caller writes the plain
+  # number for every reason a pattern is unavailable and distinguishes none of
+  # them. `Localize.Locale.get/2` reports a missing locale as `{:error,
+  # exception}`, so that is narrowed here rather than at the call site.
   defp ordinal_day_pattern(date, day, locale_id) do
     path = [:dates, :calendars, cldr_calendar_for_datetime(date), :day_of_months]
 
-    with {:ok, %{format: %{abbreviated: patterns}}} <- Localize.Locale.get(locale_id, path),
-         category when is_atom(category) <-
-           Localize.Number.PluralRule.Ordinal.plural_rule(day, locale_id),
-         pattern when is_binary(pattern) <- Map.get(patterns, category, patterns[:other]) do
-      {:ok, pattern}
-    else
-      _no_ordinal_pattern -> :error
+    with {:ok, patterns} <- fetch_abbreviated_patterns(locale_id, path),
+         {:ok, category} <- fetch_ordinal_category(day, locale_id) do
+      fetch_ordinal_pattern(patterns, category)
+    end
+  end
+
+  defp fetch_abbreviated_patterns(locale_id, path) do
+    case Localize.Locale.get(locale_id, path) do
+      {:ok, %{format: %{abbreviated: patterns}}} -> {:ok, patterns}
+      _absent -> :error
+    end
+  end
+
+  defp fetch_ordinal_category(day, locale_id) do
+    case Localize.Number.PluralRule.Ordinal.plural_rule(day, locale_id) do
+      category when is_atom(category) -> {:ok, category}
+      _none -> :error
+    end
+  end
+
+  defp fetch_ordinal_pattern(patterns, category) do
+    case Map.get(patterns, category, patterns[:other]) do
+      pattern when is_binary(pattern) -> {:ok, pattern}
+      _absent -> :error
     end
   end
 
@@ -1522,16 +1609,45 @@ defmodule Localize.DateTime.Formatter do
   def period_noon_midnight(time, count, locale_id, options) when is_time(time) do
     minutes = displayed_minutes_of_day(time, options)
 
-    with rules when is_map(rules) <- day_period_rules(locale_id),
-         period when period != nil <- at_period(rules, minutes),
-         name when is_binary(name) <- day_period_name(period, day_period_width(count), locale_id) do
-      name
-    else
-      _ -> period_am_pm(time, count, locale_id, options)
+    case day_period(locale_id, count, &at_period(&1, minutes)) do
+      {:ok, name} -> name
+      {:error, _no_period_name} -> period_am_pm(time, count, locale_id, options)
     end
   end
 
   def period_noon_midnight(_time, _count, _locale_id, _options), do: ""
+
+  # The localized name of the day period `choose` picks out of the locale's
+  # rules. A locale may carry no day-period rules, its rules may name no
+  # period at the time, and a period may have no name at the width asked for;
+  # each is a reason for the caller to fall back to AM/PM.
+  defp day_period(locale_id, count, choose) do
+    with {:ok, rules} <- fetch_day_period_rules(locale_id),
+         {:ok, period} <- fetch_period(rules, choose) do
+      fetch_period_name(period, count, locale_id)
+    end
+  end
+
+  defp fetch_day_period_rules(locale_id) do
+    case day_period_rules(locale_id) do
+      rules when is_map(rules) -> {:ok, rules}
+      _none -> {:error, :no_day_period_rules}
+    end
+  end
+
+  defp fetch_period(rules, choose) do
+    case choose.(rules) do
+      nil -> {:error, :no_period_at_time}
+      period -> {:ok, period}
+    end
+  end
+
+  defp fetch_period_name(period, count, locale_id) do
+    case day_period_name(period, day_period_width(count), locale_id) do
+      name when is_binary(name) -> {:ok, name}
+      _none -> {:error, :no_period_name}
+    end
+  end
 
   # ── Flexible period (B) ────────────────────────────────────
 
@@ -1542,14 +1658,14 @@ defmodule Localize.DateTime.Formatter do
   # Locales without day-period rules, and periods without a localized
   # name, fall back to AM/PM.
   def period_flex(time, count, locale_id, options) when is_time(time) do
-    with rules when is_map(rules) <- day_period_rules(locale_id),
-         period when period != nil <-
-           at_period(rules, displayed_minutes_of_day(time, options)) ||
-             flex_period(rules, minutes_of_day(time)),
-         name when is_binary(name) <- day_period_name(period, day_period_width(count), locale_id) do
-      name
-    else
-      _ -> period_am_pm(time, count, locale_id, options)
+    choose = fn rules ->
+      at_period(rules, displayed_minutes_of_day(time, options)) ||
+        flex_period(rules, minutes_of_day(time))
+    end
+
+    case day_period(locale_id, count, choose) do
+      {:ok, name} -> name
+      {:error, _no_period_name} -> period_am_pm(time, count, locale_id, options)
     end
   end
 
@@ -1742,14 +1858,27 @@ defmodule Localize.DateTime.Formatter do
   # the locale's decimal separator, from the default number system.
   @doc false
   def decimal_separator(_datetime, _count, locale_id, _options) do
+    case locale_decimal_separator(locale_id) do
+      {:ok, separator} -> separator
+      {:error, _no_symbol_data} -> "."
+    end
+  end
+
+  # A locale may carry no number systems or symbols, and its decimal symbol may
+  # be absent or of an unexpected shape; the caller writes "." instead.
+  defp locale_decimal_separator(locale_id) do
     with {:ok, %{default: default_system}} <-
            Localize.Number.System.number_systems_for(locale_id),
          {:ok, %{decimal: decimal}} <-
-           Localize.Number.Symbol.number_symbols_for(locale_id, default_system),
-         separator when is_binary(separator) <- standard_separator(decimal) do
-      separator
-    else
-      _no_symbol_data -> "."
+           Localize.Number.Symbol.number_symbols_for(locale_id, default_system) do
+      fetch_standard_separator(decimal)
+    end
+  end
+
+  defp fetch_standard_separator(decimal) do
+    case standard_separator(decimal) do
+      separator when is_binary(separator) -> {:ok, separator}
+      _absent -> {:error, :no_decimal_separator}
     end
   end
 
