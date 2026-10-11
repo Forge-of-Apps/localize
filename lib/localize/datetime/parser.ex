@@ -392,23 +392,11 @@ defmodule Localize.DateTime.Parser do
 
     kinds = for {kind, _segment} <- segments, kind != :literal, do: kind
 
-    with true <- Enum.map_join(segments, &elem(&1, 1)) == pattern,
-         [first, second] when first in [:date, :time] and second in [:date, :time] <-
-           Enum.dedup(kinds) do
-      {before, second_half} = Enum.split_while(segments, &(elem(&1, 0) != second))
-      first_half = trim_trailing_literals(before)
-      glue = Enum.drop(before, length(first_half))
+    case two_runs(segments, kinds, pattern) do
+      {:ok, first, second} ->
+        split_between_runs(segments, first, second)
 
-      first_pattern = Enum.map_join(first_half, &elem(&1, 1))
-      second_pattern = Enum.map_join(second_half, &elem(&1, 1))
-      separator = glue |> Enum.map_join(&elem(&1, 1)) |> unquote_cldr_literal()
-
-      case first do
-        :date -> {:ok, {first_pattern, second_pattern, {separator, :date_first}}}
-        :time -> {:ok, {second_pattern, first_pattern, {separator, :time_first}}}
-      end
-    else
-      _not_two_runs ->
+      :none ->
         {:error, Localize.DateTimeFormatError.exception(format: pattern, reason: :invalid_format)}
     end
   end
@@ -453,18 +441,66 @@ defmodule Localize.DateTime.Parser do
   # read a date alone ("2023-11-18 14:30:45" with the Chinese calendar's
   # `r-MM-dd`; `Localize.Date.Parser.own_format_date/2`), is that
   # calendar's: the locale's patterns read it before ISO 8601 does, its
+  # `:none` unless the pattern writes one run of date fields and one of time
+  # fields, in either order, with nothing of its own outside them.
+  defp two_runs(segments, kinds, pattern) do
+    if Enum.map_join(segments, &elem(&1, 1)) == pattern do
+      dated_and_timed(Enum.dedup(kinds))
+    else
+      :none
+    end
+  end
+
+  defp dated_and_timed([first, second])
+       when first in [:date, :time] and second in [:date, :time] do
+    {:ok, first, second}
+  end
+
+  defp dated_and_timed(_not_two_runs), do: :none
+
+  # The literals between the two runs are the glue that joins them.
+  defp split_between_runs(segments, first, second) do
+    {before, second_half} = Enum.split_while(segments, &(elem(&1, 0) != second))
+    first_half = trim_trailing_literals(before)
+    glue = Enum.drop(before, length(first_half))
+
+    first_pattern = Enum.map_join(first_half, &elem(&1, 1))
+    second_pattern = Enum.map_join(second_half, &elem(&1, 1))
+    separator = glue |> Enum.map_join(&elem(&1, 1)) |> unquote_cldr_literal()
+
+    case first do
+      :date -> {:ok, {first_pattern, second_pattern, {separator, :date_first}}}
+      :time -> {:ok, {second_pattern, first_pattern, {separator, :time_first}}}
+    end
+  end
+
   # offset with it. No locale's pattern joins a date to a time with ISO
   # 8601's `T`, so text with one is ISO 8601's.
   defp own_format_datetime(candidates, locale, options, as) do
-    Enum.find_value(candidates, fn input ->
-      with [_input, date_text] <- Regex.run(~r/\A(\d{4}-\d{2}-\d{2}) /, input),
-           {:ok, _date} <- Localize.Date.Parser.own_format_date(date_text, options),
-           {:ok, _value} = ok <- try_locale_glue(input, locale, options, as) do
-        ok
-      else
-        _not_the_calendars_own -> nil
-      end
-    end)
+    Enum.find_value(candidates, &own_format_candidate(&1, locale, options, as))
+  end
+
+  # `nil` unless the text opens with the calendar's own whole date and a
+  # space, which the locale's glue then reads as a date and a time.
+  defp own_format_candidate(input, locale, options, as) do
+    case Regex.run(~r/\A(\d{4}-\d{2}-\d{2}) /, input) do
+      [_input, date_text] -> own_format_glue(input, date_text, locale, options, as)
+      nil -> nil
+    end
+  end
+
+  defp own_format_glue(input, date_text, locale, options, as) do
+    case Localize.Date.Parser.own_format_date(date_text, options) do
+      {:ok, _date} -> glued_value(input, locale, options, as)
+      _not_the_calendars_own -> nil
+    end
+  end
+
+  defp glued_value(input, locale, options, as) do
+    case try_locale_glue(input, locale, options, as) do
+      {:ok, _value} = ok -> ok
+      _unread -> nil
+    end
   end
 
   defp iso_candidate(input, calendar_module) do
@@ -632,19 +668,24 @@ defmodule Localize.DateTime.Parser do
       end)
 
     read =
-      with {:ok, time, zone} <- time_read,
-           {:ok, date} <- Localize.Date.parse(date_text, date_options(options)),
-           {:ok, ndt} <- naive_datetime(date, time) do
-        case zone do
-          nil -> {:ok, ndt}
-          _ -> {:ok, resolve_zone(zone, ndt, options)}
-        end
-      else
+      case joined_struct(time_read, date_text, options) do
+        {:ok, _value} = ok -> ok
         unread -> half_error(unread)
       end
 
     {read, times}
   end
+
+  defp joined_struct(time_read, date_text, options) do
+    with {:ok, time, zone} <- time_read,
+         {:ok, date} <- Localize.Date.parse(date_text, date_options(options)),
+         {:ok, ndt} <- naive_datetime(date, time) do
+      zoned(ndt, zone, options)
+    end
+  end
+
+  defp zoned(ndt, nil, _options), do: {:ok, ndt}
+  defp zoned(ndt, zone, options), do: {:ok, resolve_zone(zone, ndt, options)}
 
   # The date is in the calendar the input is read in and the time in
   # `Calendar.ISO`, while `NaiveDateTime.new/2` takes the two in one
@@ -766,20 +807,23 @@ defmodule Localize.DateTime.Parser do
       end)
 
     read =
-      with {:ok, %{} = time_map, zone} <- time_read,
-           {:ok, %{} = date_map} <- Localize.Date.parse(date_text, date_opts) do
-        # Date map carries `:calendar`; time map carries the time
-        # fields plus the zone fields if any. Merge — date's
-        # `:calendar` wins (the time map has no calendar key) — and
-        # resolve a named zone against the full date when the input
-        # gave one.
-        merged = Map.merge(time_map, date_map)
-        {:ok, put_zone_fields(merged, zone, options)}
-      else
+      case joined_map(time_read, date_text, date_opts, options) do
+        {:ok, _value} = ok -> ok
         unread -> half_error(unread)
       end
 
     {read, times}
+  end
+
+  # The date map carries `:calendar`; the time map carries the time fields
+  # plus the zone fields if any. Merged — the date's `:calendar` wins, the
+  # time map having no calendar key — and a named zone resolved against the
+  # whole date where the input gave one.
+  defp joined_map(time_read, date_text, date_opts, options) do
+    with {:ok, %{} = time_map, zone} <- time_read,
+         {:ok, %{} = date_map} <- Localize.Date.parse(date_text, date_opts) do
+      {:ok, put_zone_fields(Map.merge(time_map, date_map), zone, options)}
+    end
   end
 
   # The splits offered for one text share time halves: a date half with its
@@ -850,11 +894,13 @@ defmodule Localize.DateTime.Parser do
   # the wall time it was written with, as `parse/2` keeps it.
   @spec from_iso8601(String.t()) :: {:ok, DateTime.t() | NaiveDateTime.t()} | :error
   def from_iso8601(input) when is_binary(input) do
-    with true <- String.valid?(input),
-         {:ok, value, _unwritten} <- try_iso(input, Calendar.ISO) do
-      {:ok, value}
-    else
-      _not_iso_8601 -> :error
+    if String.valid?(input), do: iso_value(input), else: :error
+  end
+
+  defp iso_value(input) do
+    case try_iso(input, Calendar.ISO) do
+      {:ok, value, _unwritten} -> {:ok, value}
+      :error -> :error
     end
   end
 
@@ -896,13 +942,29 @@ defmodule Localize.DateTime.Parser do
   # each half. The date and the time need not both have their separators,
   # though ISO 8601 says they must: "20260616T10:30:00" has one meaning.
   defp other_iso(input, calendar_module) do
-    with [date_text, time_text] <-
-           Regex.run(~r/\A([0-9W-]+)[Tt](.+)\z/u, input, capture: :all_but_first),
-         {:ok, date} <- iso_date(date_text, calendar_module),
-         {:ok, time, unwritten} <- Localize.Time.Parser.extended_iso8601(time_text),
-         {:ok, value} <- elixir_iso(Date.to_iso8601(date) <> "T" <> time) do
-      {:ok, value, unwritten}
-    else
+    case Regex.run(~r/\A([0-9W-]+)[Tt](.+)\z/u, input, capture: :all_but_first) do
+      [date_text, time_text] -> iso_halves(date_text, time_text, calendar_module)
+      nil -> :error
+    end
+  end
+
+  defp iso_halves(date_text, time_text, calendar_module) do
+    case iso_date(date_text, calendar_module) do
+      {:ok, date} -> iso_time_after(date, time_text)
+      _no_iso_date -> :error
+    end
+  end
+
+  defp iso_time_after(date, time_text) do
+    case Localize.Time.Parser.extended_iso8601(time_text) do
+      {:ok, time, unwritten} -> elixir_value(date, time, unwritten)
+      :error -> :error
+    end
+  end
+
+  defp elixir_value(date, time, unwritten) do
+    case elixir_iso(Date.to_iso8601(date) <> "T" <> time) do
+      {:ok, value} -> {:ok, value, unwritten}
       _not_iso_8601 -> :error
     end
   end

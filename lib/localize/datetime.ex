@@ -730,28 +730,48 @@ defmodule Localize.DateTime do
 
     calendar = formats_calendar(datetime, skeleton)
 
-    with {:ok, date_pattern} <-
-           AppendItems.resolve_pattern(date_skeleton, locale_id, calendar, options),
-         {:ok, time_pattern} <-
-           AppendItems.resolve_pattern(time_skeleton, locale_id, calendar, options) do
-      time_pattern = Match.append_fractional_seconds(time_pattern, fraction_count, locale_id)
+    case resolved_halves(date_skeleton, time_skeleton, locale_id, calendar, options) do
+      {:ok, date_pattern, time_pattern} ->
+        time_pattern = Match.append_fractional_seconds(time_pattern, fraction_count, locale_id)
 
-      format_combined_patterns(
-        date_pattern,
-        time_pattern,
-        datetime,
-        options,
-        locale_id,
-        skeleton,
-        output
-      )
-    else
-      _unresolvable -> unresolved_skeleton(skeleton, locale_id)
+        format_combined_patterns(
+          date_pattern,
+          time_pattern,
+          datetime,
+          options,
+          locale_id,
+          skeleton,
+          output
+        )
+
+      :none ->
+        unresolved_skeleton(skeleton, locale_id)
     end
   end
 
   defp format_halves(glued, datetime, options, locale_id, _fraction_count, output) do
     format_glued(glued, datetime, options, locale_id, output)
+  end
+
+  # The patterns of a skeleton's date half and time half, where the locale
+  # resolves both.
+  defp resolved_halves(date_skeleton, time_skeleton, locale_id, calendar, options) do
+    with {:ok, date_pattern} <- resolved_half(date_skeleton, locale_id, calendar, options),
+         {:ok, time_pattern} <- resolved_half(time_skeleton, locale_id, calendar, options) do
+      {:ok, date_pattern, time_pattern}
+    end
+  end
+
+  defp resolved_half(skeleton, locale_id, calendar, options) do
+    case Localize.DateTime.Format.AppendItems.resolve_pattern(
+           skeleton,
+           locale_id,
+           calendar,
+           options
+         ) do
+      {:ok, pattern} -> {:ok, pattern}
+      _unresolvable -> :none
+    end
   end
 
   @weekday_symbols ~w(E c e)
@@ -789,12 +809,23 @@ defmodule Localize.DateTime do
 
     calendar = formats_calendar(datetime, skeleton)
 
+    case glued_pattern(kind, date_skeleton, time_skeleton, locale_id, calendar, options) do
+      {:ok, pattern} -> invoke_formatter(output, datetime, pattern, locale_id, Map.new(options))
+      :none -> unresolved_skeleton(skeleton, locale_id)
+    end
+  end
+
+  defp glued_pattern(kind, date_skeleton, time_skeleton, locale_id, calendar, options) do
     with {:ok, zero, one} <-
-           glue_parts(kind, date_skeleton, time_skeleton, {locale_id, calendar}, options),
-         {:ok, pattern} <- AppendItems.glue(kind, zero, one, locale_id, calendar) do
-      invoke_formatter(output, datetime, pattern, locale_id, Map.new(options))
-    else
-      _unresolvable -> unresolved_skeleton(skeleton, locale_id)
+           glue_parts(kind, date_skeleton, time_skeleton, {locale_id, calendar}, options) do
+      glued(kind, zero, one, locale_id, calendar)
+    end
+  end
+
+  defp glued(kind, zero, one, locale_id, calendar) do
+    case Localize.DateTime.Format.AppendItems.glue(kind, zero, one, locale_id, calendar) do
+      {:ok, pattern} -> {:ok, pattern}
+      _unglued -> :none
     end
   end
 

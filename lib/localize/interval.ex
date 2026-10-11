@@ -482,16 +482,28 @@ defmodule Localize.Interval do
 
   defp with_named_month(fields, pattern, skeleton)
        when is_atom(skeleton) and not is_nil(skeleton) do
-    with [named] <- Regex.run(~r/[ML]{3,}/, Atom.to_string(skeleton)),
-         [numbered] when byte_size(numbered) <= 2 <- Regex.run(~r/[ML]+/, fields),
-         true <- literal_words?(pattern) do
-      String.replace(fields, numbered, named, global: false)
-    else
-      _not_a_named_month -> fields
-    end
+    named_month(Regex.run(~r/[ML]{3,}/, Atom.to_string(skeleton)), fields, pattern)
   end
 
   defp with_named_month(fields, _pattern, _no_skeleton), do: fields
+
+  defp named_month([named], fields, pattern) do
+    numbered_month(Regex.run(~r/[ML]+/, fields), named, fields, pattern)
+  end
+
+  defp named_month(_no_named_month, fields, _pattern), do: fields
+
+  # A numbered month becomes the skeleton's named one only where the pattern's
+  # literal text holds a word, which a bare "16/6" has none of.
+  defp numbered_month([numbered], named, fields, pattern) when byte_size(numbered) <= 2 do
+    if literal_words?(pattern) do
+      String.replace(fields, numbered, named, global: false)
+    else
+      fields
+    end
+  end
+
+  defp numbered_month(_no_numbered_month, _named, fields, _pattern), do: fields
 
   # Whether a pattern's literal text holds a word: a letter in quotes, or a
   # letter outside them that is no field, as "年" and "月" are.
@@ -629,10 +641,8 @@ defmodule Localize.Interval do
   # 2026-10-06), as ICU, which holds the cycle as an era, writes them:
   # "5/2/2026 – 5/2/2086". TR35 does not say whether the cycle is a field.
   defp across_cycles?(from, to, locale_id) do
-    with {:ok, from_cycle} <- Localize.Calendar.cycle(from, locale_id),
-         {:ok, to_cycle} <- Localize.Calendar.cycle(to, locale_id) do
-      from_cycle != to_cycle
-    else
+    case {Localize.Calendar.cycle(from, locale_id), Localize.Calendar.cycle(to, locale_id)} do
+      {{:ok, from_cycle}, {:ok, to_cycle}} -> from_cycle != to_cycle
       _no_cycle -> false
     end
   end
@@ -1309,10 +1319,8 @@ defmodule Localize.Interval do
   # Values whose era cannot be settled, such as times and a Japanese year
   # holding two eras, are compared by their other units.
   defp differs?(from, to, :era) do
-    with {:ok, {_from_year, from_era}} <- Localize.Calendar.year_of_era(from),
-         {:ok, {_to_year, to_era}} <- Localize.Calendar.year_of_era(to) do
-      from_era != to_era
-    else
+    case {Localize.Calendar.year_of_era(from), Localize.Calendar.year_of_era(to)} do
+      {{:ok, {_from_year, from_era}}, {:ok, {_to_year, to_era}}} -> from_era != to_era
       _unsettled -> false
     end
   end
@@ -1335,26 +1343,38 @@ defmodule Localize.Interval do
        do: difference_visible?(format, difference)
 
   defp date_difference_visible?(format, difference, {from, to}, locale_id, options) do
-    with {:ok, pattern} <- Localize.Date.resolve_pattern(from, format, locale_id, options),
-         {:ok, differ?} <- written_fields_differ?(pattern, {from, to}, locale_id, options) do
-      differ?
-    else
-      _incomparable -> difference_visible?(format, difference)
+    case written_difference(format, {from, to}, locale_id, options) do
+      {:ok, differ?} -> differ?
+      :error -> difference_visible?(format, difference)
     end
   end
 
+  defp written_difference(format, {from, to}, locale_id, options) do
+    case Localize.Date.resolve_pattern(from, format, locale_id, options) do
+      {:ok, pattern} -> written_fields_differ?(pattern, {from, to}, locale_id, options)
+      {:error, _no_pattern} -> :error
+    end
+  end
+
+  # A pattern writing none of the comparison fields compares nothing.
   defp written_fields_differ?(pattern, {from, to}, locale_id, options) do
-    alias Localize.DateTime.Formatter
+    case comparison_pattern(pattern) do
+      "" -> :error
+      comparison -> compared_fields(comparison, from, to, locale_id, Map.new(options))
+    end
+  end
 
-    comparison = comparison_pattern(pattern)
-    options_map = Map.new(options)
+  defp compared_fields(comparison, from, to, locale_id, options_map) do
+    case Localize.DateTime.Formatter.format(from, comparison, locale_id, options_map) do
+      {:ok, from_fields} -> compared_to(from_fields, comparison, to, locale_id, options_map)
+      {:error, _unwritable} -> :error
+    end
+  end
 
-    with true <- comparison != "",
-         {:ok, from_fields} <- Formatter.format(from, comparison, locale_id, options_map),
-         {:ok, to_fields} <- Formatter.format(to, comparison, locale_id, options_map) do
-      {:ok, from_fields != to_fields}
-    else
-      _incomparable -> :error
+  defp compared_to(from_fields, comparison, to, locale_id, options_map) do
+    case Localize.DateTime.Formatter.format(to, comparison, locale_id, options_map) do
+      {:ok, to_fields} -> {:ok, from_fields != to_fields}
+      {:error, _unwritable} -> :error
     end
   end
 
@@ -1464,15 +1484,31 @@ defmodule Localize.Interval do
   # The item's pattern for `key`, adjusted to the requested widths and split
   # in two, or `{:fallback, skeleton}` when the table has no such pattern.
   defp interval_split(formats, format_key, requested_skeleton, key, options, fallback_skeleton) do
-    with pattern when not is_nil(pattern) <- item_pattern(Map.get(formats, format_key), key),
-         resolved when is_binary(resolved) <-
-           Localize.DateTime.Format.resolve_variant(pattern, options),
-         {:ok, adjusted} <- adjust_interval_widths(resolved, requested_skeleton, format_key),
+    case item_pattern(Map.get(formats, format_key), key) do
+      nil ->
+        {:fallback, fallback_skeleton}
+
+      pattern ->
+        resolved_split(pattern, requested_skeleton, format_key, options, fallback_skeleton)
+    end
+  end
+
+  defp resolved_split(pattern, requested_skeleton, format_key, options, fallback_skeleton) do
+    case Localize.DateTime.Format.resolve_variant(pattern, options) do
+      resolved when is_binary(resolved) ->
+        adjusted_split(resolved, requested_skeleton, format_key)
+
+      _no_variant ->
+        {:fallback, fallback_skeleton}
+    end
+  end
+
+  # A pattern the table writes without a repeated field has no two halves,
+  # which `split_interval/1` reports as an error of its own.
+  defp adjusted_split(resolved, requested_skeleton, format_key) do
+    with {:ok, adjusted} <- adjust_interval_widths(resolved, requested_skeleton, format_key),
          {:ok, [left, right]} <- split_interval(adjusted) do
       {:split, left, right}
-    else
-      {:error, _} = error -> error
-      _no_pattern -> {:fallback, fallback_skeleton}
     end
   end
 
@@ -1619,11 +1655,13 @@ defmodule Localize.Interval do
   # 2027 as "20/8/2027 – 16/6/2026", as its fallback pattern joins two
   # dates and as ICU4C writes an interval for such a locale.
   defp in_written_order({earlier, later}, value, locale_id) do
-    with {:ok, formats} <- interval_formats(locale_id, value),
-         :latest_first <- Localize.DateTime.Format.interval_order(formats) do
-      {later, earlier}
-    else
-      _earliest_first -> {earlier, later}
+    if latest_first?(locale_id, value), do: {later, earlier}, else: {earlier, later}
+  end
+
+  defp latest_first?(locale_id, value) do
+    case interval_formats(locale_id, value) do
+      {:ok, formats} -> Localize.DateTime.Format.interval_order(formats) == :latest_first
+      {:error, _no_formats} -> false
     end
   end
 
@@ -2221,20 +2259,34 @@ defmodule Localize.Interval do
 
   def written_patterns(format, locale, calendar_module, options)
       when is_atom(format) and not is_nil(format) do
-    calendar = Localize.Calendar.cldr_calendar_type(calendar_module)
+    case Localize.validate_locale(locale) do
+      {:ok, language_tag} ->
+        cldr_notation_patterns(format, language_tag, calendar_module, options)
 
-    with {:ok, language_tag} <- Localize.validate_locale(locale),
-         {:ok, false} <- Localize.Calendar.own_notation?(calendar_module),
-         {:ok, formats} <- Localize.DateTime.Format.interval_formats(language_tag, calendar),
-         {:ok, item} <- written_item(format, {language_tag, calendar}, options) do
-      {:ok, item_patterns(formats, item)}
-    else
+      {:error, _not_a_locale} = error ->
+        error
+    end
+  end
+
+  def written_patterns(_pattern, _locale, _calendar_module, _options), do: {:ok, {[], []}}
+
+  # A calendar with a notation of its own writes no interval patterns.
+  defp cldr_notation_patterns(format, language_tag, calendar_module, options) do
+    case Localize.Calendar.own_notation?(calendar_module) do
+      {:ok, false} -> interval_item_patterns(format, language_tag, calendar_module, options)
       {:ok, true} -> {:ok, {[], []}}
       {:error, _exception} = error -> error
     end
   end
 
-  def written_patterns(_pattern, _locale, _calendar_module, _options), do: {:ok, {[], []}}
+  defp interval_item_patterns(format, language_tag, calendar_module, options) do
+    calendar = Localize.Calendar.cldr_calendar_type(calendar_module)
+
+    with {:ok, formats} <- Localize.DateTime.Format.interval_formats(language_tag, calendar),
+         {:ok, item} <- written_item(format, {language_tag, calendar}, options) do
+      {:ok, item_patterns(formats, item)}
+    end
+  end
 
   defp written_item(format, {locale_id, _calendar} = lookup, options)
        when format in [:short, :medium, :long, :full] do

@@ -152,15 +152,19 @@ defmodule Localize.Time.Parser do
       options |> Keyword.take([:prefer]) |> Keyword.merge(format: format, locale: locale)
 
     with {:ok, written} <- Localize.Time.to_string(time, time_options),
-         false <- String.contains?(written, "�"),
+         :ok <- written_without_replacements(written, format),
          {:ok, patterns} <- resolved_patterns(times, format, locale, options) do
       {:ok, Enum.uniq(patterns)}
-    else
-      true ->
-        {:error, Localize.DateTimeFormatError.exception(format: format, reason: :invalid_format)}
+    end
+  end
 
-      {:error, _exception} = error ->
-        error
+  # A format the locale cannot write renders a replacement character, so the
+  # patterns it would produce cannot be read back either.
+  defp written_without_replacements(written, format) do
+    if String.contains?(written, "�") do
+      {:error, Localize.DateTimeFormatError.exception(format: format, reason: :invalid_format)}
+    else
+      :ok
     end
   end
 
@@ -252,12 +256,27 @@ defmodule Localize.Time.Parser do
   defp other_iso(input) do
     {designated?, text} = without_designator(input)
 
-    with {:ok, extended, unwritten} <- extended_iso8601(text),
-         true <- designated? or Regex.match?(~r/\A[0-9]{2}:/, text),
-         {:ok, time} <- Time.from_iso8601(extended) do
-      {:ok, time, unwritten, iso_offset(extended)}
+    if designated? or Regex.match?(~r/\A[0-9]{2}:/, text) do
+      filled_out_iso(text)
     else
-      _no_time -> :error
+      :error
+    end
+  end
+
+  # `:error` for every reason the text is no ISO 8601 time, because
+  # `read_in_any_format/5` reads it with the locale's patterns instead and
+  # tells the reasons apart no further.
+  defp filled_out_iso(text) do
+    with {:ok, extended, unwritten} <- extended_iso8601(text),
+         {:ok, time} <- iso_time(extended) do
+      {:ok, time, unwritten, iso_offset(extended)}
+    end
+  end
+
+  defp iso_time(extended) do
+    case Time.from_iso8601(extended) do
+      {:ok, time} -> {:ok, time}
+      {:error, _no_time} -> :error
     end
   end
 
@@ -584,15 +603,23 @@ defmodule Localize.Time.Parser do
   # ── Pattern → regex ──────────────────────────────────────────
 
   defp match_pattern(input, regex, tokens, day_periods, as, locale) do
-    with %Regex{} <- regex,
-         %{} = caps <- Regex.named_captures(regex, input),
+    with {:ok, caps} <- named_captures(regex, input),
          {:ok, hour} <- extract_hour(caps, tokens, day_periods),
          {:ok, zone} <- zone_capture(caps, locale) do
       build_match(as, caps, hour, zone)
-    else
-      _ -> :error
     end
   end
+
+  # A pattern that compiled to no regex, and input the regex does not match,
+  # are both `:error`: the caller tries the locale's next pattern.
+  defp named_captures(%Regex{} = regex, input) do
+    case Regex.named_captures(regex, input) do
+      %{} = caps -> {:ok, caps}
+      _no_match -> :error
+    end
+  end
+
+  defp named_captures(_no_regex, _input), do: :error
 
   # A zone field reads any text, so the pattern matches only where that
   # text is a zone the locale writes, in any of TR35's forms. A number
@@ -629,10 +656,17 @@ defmodule Localize.Time.Parser do
     with {:ok, minute} <- extract_field(caps, "minute", 0),
          {:ok, second} <- extract_field(caps, "second", 0),
          {:ok, microsecond} <- extract_microsecond(caps),
-         {:ok, time} <- Time.new(hour, minute, second, microsecond) do
+         {:ok, time} <- new_time(hour, minute, second, microsecond) do
       {:ok, time, zone}
-    else
-      _ -> :error
+    end
+  end
+
+  # Fields the pattern matched that make no time — a 61st minute — are not
+  # this pattern's match rather than an error of the caller's.
+  defp new_time(hour, minute, second, microsecond) do
+    case Time.new(hour, minute, second, microsecond) do
+      {:ok, time} -> {:ok, time}
+      {:error, _invalid_time} -> :error
     end
   end
 
@@ -943,12 +977,24 @@ defmodule Localize.Time.Parser do
         Map.get(caps, key, "") != ""
       end)
 
-    with raw when is_binary(raw) and raw != "" <- caps[hour_field],
-         {n, ""} <- Integer.parse(raw) do
+    with {:ok, raw} <- fetch_capture(caps, hour_field),
+         {:ok, number} <- capture_integer(raw) do
       letter = hour_field |> String.replace_prefix("hour_", "") |> String.to_atom()
-      resolve_hour(n, letter, caps, tokens, day_periods)
-    else
-      _ -> :error
+      resolve_hour(number, letter, caps, tokens, day_periods)
+    end
+  end
+
+  defp fetch_capture(caps, field) do
+    case caps[field] do
+      raw when is_binary(raw) and raw != "" -> {:ok, raw}
+      _unmatched -> :error
+    end
+  end
+
+  defp capture_integer(raw) do
+    case Integer.parse(raw) do
+      {number, ""} -> {:ok, number}
+      _not_an_integer -> :error
     end
   end
 

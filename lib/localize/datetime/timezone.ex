@@ -932,23 +932,38 @@ defmodule Localize.DateTime.Timezone do
   @offset_sample_days Enum.to_list(-184..184//7) ++ [184]
 
   defp offset_changes_near(time_zone, datetime) do
-    with %NaiveDateTime{} = instant <- metazone_instant(datetime),
-         {:ok, offsets} <- sampled_offsets(instant, time_zone, Calendar.get_time_zone_database()) do
-      {:ok, match?([_, _ | _], Enum.uniq(offsets))}
-    else
-      _no_offsets -> :unknown
+    case metazone_instant(datetime) do
+      %NaiveDateTime{} = instant -> offset_variety(instant, time_zone)
+      _no_instant -> :unknown
+    end
+  end
+
+  defp offset_variety(instant, time_zone) do
+    case sampled_offsets(instant, time_zone, Calendar.get_time_zone_database()) do
+      {:ok, offsets} -> {:ok, match?([_, _ | _], Enum.uniq(offsets))}
+      :error -> :unknown
     end
   end
 
   defp sampled_offsets(instant, time_zone, database) do
     Enum.reduce_while(@offset_sample_days, {:ok, []}, fn days, {:ok, offsets} ->
-      with {:ok, utc} <- DateTime.from_naive(NaiveDateTime.add(instant, days * 86_400), "Etc/UTC"),
-           {:ok, local} <- DateTime.shift_zone(utc, time_zone, database) do
-        {:cont, {:ok, [{local.utc_offset, local.std_offset} | offsets]}}
-      else
-        _no_offset -> {:halt, :error}
-      end
+      sampled_offset(instant, days, time_zone, database, offsets)
     end)
+  end
+
+  # A day the zone has no offset for ends the sampling: the zone is unknown.
+  defp sampled_offset(instant, days, time_zone, database, offsets) do
+    case local_offset(instant, days, time_zone, database) do
+      {:ok, local} -> {:cont, {:ok, [{local.utc_offset, local.std_offset} | offsets]}}
+      _no_offset -> {:halt, :error}
+    end
+  end
+
+  defp local_offset(instant, days, time_zone, database) do
+    with {:ok, utc} <-
+           DateTime.from_naive(NaiveDateTime.add(instant, days * 86_400), "Etc/UTC") do
+      DateTime.shift_zone(utc, time_zone, database)
+    end
   end
 
   # TR35's steps for a metazone name: bare for the metazone's preferred zone
@@ -987,14 +1002,21 @@ defmodule Localize.DateTime.Timezone do
   # CLDR's formatter and ICU write it ("Eastern Time (United States)"); by
   # TR35's composition, a country the locale does not name is its code.
   defp country_name(country, locale_id) do
-    with {:ok, language_tag} <- Localize.validate_locale(locale_id),
-         {:ok, territories} <- Localize.Locale.get(language_tag, [:territories]),
-         %{standard: name} when is_binary(name) <- Map.get(territories, country) do
-      name
-    else
+    case standard_territory_name(country, locale_id) do
+      name when is_binary(name) -> name
       _no_name -> Atom.to_string(country)
     end
   end
+
+  defp standard_territory_name(country, locale_id) do
+    with {:ok, language_tag} <- Localize.validate_locale(locale_id),
+         {:ok, territories} <- Localize.Locale.get(language_tag, [:territories]) do
+      standard_name(Map.get(territories, country))
+    end
+  end
+
+  defp standard_name(%{standard: name}), do: name
+  defp standard_name(_no_standard_name), do: nil
 
   defp city_name(time_zone, locale_id) do
     case exemplar_city(time_zone, locale_id) do
@@ -1102,12 +1124,16 @@ defmodule Localize.DateTime.Timezone do
   # "غرينتش-٤" in `ar-EG`. A system without digits of its
   # own, or one that is not known, leaves 0 to 9.
   defp offset_digits(offset, locale_id, number_system) do
-    with {:ok, system} <- offset_number_system(locale_id, number_system),
-         {:ok, digits} <- Localize.Number.System.number_system_digits(system),
-         %{} = map <- Localize.Number.System.generate_transliteration_map("0123456789", digits) do
-      Localize.Number.Transliterate.transliterate_digits(offset, map)
-    else
+    case offset_digit_map(locale_id, number_system) do
+      %{} = map -> Localize.Number.Transliterate.transliterate_digits(offset, map)
       _no_digits -> offset
+    end
+  end
+
+  defp offset_digit_map(locale_id, number_system) do
+    with {:ok, system} <- offset_number_system(locale_id, number_system),
+         {:ok, digits} <- Localize.Number.System.number_system_digits(system) do
+      Localize.Number.System.generate_transliteration_map("0123456789", digits)
     end
   end
 
@@ -1321,25 +1347,39 @@ defmodule Localize.DateTime.Timezone do
   # ── Localized GMT format, the locale's own spelling ──────────
 
   defp parse_localized_gmt_offset(zone, options, sign) do
-    with {:ok, language_tag} <- offset_locale(options),
-         {:ok, tz_data} <- Localize.Locale.get(language_tag, [:dates, :time_zone_names]),
-         {:ok, place, remainder} <-
-           strip_gmt_pattern(zone, tz_data[:gmt_format] || @default_gmt_format) do
-      # TR35's parsing: "the absence of a numeric offset should be
-      # interpreted as offset 0, whether in localized or global formats.
-      # For example, "GMT" or "UT" or "UTC+0" or "HPG" => Etc/GMT". The
-      # literal alone is GMT in its locale, as "GMT" is in every locale:
-      # "غرينتش" in `ar`, and `ga`'s "MAG", which is its name for Greenwich
-      # Mean Time too. `yo`'s is "WAT", which CLDR's data has for GMT there.
-      case {place, remainder} do
-        {_place, ""} when zone != "" -> {:ok, 0}
-        {:leading, remainder} -> parse_offset_after_literal(remainder, sign)
-        {:trailing, remainder} -> parse_signed_offset(remainder, :short_hour)
-      end
-    else
-      _no_offset -> :error
+    case offset_locale(options) do
+      {:ok, language_tag} -> gmt_offset_in(zone, language_tag, sign)
+      :error -> :error
     end
   end
+
+  defp gmt_offset_in(zone, language_tag, sign) do
+    case Localize.Locale.get(language_tag, [:dates, :time_zone_names]) do
+      {:ok, tz_data} -> gmt_offset_after(zone, tz_data, sign)
+      {:error, _no_zone_names} -> :error
+    end
+  end
+
+  defp gmt_offset_after(zone, tz_data, sign) do
+    case strip_gmt_pattern(zone, tz_data[:gmt_format] || @default_gmt_format) do
+      {:ok, place, remainder} -> gmt_offset(zone, place, remainder, sign)
+      _no_gmt_literal -> :error
+    end
+  end
+
+  # TR35's parsing: "the absence of a numeric offset should be interpreted
+  # as offset 0, whether in localized or global formats. For example, "GMT"
+  # or "UT" or "UTC+0" or "HPG" => Etc/GMT". The literal alone is GMT in its
+  # locale, as "GMT" is in every locale: "غرينتش" in `ar`, and `ga`'s "MAG",
+  # which is its name for Greenwich Mean Time too. `yo`'s is "WAT", which
+  # CLDR's data has for GMT there.
+  defp gmt_offset(zone, _place, "", _sign) when zone != "", do: {:ok, 0}
+
+  defp gmt_offset(_zone, :leading, remainder, sign),
+    do: parse_offset_after_literal(remainder, sign)
+
+  defp gmt_offset(_zone, :trailing, remainder, _sign),
+    do: parse_signed_offset(remainder, :short_hour)
 
   # Returns the validated tag rather than its id: its one caller reads locale
   # data with it, and zone parsing asks for that data once per candidate
@@ -1399,10 +1439,15 @@ defmodule Localize.DateTime.Timezone do
   # ── Signed offset digits ─────────────────────────────────────
 
   defp parse_signed_offset(offset, hour_digits) do
-    with {multiplier, digits} <- split_offset_sign(offset),
-         {:ok, seconds} <- offset_seconds(digits, hour_digits) do
-      {:ok, multiplier * seconds}
-    else
+    case split_offset_sign(offset) do
+      {multiplier, digits} -> signed_seconds(multiplier, digits, hour_digits)
+      _no_sign -> :error
+    end
+  end
+
+  defp signed_seconds(multiplier, digits, hour_digits) do
+    case offset_seconds(digits, hour_digits) do
+      {:ok, seconds} -> {:ok, multiplier * seconds}
       _no_offset -> :error
     end
   end
@@ -1468,14 +1513,15 @@ defmodule Localize.DateTime.Timezone do
   # offsets zones keep today end at fourteen hours, but Juneau kept
   # +15:02:19 until 1867 and Manila -15:56:08 until 1845.
   defp offset_total(hours, minutes, seconds) do
-    with {hh, ""} when hh <= 23 <- Integer.parse(hours),
-         {mm, ""} when mm < 60 <- Integer.parse(minutes),
-         {ss, ""} when ss < 60 <- Integer.parse(seconds) do
-      {:ok, hh * 3600 + mm * 60 + ss}
-    else
-      _invalid -> :error
-    end
+    offset_seconds_of(Integer.parse(hours), Integer.parse(minutes), Integer.parse(seconds))
   end
+
+  defp offset_seconds_of({hh, ""}, {mm, ""}, {ss, ""})
+       when hh <= 23 and mm < 60 and ss < 60 do
+    {:ok, hh * 3600 + mm * 60 + ss}
+  end
+
+  defp offset_seconds_of(_hours, _minutes, _seconds), do: :error
 
   # ── Parsing a zone ───────────────────────────────────────────
 
@@ -1712,17 +1758,25 @@ defmodule Localize.DateTime.Timezone do
     key = name_key(zone_string)
 
     written =
-      Enum.find_value(readings, fn reading ->
-        with {:ok, datetime} <- resolve_parsed_zone(reading, naive_datetime, database, tag),
-             :eq <- NaiveDateTime.compare(DateTime.to_naive(datetime), naive_datetime),
-             true <- written_as?(datetime, key, tag) do
-          {:ok, datetime}
-        else
-          _not_written_so -> nil
-        end
-      end)
+      Enum.find_value(readings, &written_reading(&1, naive_datetime, database, tag, key))
 
     written || resolve_parsed_zone(first, naive_datetime, database, tag)
+  end
+
+  # `nil` unless the reading is the wall time read and one of the formats
+  # that name a zone writes it as the string read.
+  defp written_reading(reading, naive_datetime, database, tag, key) do
+    case resolve_parsed_zone(reading, naive_datetime, database, tag) do
+      {:ok, datetime} -> written_datetime(datetime, naive_datetime, key, tag)
+      {:error, _unresolved} -> nil
+    end
+  end
+
+  defp written_datetime(datetime, naive_datetime, key, tag) do
+    if NaiveDateTime.compare(DateTime.to_naive(datetime), naive_datetime) == :eq and
+         written_as?(datetime, key, tag) do
+      {:ok, datetime}
+    end
   end
 
   # Whether one of the formats that name a zone writes the date and time's
@@ -2423,11 +2477,16 @@ defmodule Localize.DateTime.Timezone do
   # `plans/tr35-audit.md`; TR35 says only that "there can also be a gap"):
   # New York's 02:30 on the day it springs forward is 03:30 daylight time.
   defp across_gap(naive_datetime, time_zone, offset, database) do
-    with {:ok, utc} <- DateTime.from_naive(NaiveDateTime.add(naive_datetime, -offset), "Etc/UTC"),
-         {:ok, datetime} <- DateTime.shift_zone(utc, time_zone, database) do
-      {:ok, datetime}
-    else
+    case shifted_across_gap(naive_datetime, time_zone, offset, database) do
+      {:ok, datetime} -> {:ok, datetime}
       _no_datetime -> {:error, Localize.UnknownTimezoneError.exception(timezone: time_zone)}
+    end
+  end
+
+  defp shifted_across_gap(naive_datetime, time_zone, offset, database) do
+    with {:ok, utc} <-
+           DateTime.from_naive(NaiveDateTime.add(naive_datetime, -offset), "Etc/UTC") do
+      DateTime.shift_zone(utc, time_zone, database)
     end
   end
 
@@ -2585,20 +2644,27 @@ defmodule Localize.DateTime.Timezone do
   defp specific_type(type, time_zone, datetime, reach \\ :as_written)
 
   defp specific_type(:specific, time_zone, datetime, reach) do
-    with %{std_offset: std, dst_offset: dst} when is_integer(std) and is_integer(dst) <-
-           metazone_period(time_zone, datetime, reach),
-         offset when is_integer(offset) <- total_offset(datetime) do
-      cond do
-        offset == dst -> :daylight
-        offset == std -> :standard
-        true -> resolve_type(:specific, datetime)
-      end
-    else
-      _no_offsets -> resolve_type(:specific, datetime)
-    end
+    offset_type(
+      metazone_period(time_zone, datetime, reach),
+      total_offset(datetime),
+      datetime
+    )
   end
 
   defp specific_type(type, _time_zone, _datetime, _reach), do: type
+
+  # A zone whose metazone names neither offset, or whose own offset is
+  # neither, is typed by the flag the value carries.
+  defp offset_type(%{std_offset: std, dst_offset: dst}, offset, datetime)
+       when is_integer(std) and is_integer(dst) and is_integer(offset) do
+    cond do
+      offset == dst -> :daylight
+      offset == std -> :standard
+      true -> resolve_type(:specific, datetime)
+    end
+  end
+
+  defp offset_type(_period, _offset, datetime), do: resolve_type(:specific, datetime)
 
   defp resolve_type(:generic, _datetime), do: :generic
   defp resolve_type(:standard, _datetime), do: :standard
@@ -2658,12 +2724,24 @@ defmodule Localize.DateTime.Timezone do
   # negative pattern with, which its GMT format then repeated after the
   # offset. A pattern without minutes or hours is kept as it is.
   defp hour_field_pattern(sign_format) do
-    with {minutes_at, _length} <- :binary.match(sign_format, "mm"),
-         [_ | _] = hours <- :binary.matches(binary_part(sign_format, 0, minutes_at), "H") do
-      {hour_at, _length} = List.last(hours)
-      binary_part(sign_format, 0, hour_at + 1)
-    else
-      _no_minutes_or_hours -> sign_format
+    case hours_before_minutes(sign_format) do
+      {:ok, hour_at, _minutes_at} -> binary_part(sign_format, 0, hour_at + 1)
+      :none -> sign_format
+    end
+  end
+
+  # `:none` for a pattern with no minutes, or none before them.
+  defp hours_before_minutes(sign_format) do
+    case :binary.match(sign_format, "mm") do
+      {minutes_at, 2} -> last_hour_at(sign_format, minutes_at)
+      _no_minutes -> :none
+    end
+  end
+
+  defp last_hour_at(sign_format, minutes_at) do
+    case :binary.matches(binary_part(sign_format, 0, minutes_at), "H") do
+      [_ | _] = hours -> {:ok, elem(List.last(hours), 0), minutes_at}
+      [] -> :none
     end
   end
 
@@ -2677,18 +2755,19 @@ defmodule Localize.DateTime.Timezone do
   defp seconds_pattern(sign_format, 0), do: sign_format
 
   defp seconds_pattern(sign_format, _seconds) do
-    with {minutes_at, 2} <- :binary.match(sign_format, "mm"),
-         [_ | _] = hours <- :binary.matches(binary_part(sign_format, 0, minutes_at), "H") do
-      {hour_at, _length} = List.last(hours)
-      separator = binary_part(sign_format, hour_at + 1, minutes_at - hour_at - 1)
-      minutes_end = minutes_at + 2
-
-      binary_part(sign_format, 0, minutes_end) <>
-        separator <>
-        "ss" <> binary_part(sign_format, minutes_end, byte_size(sign_format) - minutes_end)
-    else
-      _no_minutes_or_hours -> sign_format
+    case hours_before_minutes(sign_format) do
+      {:ok, hour_at, minutes_at} -> with_seconds(sign_format, hour_at, minutes_at)
+      :none -> sign_format
     end
+  end
+
+  defp with_seconds(sign_format, hour_at, minutes_at) do
+    separator = binary_part(sign_format, hour_at + 1, minutes_at - hour_at - 1)
+    minutes_end = minutes_at + 2
+
+    binary_part(sign_format, 0, minutes_end) <>
+      separator <>
+      "ss" <> binary_part(sign_format, minutes_end, byte_size(sign_format) - minutes_end)
   end
 
   defp parse_hour_format(format_string) do
@@ -2814,21 +2893,32 @@ defmodule Localize.DateTime.Timezone do
     do: {:error, Localize.UnknownTimezoneError.exception(timezone: iana_id)}
 
   defp derived_exemplar_city(iana_id, options) do
-    with true <- Keyword.get(options, :derive, true),
-         city when is_binary(city) <- derive_city_from_id(iana_id) do
-      {:ok, city}
+    if Keyword.get(options, :derive, true) do
+      derived_city(iana_id)
     else
+      {:error, Localize.UnknownTimezoneError.exception(timezone: iana_id)}
+    end
+  end
+
+  defp derived_city(iana_id) do
+    case derive_city_from_id(iana_id) do
+      city when is_binary(city) -> {:ok, city}
       _no_city -> {:error, Localize.UnknownTimezoneError.exception(timezone: iana_id)}
     end
   end
 
   defp find_exemplar_city(iana_id, zone) do
-    with [_ | _] = keys <- zone_path(iana_id),
-         # A zone CLDR gives no exemplar city for carries only its long and
-         # short names.
-         %{exemplar_city: city_name} <- get_in(zone, keys) do
-      city_name
-    else
+    case zone_path(iana_id) do
+      [_ | _] = keys -> named_exemplar_city(zone, keys)
+      _no_path -> nil
+    end
+  end
+
+  # A zone CLDR gives no exemplar city for carries only its long and short
+  # names.
+  defp named_exemplar_city(zone, keys) do
+    case get_in(zone, keys) do
+      %{exemplar_city: city_name} -> city_name
       _no_city -> nil
     end
   end
@@ -2965,11 +3055,15 @@ defmodule Localize.DateTime.Timezone do
   end
 
   defp sole_zone_territory(canonical) do
-    with territory when not is_nil(territory) <-
-           Map.get(@territories_by_timezone, canonical),
-         [_the_only_zone] <- Map.get(@timezones_by_territory, territory) do
-      territory
-    else
+    case Map.get(@territories_by_timezone, canonical) do
+      nil -> nil
+      territory -> sole_territory(territory)
+    end
+  end
+
+  defp sole_territory(territory) do
+    case Map.get(@timezones_by_territory, territory) do
+      [_the_only_zone] -> territory
       _several_zones_or_none -> nil
     end
   end
@@ -3032,18 +3126,36 @@ defmodule Localize.DateTime.Timezone do
   def generic_location_format(iana_id, locale \\ Localize.get_locale())
 
   def generic_location_format(iana_id, locale) when is_binary(iana_id) do
-    with false <- etc_zone?(iana_id),
-         {:ok, place} <- location_name(iana_id, locale),
-         {:ok, language_tag} <- Localize.validate_locale(locale),
-         {:ok, names} <- Localize.Locale.get(language_tag, [:dates, :time_zone_names]),
-         %{generic: template} <- Map.get(names, :region_format, %{}) do
-      {:ok, place |> Localize.Substitution.substitute(template) |> IO.iodata_to_binary()}
-    else
-      _no_place_or_template -> :error
-    end
+    if etc_zone?(iana_id), do: :error, else: located_generic_format(iana_id, locale)
   end
 
   def generic_location_format(_iana_id, _locale), do: :error
+
+  defp located_generic_format(iana_id, locale) do
+    case region_template_and_place(iana_id, locale) do
+      {:ok, place, template} ->
+        {:ok, place |> Localize.Substitution.substitute(template) |> IO.iodata_to_binary()}
+
+      _no_place_or_template ->
+        :error
+    end
+  end
+
+  defp region_template_and_place(iana_id, locale) do
+    with {:ok, place} <- location_name(iana_id, locale),
+         {:ok, language_tag} <- Localize.validate_locale(locale),
+         {:ok, names} <- Localize.Locale.get(language_tag, [:dates, :time_zone_names]),
+         {:ok, template} <- generic_region_format(names) do
+      {:ok, place, template}
+    end
+  end
+
+  defp generic_region_format(names) do
+    case Map.get(names, :region_format, %{}) do
+      %{generic: template} -> {:ok, template}
+      _no_generic_template -> :none
+    end
+  end
 
   # `Etc/*` zones are not locations — there is no place to name — so TR35
   # sends them to the localized GMT format instead.

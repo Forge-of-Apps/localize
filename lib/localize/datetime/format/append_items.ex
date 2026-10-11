@@ -185,15 +185,30 @@ defmodule Localize.DateTime.Format.AppendItems do
   # a time has no zone to show.
   defp from_fields(skeleton, locale_id, calendar_type) do
     with {:ok, tokens} <- Match.tokenize_skeleton(skeleton),
-         [{symbol, count} | rest] <- Enum.sort_by(tokens, &canonical_index/1),
-         true <- Enum.all?(tokens, &appendable?/1),
-         false <- Match.zone_only_skeleton?(skeleton),
+         {:ok, symbol, count, rest} <- leading_token(tokens),
+         :ok <- every_token_appendable(tokens),
+         :ok <- more_than_a_zone(skeleton),
          {:ok, templates} <- Format.append_items(locale_id, calendar_type) do
       append_all(String.duplicate(symbol, count), rest, templates, locale_id)
-    else
-      {:error, _reason} = error -> error
-      _unresolvable -> :error
     end
+  end
+
+  # `:error` for each reason a skeleton cannot be appended to, which the
+  # caller tells apart no further; an error from the steps that report one is
+  # returned as it is.
+  defp leading_token(tokens) do
+    case Enum.sort_by(tokens, &canonical_index/1) do
+      [{symbol, count} | rest] -> {:ok, symbol, count, rest}
+      _no_leading_token -> :error
+    end
+  end
+
+  defp every_token_appendable(tokens) do
+    if Enum.all?(tokens, &appendable?/1), do: :ok, else: :error
+  end
+
+  defp more_than_a_zone(skeleton) do
+    if Match.zone_only_skeleton?(skeleton), do: :error, else: :ok
   end
 
   defp canonical_index({symbol, _count}) do
@@ -217,11 +232,17 @@ defmodule Localize.DateTime.Format.AppendItems do
   end
 
   defp subset_in(skeleton, locale_id, calendar) do
-    with {:ok, matched_id, missing_tokens} <- Match.subset_match(skeleton, locale_id, calendar),
-         true <- Enum.all?(missing_tokens, &appendable?/1) do
-      [{calendar, matched_id, missing_tokens}]
-    else
+    case appendable_subset_in(skeleton, locale_id, calendar) do
+      {:ok, matched_id, missing_tokens} -> [{calendar, matched_id, missing_tokens}]
       _not_appendable -> []
+    end
+  end
+
+  defp appendable_subset_in(skeleton, locale_id, calendar) do
+    with {:ok, matched_id, missing_tokens} <-
+           Match.subset_match(skeleton, locale_id, calendar),
+         :ok <- every_token_appendable(missing_tokens) do
+      {:ok, matched_id, missing_tokens}
     end
   end
 
@@ -285,26 +306,42 @@ defmodule Localize.DateTime.Format.AppendItems do
   # The locale's own format for this exact skeleton, or `nil` if it ships
   # none — which is the common case, not a failure.
   defp available_pattern(skeleton, locale_id, calendar_type, options) do
-    with {:ok, available} <- Format.available_formats(locale_id, calendar_type),
-         id when not is_nil(id) <- existing_format_id(skeleton),
-         pattern when not is_nil(pattern) <- Map.get(available, id),
-         {:ok, resolved} <- variant_pattern(pattern, options) do
-      {:ok, resolved}
-    else
+    case own_format_pattern(skeleton, locale_id, calendar_type, options) do
+      {:ok, resolved} -> {:ok, resolved}
       _no_format_of_its_own -> nil
+    end
+  end
+
+  defp own_format_pattern(skeleton, locale_id, calendar_type, options) do
+    with {:ok, available} <- Format.available_formats(locale_id, calendar_type),
+         {:ok, id} <- present(existing_format_id(skeleton)),
+         {:ok, pattern} <- present(Map.get(available, id)) do
+      variant_pattern(pattern, options)
     end
   end
 
   # The closest single format, its field widths adjusted to the request.
   defp matched_pattern_for(skeleton, locale_id, calendar_type, options) do
-    with {:ok, matched_id} when is_atom(matched_id) <-
-           Match.best_match(skeleton, locale_id, calendar_type),
-         {:ok, pattern} <- matched_pattern(matched_id, locale_id, calendar_type, options),
-         {:ok, tokens} <- Match.tokenize_skeleton(Kernel.to_string(skeleton)),
-         {:ok, adjusted} <- Match.adjust_field_lengths(pattern, tokens, matched_id) do
-      {:ok, adjusted}
-    else
+    case single_match_pattern(skeleton, locale_id, calendar_type, options) do
+      {:ok, adjusted} -> {:ok, adjusted}
       _no_single_match -> nil
+    end
+  end
+
+  defp single_match_pattern(skeleton, locale_id, calendar_type, options) do
+    with {:ok, matched_id} <- matched_format_id(skeleton, locale_id, calendar_type),
+         {:ok, pattern} <- matched_pattern(matched_id, locale_id, calendar_type, options),
+         {:ok, tokens} <- Match.tokenize_skeleton(Kernel.to_string(skeleton)) do
+      Match.adjust_field_lengths(pattern, tokens, matched_id)
+    end
+  end
+
+  # Only a format the locale names by an atom is a single match; a skeleton
+  # the matcher answers with a string names none.
+  defp matched_format_id(skeleton, locale_id, calendar_type) do
+    case Match.best_match(skeleton, locale_id, calendar_type) do
+      {:ok, matched_id} when is_atom(matched_id) -> {:ok, matched_id}
+      _no_single_match -> :none
     end
   end
 
@@ -409,8 +446,8 @@ defmodule Localize.DateTime.Format.AppendItems do
         ) ::
           {:ok, String.t()} | :error
   def glue(kind, zero, one, locale_id, calendar_type) do
-    with {:ok, templates} <- Format.append_items(locale_id, calendar_type),
-         template when is_list(template) <- Map.get(templates, kind) do
+    with {:ok, templates} <- append_item_templates(locale_id, calendar_type),
+         {:ok, template} <- append_template(templates, kind) do
       {:ok,
        Enum.map_join(template, "", fn
          0 -> zero
@@ -418,10 +455,27 @@ defmodule Localize.DateTime.Format.AppendItems do
          literal when is_binary(literal) -> literal
          _other -> ""
        end)}
-    else
-      _no_template -> :error
     end
   end
+
+  defp append_item_templates(locale_id, calendar_type) do
+    case Format.append_items(locale_id, calendar_type) do
+      {:ok, templates} -> {:ok, templates}
+      {:error, _no_templates} -> :error
+    end
+  end
+
+  defp append_template(templates, kind) do
+    case Map.get(templates, kind) do
+      template when is_list(template) -> {:ok, template}
+      _absent -> :error
+    end
+  end
+
+  # A value a lookup did not find. `:none` rather than an error, because the
+  # callers here fall back to another path and name no reason.
+  defp present(nil), do: :none
+  defp present(value), do: {:ok, value}
 
   # Integers in the template are the placeholders; everything else is a
   # literal. `{1}` is a pattern fragment, so it is quoted only if the

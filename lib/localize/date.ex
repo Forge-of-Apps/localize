@@ -453,17 +453,18 @@ defmodule Localize.Date do
   # beside its month (`MMMMW`), whose month is then the period.
   @spec own_fields(map(), atom() | String.t()) :: {atom() | String.t(), atom()}
   def own_fields(date, skeleton) do
-    with %{calendar: calendar} <- date,
-         :ok <- Localize.Calendar.validate_calendar(date),
-         {:ok, parsing} when parsing != calendar <- Localize.Calendar.parsing_calendar(calendar) do
-      weeks = week_skeleton(skeleton)
-
-      if names_week?(weeks),
-        do: {weeks, Localize.Calendar.cldr_calendar_type(parsing)},
-        else: {weeks, cldr_calendar_for(date)}
-    else
-      _the_fields_it_names -> {skeleton, cldr_calendar_for(date)}
+    case parsing_calendar_of(date) do
+      {:ok, parsing} -> week_skeleton_for(skeleton, parsing, date)
+      :none -> {skeleton, cldr_calendar_for(date)}
     end
+  end
+
+  defp week_skeleton_for(skeleton, parsing, date) do
+    weeks = week_skeleton(skeleton)
+
+    if names_week?(weeks),
+      do: {weeks, Localize.Calendar.cldr_calendar_type(parsing)},
+      else: {weeks, cldr_calendar_for(date)}
   end
 
   @doc false
@@ -474,13 +475,40 @@ defmodule Localize.Date do
   # in the formats the formatter wrote it with.
   @spec formats_calendar(module(), atom() | String.t()) :: module()
   def formats_calendar(calendar, skeleton) do
-    with :ok <- Localize.Calendar.validate_calendar(%{calendar: calendar}),
-         {:ok, parsing} when parsing != calendar <- Localize.Calendar.parsing_calendar(calendar),
-         true <- names_week?(week_skeleton(skeleton)) do
-      parsing
-    else
-      _its_own -> calendar
+    case week_parsing_calendar(calendar, skeleton) do
+      {:ok, parsing} -> parsing
+      :none -> calendar
     end
+  end
+
+  defp week_parsing_calendar(calendar, skeleton) do
+    with {:ok, parsing} <- parsing_calendar_of(%{calendar: calendar}),
+         :ok <- skeleton_names_week(skeleton) do
+      {:ok, parsing}
+    end
+  end
+
+  # The calendar that reads a value's dates, where it is not the value's own.
+  # A value with no calendar, one whose calendar Localize cannot question, and
+  # one that reads its own dates all answer `:none`.
+  defp parsing_calendar_of(%{calendar: calendar} = date) do
+    case Localize.Calendar.validate_calendar(date) do
+      :ok -> other_parsing_calendar(calendar)
+      {:error, _not_a_calendar} -> :none
+    end
+  end
+
+  defp parsing_calendar_of(_no_calendar), do: :none
+
+  defp other_parsing_calendar(calendar) do
+    case Localize.Calendar.parsing_calendar(calendar) do
+      {:ok, parsing} when parsing != calendar -> {:ok, parsing}
+      _its_own -> :none
+    end
+  end
+
+  defp skeleton_names_week(skeleton) do
+    if names_week?(week_skeleton(skeleton)), do: :ok, else: :none
   end
 
   # A skeleton with its month as a week, unless it names a week already, and

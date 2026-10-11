@@ -405,21 +405,52 @@ defmodule Localize.DateTime.SemanticSkeleton do
   @spec standard_date_format(t(), Localize.locale(), atom()) ::
           {:ok, :short | :medium | :long | :full, t() | nil} | :error
   def standard_date_format(%__MODULE__{} = skeleton, locale_id, calendar_type) do
-    with {:ok, skeleton} <- validate_skeleton(skeleton),
-         {date_fields, time_fields} = Enum.split_with(skeleton.fields, &(&1 in @date_fields)),
-         true <- Enum.all?([:year, :month, :day], &(&1 in date_fields)),
-         date_skeleton = %{skeleton | fields: date_fields},
-         {:ok, classical} <- classical_skeleton(date_skeleton, locale_id, calendar_type, nil),
-         {:ok, formats} <- Localize.DateTime.Format.date_formats(locale_id, calendar_type),
-         format when not is_nil(format) <-
-           Enum.find([skeleton.length, :full], &same_fields?(Map.get(formats, &1), classical)) do
-      {:ok, format, time_part(skeleton, time_fields)}
-    else
-      _no_standard_format -> :error
+    case validate_skeleton(skeleton) do
+      {:ok, skeleton} -> whole_date_format(skeleton, locale_id, calendar_type)
+      {:error, _invalid_skeleton} -> :error
     end
   end
 
   def standard_date_format(_skeleton, _locale_id, _calendar_type), do: :error
+
+  # Only a skeleton naming a whole date can be a standard date format.
+  defp whole_date_format(skeleton, locale_id, calendar_type) do
+    {date_fields, time_fields} = Enum.split_with(skeleton.fields, &(&1 in @date_fields))
+
+    if Enum.all?([:year, :month, :day], &(&1 in date_fields)) do
+      classical_date_format(skeleton, date_fields, time_fields, locale_id, calendar_type)
+    else
+      :error
+    end
+  end
+
+  defp classical_date_format(skeleton, date_fields, time_fields, locale_id, calendar_type) do
+    date_skeleton = %{skeleton | fields: date_fields}
+
+    case classical_skeleton(date_skeleton, locale_id, calendar_type, nil) do
+      {:ok, classical} ->
+        matching_date_format(skeleton, time_fields, classical, locale_id, calendar_type)
+
+      {:error, _no_classical_skeleton} ->
+        :error
+    end
+  end
+
+  defp matching_date_format(skeleton, time_fields, classical, locale_id, calendar_type) do
+    case Localize.DateTime.Format.date_formats(locale_id, calendar_type) do
+      {:ok, formats} -> same_length(skeleton, time_fields, classical, formats)
+      {:error, _no_date_formats} -> :error
+    end
+  end
+
+  # The requested length first, then `:full`: a skeleton is a standard format
+  # only where one of those formats names the same fields.
+  defp same_length(skeleton, time_fields, classical, formats) do
+    case Enum.find([skeleton.length, :full], &same_fields?(Map.get(formats, &1), classical)) do
+      nil -> :error
+      format -> {:ok, format, time_part(skeleton, time_fields)}
+    end
+  end
 
   defp time_part(_skeleton, []), do: nil
   defp time_part(skeleton, time_fields), do: %{skeleton | fields: time_fields}

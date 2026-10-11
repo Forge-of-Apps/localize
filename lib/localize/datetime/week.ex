@@ -37,14 +37,25 @@ defmodule Localize.DateTime.Week do
   """
   @spec config(Localize.LanguageTag.t() | atom() | String.t()) :: {1..7, 1..7}
   def config(locale) do
-    with {:ok, tag} <- Localize.validate_locale(locale),
-         first_day when is_integer(first_day) <- Localize.Calendar.first_day_for_locale(tag),
-         min_days when is_integer(min_days) <- Localize.Calendar.min_days_for_locale(tag) do
-      {first_day, min_days}
-    else
-      _unresolved -> {1, 1}
+    case Localize.validate_locale(locale) do
+      {:ok, tag} -> week_config(tag)
+      {:error, _invalid_locale} -> {1, 1}
     end
   end
+
+  # The ISO default where the locale names no week rule of its own.
+  defp week_config(tag) do
+    week_config(
+      Localize.Calendar.first_day_for_locale(tag),
+      Localize.Calendar.min_days_for_locale(tag)
+    )
+  end
+
+  defp week_config(first_day, min_days) when is_integer(first_day) and is_integer(min_days) do
+    {first_day, min_days}
+  end
+
+  defp week_config(_first_day, _min_days), do: {1, 1}
 
   @doc """
   Converts a locale-relative day-of-week number to the ISO day number.
