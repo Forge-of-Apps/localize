@@ -130,7 +130,13 @@ defmodule Localize.Number.Rbnf do
          {:ok, resolved_name} <- resolve_rule_name(rule_name, all_rule_sets, locale_id),
          :ok <- reject_und_spellout_stub(locale_id, requested_id, resolved_name),
          {:ok, rule_set} <- find_rule_set(all_rule_sets, resolved_name, locale_id) do
-      Processor.process(number, resolved_name, rule_set.rules, all_rule_sets, requested_id)
+      # The digits are formatted in the requested locale; the plural forms of
+      # `$(cardinal,…)$` come from the locale whose rules were found, since
+      # they select among that locale's own words.
+      Processor.process(number, resolved_name, rule_set.rules, all_rule_sets, %{
+        locale: requested_id,
+        plural_locale: Localize.Locale.data_locale_id(locale_id)
+      })
     else
       {:error, _not_in_this_locale} -> nil
     end

@@ -1,6 +1,8 @@
 defmodule Localize.Number.RbnfRuleProcessorTest do
   use ExUnit.Case, async: true
 
+  @en_context %{locale: :en, plural_locale: :en}
+
   alias Localize.Number
   alias Localize.Number.Rbnf.Rule
 
@@ -375,7 +377,40 @@ defmodule Localize.Number.RbnfRuleProcessorTest do
         }
       ]
 
-      assert Processor.process(1234, "fmt", rules, %{}, :en) == {:ok, "1,234"}
+      assert Processor.process(1234, "fmt", rules, %{}, @en_context) == {:ok, "1,234"}
+    end
+
+    # The plural forms of a `$(cardinal,…)$` substitution are the words of the
+    # locale the rule set came from, so the rules that choose among them must
+    # be that locale's too — not the requested locale's, which may have a
+    # different set of categories (#55).
+    test "a plural-keyed substitution selects with :plural_locale, not :locale" do
+      rules = [
+        %{
+          base_value: 1_000_000,
+          radix: 10,
+          definition:
+            "←←$(cardinal,one{ MILLION}few{ MILLIONA}many{ MILLIONOV}other{ MILLIONA})$",
+          range: "undefined",
+          divisor: 1_000_000
+        },
+        %{base_value: 0, radix: 10, definition: "=#,##0=", range: "undefined", divisor: 1}
+      ]
+
+      # Russian puts 2 in :few and 5 in :many; English puts both in :other.
+      russian = %{locale: :en, plural_locale: :ru}
+      english = %{locale: :en, plural_locale: :en}
+
+      all_sets = %{"m" => %{rules: rules}}
+
+      assert {:ok, two_ru} = Processor.process(2_000_000, "m", rules, all_sets, russian)
+      assert {:ok, five_ru} = Processor.process(5_000_000, "m", rules, all_sets, russian)
+      assert {:ok, two_en} = Processor.process(2_000_000, "m", rules, all_sets, english)
+
+      assert String.ends_with?(two_ru, "MILLIONA")
+      assert String.ends_with?(five_ru, "MILLIONOV")
+      assert String.ends_with?(two_en, "MILLIONA")
+      refute five_ru == String.replace(two_ru, "2", "5")
     end
 
     test "ruleset calls resolve string, atom, dashed and underscored names" do
