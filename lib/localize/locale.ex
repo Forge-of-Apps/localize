@@ -1126,17 +1126,35 @@ defmodule Localize.Locale do
   def gettext_locale_id(locale, gettext_backend) when is_atom(gettext_backend) do
     with {:ok, known} <- known_gettext_locales(gettext_backend),
          {:ok, locale_string} <- gettext_locale_string(locale) do
-      case LanguageTag.best_match(locale_string, known) do
-        {:ok, matched_locale, _score} ->
-          {:ok, matched_locale}
-
-        {:error, _} ->
-          {:error, Localize.UnknownLocaleError.exception(locale_id: locale_string)}
-      end
+      cached_gettext_locale_id(locale_string, known)
     end
   end
 
   def gettext_locale_id(_locale, gettext_backend), do: invalid_gettext_backend(gettext_backend)
+
+  # A web application calls this on every request and matching costs about
+  # 18 µs, so a match is cached. The key carries the backend's known locales,
+  # not the backend module, so a backend recompiled with other locales cannot
+  # be served a stale match.
+  defp cached_gettext_locale_id(locale_string, known) do
+    key = {:localize, :gettext_locale_id, locale_string, known}
+
+    case Localize.FormatCache.lookup(key) do
+      {:ok, cached} -> cached
+      :miss -> match_gettext_locale_id(key, locale_string, known)
+    end
+  end
+
+  defp match_gettext_locale_id(key, locale_string, known) do
+    case LanguageTag.best_match(locale_string, known) do
+      {:ok, matched_locale, _score} ->
+        Localize.FormatCache.store(key, {:ok, matched_locale})
+        {:ok, matched_locale}
+
+      {:error, _} ->
+        {:error, Localize.UnknownLocaleError.exception(locale_id: locale_string)}
+    end
+  end
 
   defp known_gettext_locales(gettext_backend) do
     if gettext_backend?(gettext_backend) do
