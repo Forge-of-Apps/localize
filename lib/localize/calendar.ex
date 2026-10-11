@@ -1006,6 +1006,15 @@ defmodule Localize.Calendar do
   def strftime_options!(options \\ [])
 
   def strftime_options!(options) when is_keyword_list(options) do
+    case strftime_options(options) do
+      {:ok, strftime_options} -> strftime_options
+      {:error, exception} -> raise exception
+    end
+  end
+
+  def strftime_options!(options), do: raise(Localize.Utils.Helpers.invalid_options(options))
+
+  defp strftime_options(options) do
     locale = Keyword.get(options, :locale, Localize.get_locale())
     calendar_type = Keyword.get(options, :calendar_type, @default_calendar_type)
 
@@ -1013,19 +1022,16 @@ defmodule Localize.Calendar do
          {:ok, months_data} <- get_calendar_data_raw(language_tag, calendar_type, :months),
          {:ok, days_data} <- get_calendar_data_raw(language_tag, calendar_type, :days),
          {:ok, periods_data} <- get_calendar_data_raw(language_tag, calendar_type, :day_periods) do
-      [
-        am_pm_names: am_pm_callback(periods_data),
-        month_names: month_callback(months_data, :wide),
-        abbreviated_month_names: month_callback(months_data, :abbreviated),
-        day_of_week_names: day_callback(days_data, :wide),
-        abbreviated_day_of_week_names: day_callback(days_data, :abbreviated)
-      ]
-    else
-      {:error, exception} -> raise exception
+      {:ok,
+       [
+         am_pm_names: am_pm_callback(periods_data),
+         month_names: month_callback(months_data, :wide),
+         abbreviated_month_names: month_callback(months_data, :abbreviated),
+         day_of_week_names: day_callback(days_data, :wide),
+         abbreviated_day_of_week_names: day_callback(days_data, :abbreviated)
+       ]}
     end
   end
-
-  def strftime_options!(options), do: raise(Localize.Utils.Helpers.invalid_options(options))
 
   defp am_pm_callback(periods_data) do
     fn am_pm ->
@@ -1410,18 +1416,39 @@ defmodule Localize.Calendar do
 
     # The calendar is asked before the locale's data is read: a calendar with
     # no cycle answers the year itself, and most dates are in one.
-    with {:ok, ^year} <- displayed_year(date),
-         {:ok, number} when number != year <-
-           ask(calendar, :cyclic_year, [year, month, day], "a year of the cycle", &is_integer/1),
-         {:ok, %{years: %{format: %{} = names}}} when map_size(names) > 0 <-
-           cyclic_years(locale, date_calendar_type(date)) do
+    with :ok <- year_is_displayed(date, year),
+         {:ok, number} <- cyclic_year_of(calendar, year, month, day),
+         :ok <- locale_names_cycles(locale, date) do
       {:ok, Localize.Utils.Math.amod(number, 60)}
-    else
-      _no_cycle -> :none
     end
   end
 
   def cycle_place(_date, _locale), do: :none
+
+  # A date whose displayed year is not its `:year` field is written by some
+  # other reckoning than the cycle's.
+  defp year_is_displayed(date, year) do
+    case displayed_year(date) do
+      {:ok, ^year} -> :ok
+      _otherwise -> :none
+    end
+  end
+
+  # A calendar that answers the year it was given names no cycle of its own.
+  defp cyclic_year_of(calendar, year, month, day) do
+    case ask(calendar, :cyclic_year, [year, month, day], "a year of the cycle", &is_integer/1) do
+      {:ok, number} when number != year -> {:ok, number}
+      _no_cycle -> :none
+    end
+  end
+
+  # The locale must name the years of the cycle for them to be written.
+  defp locale_names_cycles(locale, date) do
+    case cyclic_years(locale, date_calendar_type(date)) do
+      {:ok, %{years: %{format: %{} = names}}} when map_size(names) > 0 -> :ok
+      _unnamed -> :none
+    end
+  end
 
   @doc false
   # The number of the sixty-year cycle a date's year is in, where `y` writes
@@ -1438,8 +1465,6 @@ defmodule Localize.Calendar do
     with {:ok, _place} <- cycle_place(date, locale),
          {:ok, related} <- related_gregorian_year(date) do
       {:ok, cycle_of_related_year(related)}
-    else
-      _no_cycle -> :none
     end
   end
 
@@ -1457,14 +1482,20 @@ defmodule Localize.Calendar do
 
   # The related Gregorian year is constant through a calendar year, so a
   # date without its month or its day is asked on the first it could be.
+  # `:none` for a calendar that does not answer, so that it agrees with
+  # `cycle_place/2` and `cycle/2` answers its spec without having to narrow an
+  # error tuple at the call site.
   defp related_gregorian_year(%{year: year} = date) do
-    ask(
-      Map.get(date, :calendar, Calendar.ISO),
-      :related_gregorian_year,
-      [year, integer_or_first(Map.get(date, :month)), integer_or_first(Map.get(date, :day))],
-      "a Gregorian year",
-      &is_integer/1
-    )
+    case ask(
+           Map.get(date, :calendar, Calendar.ISO),
+           :related_gregorian_year,
+           [year, integer_or_first(Map.get(date, :month)), integer_or_first(Map.get(date, :day))],
+           "a Gregorian year",
+           &is_integer/1
+         ) do
+      {:ok, related} -> {:ok, related}
+      {:error, _unanswered} -> :none
+    end
   end
 
   # The cyclic year is constant through a calendar year, so a date without
@@ -1881,11 +1912,23 @@ defmodule Localize.Calendar do
   defp ask_for_calendar(nil, _calendar_type), do: :error
 
   defp ask_for_calendar(module, calendar_type) do
-    with true <- Code.ensure_loaded?(module),
-         true <- function_exported?(module, :calendar_from_cldr_calendar_type, 1),
-         {:ok, target} <- module.calendar_from_cldr_calendar_type(calendar_type) do
-      {:ok, target}
+    if answers_calendar_type?(module) do
+      asked_calendar(module, calendar_type)
     else
+      :error
+    end
+  end
+
+  defp answers_calendar_type?(module) do
+    Code.ensure_loaded?(module) and
+      function_exported?(module, :calendar_from_cldr_calendar_type, 1)
+  end
+
+  # `:error` for a provider that answers anything but a calendar, since the
+  # caller falls back to asking the next one and distinguishes no reason.
+  defp asked_calendar(module, calendar_type) do
+    case module.calendar_from_cldr_calendar_type(calendar_type) do
+      {:ok, target} -> {:ok, target}
       _no_calendar -> :error
     end
   end
@@ -1942,15 +1985,50 @@ defmodule Localize.Calendar do
   # any text for a calendar without a notation of its own.
   @spec from_notation(String.t(), module()) :: {:ok, Date.t()} | :none | {:error, Exception.t()}
   def from_notation(text, calendar) do
-    with {:ok, true} <- own_notation?(calendar),
-         {:ok, {:ok, {year, month, day}}} <-
-           ask(calendar, :parse_date, [text], "a date's fields or an error", &parsed_date?/1),
-         {:ok, date} <- Date.new(year, month, day, calendar),
-         {:ok, ^text} <- notation(date) do
+    with :ok <- has_own_notation(calendar),
+         {:ok, {year, month, day}} <- notation_fields(calendar, text),
+         {:ok, date} <- notation_date(year, month, day, calendar),
+         :ok <- writes_back_as(date, text) do
       {:ok, date}
-    else
-      {:error, %{__exception__: true}} = error -> error
-      _not_its_notation -> :none
+    end
+  end
+
+  # A calendar that parses dates the way its parsing calendar does has no
+  # notation of its own, so no text is in one.
+  defp has_own_notation(calendar) do
+    case own_notation?(calendar) do
+      {:ok, true} -> :ok
+      {:ok, false} -> :none
+      {:error, _exception} = error -> error
+    end
+  end
+
+  # The calendar may read the text another way, or refuse it.
+  defp notation_fields(calendar, text) do
+    case ask(calendar, :parse_date, [text], "a date's fields or an error", &parsed_date?/1) do
+      {:ok, {:ok, fields}} -> {:ok, fields}
+      {:ok, _unparsed} -> :none
+      {:error, _exception} = error -> error
+    end
+  end
+
+  # Fields the calendar reads but does not accept as a date are not a date in
+  # its notation, rather than an error of the caller's.
+  defp notation_date(year, month, day, calendar) do
+    case Date.new(year, month, day, calendar) do
+      {:ok, date} -> {:ok, date}
+      {:error, _invalid_date} -> :none
+    end
+  end
+
+  # The text is the calendar's notation only when the calendar writes the date
+  # it read as exactly that text.
+  defp writes_back_as(date, text) do
+    case notation(date) do
+      {:ok, ^text} -> :ok
+      {:ok, _other} -> :none
+      :none -> :none
+      {:error, _exception} = error -> error
     end
   end
 
@@ -2434,11 +2512,27 @@ defmodule Localize.Calendar do
     context = Keyword.get(options, :context, :format)
     style = Keyword.get(options, :style, :wide)
 
-    with {:ok, patterns} <- month_patterns(locale, calendar_type),
-         pattern when is_list(pattern) <- get_in(patterns, [context, style, :leap]) do
-      [name] |> Localize.Substitution.substitute(pattern) |> IO.iodata_to_binary()
-    else
-      _no_leap_month_pattern -> name
+    case leap_month_pattern(locale, calendar_type, context, style) do
+      {:ok, pattern} ->
+        [name] |> Localize.Substitution.substitute(pattern) |> IO.iodata_to_binary()
+
+      {:error, _no_leap_month_pattern} ->
+        name
+    end
+  end
+
+  # A locale may carry no month patterns for the calendar, and its patterns may
+  # carry none for a leap month in the context and style asked for.
+  defp leap_month_pattern(locale, calendar_type, context, style) do
+    with {:ok, patterns} <- month_patterns(locale, calendar_type) do
+      fetch_leap_month_pattern(patterns, context, style)
+    end
+  end
+
+  defp fetch_leap_month_pattern(patterns, context, style) do
+    case get_in(patterns, [context, style, :leap]) do
+      pattern when is_list(pattern) -> {:ok, pattern}
+      _absent -> {:error, :no_leap_month_pattern}
     end
   end
 end

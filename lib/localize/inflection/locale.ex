@@ -110,19 +110,32 @@ defmodule Localize.Inflection.Locale do
       file_name = target <> ".etf"
 
       with {:ok, body} <- Provider.download_file(file_name),
-           :ok <- File.mkdir_p(DataDir.dir()),
-           :ok <- File.write(DataDir.path(file_name), body) do
+           :ok <- written(DataDir.path(file_name), body, locale) do
         {:ok, String.to_atom(target)}
-      else
-        {:error, %{__exception__: true} = exception} ->
-          {:error, exception}
-
-        {:error, _posix} ->
-          {:error, Localize.InflectionDataNotAvailableError.exception(locale: locale)}
       end
     else
-      {:error, Localize.InflectionDataNotAvailableError.exception(locale: locale)}
+      unavailable(locale)
     end
+  end
+
+  # A filesystem failure is reported for the locale asked for; the posix
+  # reason names a path the caller never gave.
+  defp written(path, body, locale) do
+    case File.mkdir_p(DataDir.dir()) do
+      :ok -> written_file(path, body, locale)
+      {:error, _posix} -> unavailable(locale)
+    end
+  end
+
+  defp written_file(path, body, locale) do
+    case File.write(path, body) do
+      :ok -> :ok
+      {:error, _posix} -> unavailable(locale)
+    end
+  end
+
+  defp unavailable(locale) do
+    {:error, Localize.InflectionDataNotAvailableError.exception(locale: locale)}
   end
 
   @doc """

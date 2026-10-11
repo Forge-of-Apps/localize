@@ -135,19 +135,27 @@ defmodule Localize.Inflection.PronounConformance do
         source -> [initial_pronoun: SpeakableString.print(source)]
       end
 
-    with {:ok, concept} <- PronounConcept.new(locale, options),
-         {:ok, concept, possessee} <- apply_constraints(concept, test_case.constraints) do
-      query_errors =
-        Enum.flat_map(test_case.queries, fn {name, expected} ->
-          check_query(concept, name, expected)
-        end)
-
-      case query_errors ++ check_render(concept, possessee, test_case.expected) do
-        [] -> :ok
-        errors -> {:error, Enum.join(errors, "; ")}
-      end
-    else
+    case constrained_concept(locale, options, test_case.constraints) do
+      {:ok, concept, possessee} -> check_queries(concept, possessee, test_case)
       {:error, reason} -> {:error, "cannot build concept: #{inspect(reason)}"}
+    end
+  end
+
+  defp constrained_concept(locale, options, constraints) do
+    with {:ok, concept} <- PronounConcept.new(locale, options) do
+      apply_constraints(concept, constraints)
+    end
+  end
+
+  defp check_queries(concept, possessee, test_case) do
+    query_errors =
+      Enum.flat_map(test_case.queries, fn {name, expected} ->
+        check_query(concept, name, expected)
+      end)
+
+    case query_errors ++ check_render(concept, possessee, test_case.expected) do
+      [] -> :ok
+      errors -> {:error, Enum.join(errors, "; ")}
     end
   end
 

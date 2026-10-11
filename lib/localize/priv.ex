@@ -167,15 +167,36 @@ defmodule Localize.Priv do
   # The copy recorded for this build of the escript, when it still exists.
   # A record that is not one this module wrote is ignored.
   defp recorded(record, build, cache_root) do
-    with {:ok, contents} <- File.read(record),
-         [^build, key] <- String.split(contents, " "),
-         true <- key =~ ~r/\A[0-9a-f]{32}\z/,
-         data = data_dir(cache_root, key),
-         true <- File.dir?(data) do
-      {:ok, data}
-    else
-      _other -> :none
+    with {:ok, contents} <- read_record(record),
+         {:ok, key} <- recorded_key(contents, build) do
+      extracted_data_dir(cache_root, key)
     end
+  end
+
+  # `:none` for a record that is absent, was written by another build, or
+  # names a directory that is no longer there: the caller extracts the data
+  # afresh rather than telling the reasons apart.
+  defp read_record(record) do
+    case File.read(record) do
+      {:ok, contents} -> {:ok, contents}
+      {:error, _unreadable} -> :none
+    end
+  end
+
+  defp recorded_key(contents, build) do
+    case String.split(contents, " ") do
+      [^build, key] -> key_of_shape(key)
+      _another_build -> :none
+    end
+  end
+
+  defp key_of_shape(key) do
+    if key =~ ~r/\A[0-9a-f]{32}\z/, do: {:ok, key}, else: :none
+  end
+
+  defp extracted_data_dir(cache_root, key) do
+    data = data_dir(cache_root, key)
+    if File.dir?(data), do: {:ok, data}, else: :none
   end
 
   defp extract_data(escript, cache_root, record, build) do
@@ -323,13 +344,19 @@ defmodule Localize.Priv do
   defp write_record(record, build, key) do
     temporary = "#{record}.#{System.unique_integer([:positive])}"
 
-    with :ok <- File.write(temporary, "#{build} #{key}"),
-         :ok <- File.rename(temporary, record) do
-      :ok
-    else
+    case written_record(temporary, record, build, key) do
+      :ok ->
+        :ok
+
       {:error, _reason} = error ->
         _removed = File.rm(temporary)
         error
+    end
+  end
+
+  defp written_record(temporary, record, build, key) do
+    with :ok <- File.write(temporary, "#{build} #{key}") do
+      File.rename(temporary, record)
     end
   end
 

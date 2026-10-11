@@ -33,36 +33,46 @@ defmodule Localize.Inflection.PrefixedDisplay do
 
   """
   def display_value(locale, display_data, constraints, options) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      value_constraints = Map.merge(display_value.constraints, constraints)
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} ->
+        nil
 
-      display_string =
-        if map_size(constraints) > 0 do
-          extra = Keyword.get(options, :extra_feature)
+      %DisplayValue{} = display_value ->
+        inflected_display(locale, display_value, constraints, options)
 
-          constraint_values =
-            for feature <- ["number", "gender", "case", extra],
-                feature != nil,
-                value = Map.get(constraints, feature),
-                value not in [nil, ""],
-                do: value
-
-          disambiguation =
-            for value <- [Map.get(constraints, "pos")], value not in [nil, ""], do: value
-
-          case inflect_word(locale, display_string, constraint_values, disambiguation, options) do
-            {:ok, inflected} -> inflected
-            :error -> display_string
-          end
-        else
-          display_string
-        end
-
-      %DisplayValue{display_string: display_string, constraints: value_constraints}
-    else
-      _other -> nil
+      _no_display_value ->
+        nil
     end
+  end
+
+  defp inflected_display(locale, display_value, constraints, options) do
+    display_string = display_value.display_string
+
+    value_constraints = Map.merge(display_value.constraints, constraints)
+
+    display_string =
+      if map_size(constraints) > 0 do
+        extra = Keyword.get(options, :extra_feature)
+
+        constraint_values =
+          for feature <- ["number", "gender", "case", extra],
+              feature != nil,
+              value = Map.get(constraints, feature),
+              value not in [nil, ""],
+              do: value
+
+        disambiguation =
+          for value <- [Map.get(constraints, "pos")], value not in [nil, ""], do: value
+
+        case inflect_word(locale, display_string, constraint_values, disambiguation, options) do
+          {:ok, inflected} -> inflected
+          :error -> display_string
+        end
+      else
+        display_string
+      end
+
+    %DisplayValue{display_string: display_string, constraints: value_constraints}
   end
 
   defp inflect_word(locale, word, constraint_values, disambiguation, options) do
@@ -95,16 +105,31 @@ defmodule Localize.Inflection.PrefixedDisplay do
       {prefix, pos_name} ->
         matched_pos = Dictionary.binary_properties(locale, [pos_name]) || 0
 
-        with true <- String.starts_with?(word, prefix) and byte_size(word) > byte_size(prefix),
-             rest = binary_part(word, byte_size(prefix), byte_size(word) - byte_size(prefix)),
-             grammemes when is_integer(grammemes) <- Dictionary.combined_grammemes(locale, rest),
-             true <- (grammemes &&& matched_pos) != 0 do
-          {prefix, rest, grammemes}
-        else
-          _other -> {"", word, 0}
-        end
+        split_at_prefix(locale, word, prefix, matched_pos)
     end
   end
 
   defp split_prefix(_locale, word, word_type, _options), do: {"", word, word_type}
+
+  # The word stays whole where it does not carry the prefix, or where what
+  # follows the prefix is not a dictionary word of the matched part of speech.
+  defp split_at_prefix(locale, word, prefix, matched_pos) do
+    if String.starts_with?(word, prefix) and byte_size(word) > byte_size(prefix) do
+      rest = binary_part(word, byte_size(prefix), byte_size(word) - byte_size(prefix))
+
+      matched_stem(locale, word, prefix, rest, matched_pos)
+    else
+      {"", word, 0}
+    end
+  end
+
+  defp matched_stem(locale, word, prefix, rest, matched_pos) do
+    case Dictionary.combined_grammemes(locale, rest) do
+      grammemes when is_integer(grammemes) and (grammemes &&& matched_pos) != 0 ->
+        {prefix, rest, grammemes}
+
+      _no_matching_stem ->
+        {"", word, 0}
+    end
+  end
 end

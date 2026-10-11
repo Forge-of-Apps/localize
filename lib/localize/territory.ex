@@ -685,16 +685,16 @@ defmodule Localize.Territory do
   def contains?(parent, %LanguageTag{territory: child}), do: contains?(parent, child)
 
   def contains?(parent, child) do
-    with {:ok, parent} <- Localize.validate_territory(parent),
-         {:ok, child} <- Localize.validate_territory(child) do
-      containers = SupplementalData.territory_containers()
+    case {Localize.validate_territory(parent), Localize.validate_territory(child)} do
+      {{:ok, parent}, {:ok, child}} -> contained?(parent, child)
+      _not_two_territories -> false
+    end
+  end
 
-      case Map.get(containers, parent) do
-        nil -> false
-        children -> child in children
-      end
-    else
-      _ -> false
+  defp contained?(parent, child) do
+    case Map.get(SupplementalData.territory_containers(), parent) do
+      nil -> false
+      children -> child in children
     end
   end
 

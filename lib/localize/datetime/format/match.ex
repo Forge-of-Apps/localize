@@ -437,12 +437,22 @@ defmodule Localize.DateTime.Format.Match do
   def split_fractional_seconds(skeleton) do
     skeleton_string = Kernel.to_string(skeleton)
 
-    with [s_run] <- Regex.run(~r/S+/, skeleton_string),
-         true <- String.contains?(skeleton_string, "s") do
-      stripped = String.replace(skeleton_string, ~r/S+/, "")
-      {interned_or_string(stripped), String.length(s_run)}
-    else
-      _no_fraction_or_no_seconds -> {skeleton_or_string(skeleton), 0}
+    case fraction_run(skeleton_string) do
+      {:ok, s_run} ->
+        stripped = String.replace(skeleton_string, ~r/S+/, "")
+        {interned_or_string(stripped), String.length(s_run)}
+
+      :none ->
+        {skeleton_or_string(skeleton), 0}
+    end
+  end
+
+  # The fractional-second run of a skeleton that writes seconds. A skeleton
+  # with no `S` has no fraction, and one with no `s` writes none either.
+  defp fraction_run(skeleton_string) do
+    case Regex.run(~r/S+/, skeleton_string) do
+      [s_run] -> if String.contains?(skeleton_string, "s"), do: {:ok, s_run}, else: :none
+      _no_fraction -> :none
     end
   end
 
@@ -877,17 +887,43 @@ defmodule Localize.DateTime.Format.Match do
   # ── Split date/time skeletons ───────────────────────────────
 
   defp try_date_and_time_skeletons(skeleton, original, locale_id, calendar_type) do
-    with {date_skeleton, time_skeleton} <- separate_date_and_time_fields(skeleton),
-         {:ok, date_format} <- best_match(date_skeleton, locale_id, calendar_type),
-         {:ok, time_format} <- best_match(time_skeleton, locale_id, calendar_type) do
-      {:ok, {date_format, time_format}}
-    else
-      _ ->
+    case halves_of(skeleton, locale_id, calendar_type) do
+      {:ok, formats} ->
+        {:ok, formats}
+
+      :none ->
         {:error,
          Localize.DateTimeUnresolvedFormatError.exception(
            format: original,
            locale: locale_id
          )}
+    end
+  end
+
+  # The formats of a skeleton's date half and time half. A skeleton that does
+  # not divide into halves, and a half the locale resolves no format for, both
+  # mean the whole skeleton is unresolved — the caller names it in one error
+  # rather than reporting a half of it.
+  defp halves_of(skeleton, locale_id, calendar_type) do
+    with {:ok, date_skeleton, time_skeleton} <- separated_halves(skeleton),
+         {:ok, date_format} <- matched_format(date_skeleton, locale_id, calendar_type),
+         {:ok, time_format} <- matched_format(time_skeleton, locale_id, calendar_type) do
+      {:ok, {date_format, time_format}}
+    end
+  end
+
+  # A skeleton with no time fields, or none that divide, has no two halves.
+  defp separated_halves(skeleton) do
+    case separate_date_and_time_fields(skeleton) do
+      {date_skeleton, time_skeleton} -> {:ok, date_skeleton, time_skeleton}
+      _undivided -> :none
+    end
+  end
+
+  defp matched_format(skeleton, locale_id, calendar_type) do
+    case best_match(skeleton, locale_id, calendar_type) do
+      {:ok, format} -> {:ok, format}
+      {:error, _unresolved} -> :none
     end
   end
 
@@ -1261,15 +1297,24 @@ defmodule Localize.DateTime.Format.Match do
       end
 
     {language, territory} =
-      with true <- not is_nil(locale_atom),
-           {:ok, %{language: language, territory: territory}} when not is_nil(territory) <-
-             Localize.validate_locale(locale_atom) do
-        {language, territory}
-      else
-        _no_territory -> {nil, nil}
-      end
+      language_and_territory(locale_atom)
 
     lookup_time_preferences(locale_atom, language, territory)
+  end
+
+  # The language and territory to look preferences up by. A locale that is
+  # nil, one that does not validate, and one with no territory of its own all
+  # leave only the locale name to look up by.
+  defp language_and_territory(nil), do: {nil, nil}
+
+  defp language_and_territory(locale_atom) do
+    case Localize.validate_locale(locale_atom) do
+      {:ok, %{language: language, territory: territory}} when not is_nil(territory) ->
+        {language, territory}
+
+      _no_territory ->
+        {nil, nil}
+    end
   end
 
   # Look up by locale name first, then by language and territory, then by

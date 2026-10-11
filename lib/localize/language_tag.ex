@@ -1304,12 +1304,18 @@ defmodule Localize.LanguageTag do
         :region -> {[script: nil], [territory: nil]}
       end
 
-    with :no_match <- try_minimal_form(maximized, script: nil, territory: nil),
-         :no_match <- try_minimal_form(maximized, second_attempt),
-         :no_match <- try_minimal_form(maximized, third_attempt) do
-      build_canonical_name(maximized)
-    else
+    case first_minimal_match(maximized, second_attempt, third_attempt) do
       {:match, name} -> name
+      :no_match -> build_canonical_name(maximized)
+    end
+  end
+
+  # The first of the three minimal forms the locale data knows, or `:no_match`
+  # where it knows none of them.
+  defp first_minimal_match(maximized, second_attempt, third_attempt) do
+    with :no_match <- try_minimal_form(maximized, script: nil, territory: nil),
+         :no_match <- try_minimal_form(maximized, second_attempt) do
+      try_minimal_form(maximized, third_attempt)
     end
   end
 
@@ -1716,15 +1722,39 @@ defmodule Localize.LanguageTag do
   # `hy-AM` because the likely territory for `hy` is AM, while
   # `und-SU` resolves to `und-RU` (the first entry).
   defp disambiguate_territory_replacement(map, [first | _] = replacements) do
-    with language when is_binary(language) <- Map.get(map, :language),
-         %{territory: likely} when not is_nil(likely) <-
-           likely_territory_entry(language, Map.get(map, :script)),
-         likely = Kernel.to_string(likely),
-         true <- likely in replacements do
-      likely
-    else
-      _ -> first
+    case likely_replacement(map, replacements) do
+      {:ok, likely} -> likely
+      :none -> first
     end
+  end
+
+  # The territory the locale data calls likely for the language, where it is
+  # one of the replacements on offer. A map with no language, a language with
+  # no likely territory, and a likely territory that is not on offer all leave
+  # the caller with the first replacement.
+  defp likely_replacement(map, replacements) do
+    with {:ok, language} <- map_language(map),
+         {:ok, likely} <- likely_territory_of(language, Map.get(map, :script)) do
+      offered(Kernel.to_string(likely), replacements)
+    end
+  end
+
+  defp map_language(map) do
+    case Map.get(map, :language) do
+      language when is_binary(language) -> {:ok, language}
+      _absent -> :none
+    end
+  end
+
+  defp likely_territory_of(language, script) do
+    case likely_territory_entry(language, script) do
+      %{territory: likely} when not is_nil(likely) -> {:ok, likely}
+      _none -> :none
+    end
+  end
+
+  defp offered(likely, replacements) do
+    if likely in replacements, do: {:ok, likely}, else: :none
   end
 
   defp likely_territory_entry(language, script) do

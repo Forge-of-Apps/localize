@@ -209,24 +209,36 @@ defmodule Localize.Collation.Reorder do
   end
 
   defp parse_frac_line_for_lead(line, acc) do
-    with [_cp_part, rest] <- String.split(line, ";", parts: 2),
-         [_, frac_hex] <- Regex.run(~r/\[([0-9A-Fa-f ]+),/, rest),
-         [_, allkeys_hex] <- Regex.run(~r/\[([0-9A-Fa-f]+)\.[0-9A-Fa-f]+\.[0-9A-Fa-f]+\]/, rest),
-         [frac_lead | sub_bytes] <- frac_bytes(frac_hex) do
-      frac_sub = List.first(sub_bytes, 0)
-      allkeys_primary = String.to_integer(allkeys_hex, 16)
-
-      if allkeys_primary > 0 do
-        acc
-        |> Map.put_new(allkeys_primary, frac_lead)
-        |> Map.put_new({:sub, allkeys_primary}, frac_sub)
-      else
-        acc
-      end
-    else
-      _ -> acc
+    case String.split(line, ";", parts: 2) do
+      [_cp_part, rest] -> frac_weights(rest, acc)
+      _not_a_weight_line -> acc
     end
   end
+
+  defp frac_weights(rest, acc) do
+    frac = Regex.run(~r/\[([0-9A-Fa-f ]+),/, rest)
+    allkeys = Regex.run(~r/\[([0-9A-Fa-f]+)\.[0-9A-Fa-f]+\.[0-9A-Fa-f]+\]/, rest)
+
+    case {frac, allkeys} do
+      {[_, frac_hex], [_, allkeys_hex]} -> frac_lead(frac_bytes(frac_hex), allkeys_hex, acc)
+      _no_weights -> acc
+    end
+  end
+
+  defp frac_lead([frac_lead | sub_bytes], allkeys_hex, acc) do
+    put_frac_lead(String.to_integer(allkeys_hex, 16), frac_lead, List.first(sub_bytes, 0), acc)
+  end
+
+  defp frac_lead([], _allkeys_hex, acc), do: acc
+
+  # The implicit primary weight 0 belongs to no lead byte.
+  defp put_frac_lead(allkeys_primary, frac_lead, frac_sub, acc) when allkeys_primary > 0 do
+    acc
+    |> Map.put_new(allkeys_primary, frac_lead)
+    |> Map.put_new({:sub, allkeys_primary}, frac_sub)
+  end
+
+  defp put_frac_lead(_allkeys_primary, _frac_lead, _frac_sub, acc), do: acc
 
   defp frac_bytes(frac_hex) do
     frac_hex

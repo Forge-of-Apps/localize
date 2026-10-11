@@ -103,16 +103,22 @@ defmodule Localize.Inflection.Dictionary do
   def property_name(_locale, 0), do: nil
 
   def property_name(locale, mask) when is_integer(mask) and mask > 0 do
-    with true <- single_bit?(mask),
-         {:ok, %{grammeme_names: names}} <- Data.metadata(locale),
-         index when index < tuple_size(names) <- bit_index(mask) do
-      elem(names, index)
-    else
-      _no_name -> nil
-    end
+    if single_bit?(mask), do: named_grammeme(locale, mask)
   end
 
   def property_name(_locale, _mask), do: nil
+
+  # `nil` where the locale has no inflection data, or where the bit is beyond
+  # the names it holds.
+  defp named_grammeme(locale, mask) do
+    case Data.metadata(locale) do
+      {:ok, %{grammeme_names: names}} -> name_at(names, bit_index(mask))
+      {:error, _no_data} -> nil
+    end
+  end
+
+  defp name_at(names, index) when index < tuple_size(names), do: elem(names, index)
+  defp name_at(_names, _index), do: nil
 
   @doc """
   Returns the list of grammeme names present in `mask`.

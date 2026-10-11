@@ -47,15 +47,23 @@ defmodule Localize.Inflection.DataGen.Lexicon do
 
   """
   def parse_line(line) do
-    line = String.trim_trailing(line, "\n")
+    parsed_line(String.trim_trailing(line, "\n"))
+  end
 
-    with false <- line == "",
-         [surface, properties] <- String.split(line, ": ", parts: 2) do
-      {grammemes, patterns} = split_properties(properties)
-      {surface, grammemes, patterns}
-    else
-      _other -> nil
+  # `nil` for a blank line and for one naming no properties.
+  defp parsed_line(""), do: nil
+
+  defp parsed_line(line) do
+    case String.split(line, ": ", parts: 2) do
+      [surface, properties] -> entry(surface, properties)
+      _no_properties -> nil
     end
+  end
+
+  defp entry(surface, properties) do
+    {grammemes, patterns} = split_properties(properties)
+
+    {surface, grammemes, patterns}
   end
 
   defp split_properties(properties) do

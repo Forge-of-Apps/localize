@@ -562,20 +562,9 @@ defmodule Localize.Time do
   defp strip_zone_for_time_struct(format, _time, _original, _locale_id), do: format
 
   defp do_strip_zone_chars(format, {locale_id, calendar}) when format in @standard_formats do
-    with {:ok, %{} = patterns} <-
-           Localize.DateTime.Format.time_format_patterns(locale_id, calendar),
-         pattern when is_binary(pattern) <-
-           Localize.DateTime.Format.resolve_variant(Map.get(patterns, format), []),
-         {[_zone | _], fields} when fields != [] <-
-           pattern |> pattern_fields() |> Enum.split_with(&zone_field?/1) do
-      # A skeleton of a pattern the locale data holds, so it adds at most
-      # one atom per pattern.
-      fields
-      |> Enum.sort_by(&skeleton_rank/1)
-      |> Enum.join()
-      |> String.to_atom()
-    else
-      _no_zone_field -> format
+    case Localize.DateTime.Format.time_format_patterns(locale_id, calendar) do
+      {:ok, %{} = patterns} -> zoneless_format(format, patterns)
+      {:error, _no_time_patterns} -> format
     end
   end
 
@@ -584,6 +573,31 @@ defmodule Localize.Time do
   end
 
   defp do_strip_zone_chars(format, _lookup), do: format
+
+  # The format itself where the locale's pattern carries no zone field, or
+  # carries nothing but zone fields.
+  defp zoneless_format(format, patterns) do
+    case Localize.DateTime.Format.resolve_variant(Map.get(patterns, format), []) do
+      pattern when is_binary(pattern) -> zoneless_skeleton(format, pattern)
+      _no_pattern -> format
+    end
+  end
+
+  defp zoneless_skeleton(format, pattern) do
+    case pattern |> pattern_fields() |> Enum.split_with(&zone_field?/1) do
+      {[_zone | _], fields} when fields != [] -> skeleton_atom(fields)
+      _no_zone_field -> format
+    end
+  end
+
+  # A skeleton of a pattern the locale data holds, so it adds at most one
+  # atom per pattern.
+  defp skeleton_atom(fields) do
+    fields
+    |> Enum.sort_by(&skeleton_rank/1)
+    |> Enum.join()
+    |> String.to_atom()
+  end
 
   # The fields a pattern writes, each a run of one letter outside its
   # quoted text.

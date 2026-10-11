@@ -143,6 +143,11 @@ defmodule Localize.Validity.U do
     to_string(value)
   end
 
+  # A `-u-vt-` value may name several codepoints, which arrive as a list.
+  defp encode_key("vt", values) when is_list(values) do
+    Enum.map_join(values, "-", &String.downcase/1)
+  end
+
   defp encode_key("vt", value) do
     value
     |> String.downcase()
@@ -182,17 +187,19 @@ defmodule Localize.Validity.U do
   # time zone name but it needs to be resolved to its
   # canonical version. For example, camtr becomes cator
   @tz_values @validity_data["tz"]
-  defp valid("tz", value) do
-    case Map.fetch(@tz_values, value) do
+  # Guarded on the value being a known id so that an unknown one falls through
+  # to the error clause below rather than failing the `case`.
+  defp valid("tz", value) when is_map_key(@tz_values, value) do
+    case Map.fetch!(@tz_values, value) do
       # A deprecated timezone id carries its preferred replacement
       # directly; resolve through the replacement's alias list.
-      {:ok, {:deprecated, preferred}} ->
+      {:deprecated, preferred} ->
         case Map.fetch(@tz_values, preferred) do
           {:ok, values} when is_list(values) -> {:ok, hd(values)}
           _ -> {:ok, preferred}
         end
 
-      {:ok, values} when is_list(values) ->
+      values when is_list(values) ->
         {:ok, hd(values)}
     end
   end

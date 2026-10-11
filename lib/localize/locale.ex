@@ -791,6 +791,37 @@ defmodule Localize.Locale do
     end
   end
 
+  @doc """
+  Returns the id of the locale whose data is loaded for a locale.
+
+  When a locale has no data, the loader stores the data of a parent locale or
+  of `:en` in its place (see
+  `Localize.Locale.Provider.load_with_fallback/2`). Language rules, such as
+  plural rules and day period rules, must then come from the locale of that
+  data, so that they agree with its text. Territory preferences, such as the
+  currency and the first day of the week, still come from the requested
+  locale.
+
+  ### Arguments
+
+  * `locale` is a locale identifier atom or a `t:Localize.LanguageTag.t/0`.
+
+  ### Returns
+
+  * The locale identifier atom of the loaded data. It is the CLDR locale id
+    of `locale` unless its data came from a fallback.
+
+  * Raises if the locale data cannot be loaded.
+
+  ### Examples
+
+      iex> Localize.Locale.data_locale_id(:"de-CH")
+      :"de-CH"
+
+  """
+  @spec data_locale_id(Provider.locale()) :: locale_id()
+  def data_locale_id(locale), do: get!(locale, [:name])
+
   # An error from the optimistic read in `get/3` is ambiguous: a provider
   # reports a locale that is not loaded and a key path that is absent as
   # the same `ItemNotFoundError`. Load the locale and read again before
@@ -982,16 +1013,22 @@ defmodule Localize.Locale do
 
   @spec next_parent(atom(), [atom(), ...]) :: {:ok, atom()} | :no_parent
   defp next_parent(locale_id, visited) do
-    with {:ok, parent_tag} <- parent(to_string(locale_id)),
-         {:ok, parent_id} <- cldr_locale_id_from(parent_tag) do
-      if parent_id in visited do
-        :no_parent
-      else
-        {:ok, parent_id}
-      end
-    else
-      _ -> :no_parent
+    case parent(to_string(locale_id)) do
+      {:ok, parent_tag} -> unvisited_parent(parent_tag, visited)
+      {:error, _no_parent} -> :no_parent
     end
+  end
+
+  # A parent already walked ends the chain rather than looping it.
+  defp unvisited_parent(parent_tag, visited) do
+    case cldr_locale_id_from(parent_tag) do
+      {:ok, parent_id} -> unwalked(parent_id, visited)
+      {:error, _unnameable_parent} -> :no_parent
+    end
+  end
+
+  defp unwalked(parent_id, visited) do
+    if parent_id in visited, do: :no_parent, else: {:ok, parent_id}
   end
 
   # ── CLDR Locale ID resolution ────────────────────────────────────────
@@ -1126,17 +1163,35 @@ defmodule Localize.Locale do
   def gettext_locale_id(locale, gettext_backend) when is_atom(gettext_backend) do
     with {:ok, known} <- known_gettext_locales(gettext_backend),
          {:ok, locale_string} <- gettext_locale_string(locale) do
-      case LanguageTag.best_match(locale_string, known) do
-        {:ok, matched_locale, _score} ->
-          {:ok, matched_locale}
-
-        {:error, _} ->
-          {:error, Localize.UnknownLocaleError.exception(locale_id: locale_string)}
-      end
+      cached_gettext_locale_id(locale_string, known)
     end
   end
 
   def gettext_locale_id(_locale, gettext_backend), do: invalid_gettext_backend(gettext_backend)
+
+  # A web application calls this on every request and matching costs about
+  # 18 µs, so a match is cached. The key carries the backend's known locales,
+  # not the backend module, so a backend recompiled with other locales cannot
+  # be served a stale match.
+  defp cached_gettext_locale_id(locale_string, known) do
+    key = {:localize, :gettext_locale_id, locale_string, known}
+
+    case Localize.FormatCache.lookup(key) do
+      {:ok, cached} -> cached
+      :miss -> match_gettext_locale_id(key, locale_string, known)
+    end
+  end
+
+  defp match_gettext_locale_id(key, locale_string, known) do
+    case LanguageTag.best_match(locale_string, known) do
+      {:ok, matched_locale, _score} ->
+        Localize.FormatCache.store(key, {:ok, matched_locale})
+        {:ok, matched_locale}
+
+      {:error, _} ->
+        {:error, Localize.UnknownLocaleError.exception(locale_id: locale_string)}
+    end
+  end
 
   defp known_gettext_locales(gettext_backend) do
     if gettext_backend?(gettext_backend) do

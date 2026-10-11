@@ -883,11 +883,17 @@ defmodule Localize.Duration do
   end
 
   defp offset_on(wall, from) do
-    with {time_zone, _offset, database} <- WallClock.zone(from),
-         {:ok, offset} <- WallClock.offset_at(wall, time_zone, database) do
-      offset
-    else
-      _unresolved -> WallClock.offset(from)
+    case WallClock.zone(from) do
+      {time_zone, _offset, database} -> zone_offset(wall, time_zone, database, from)
+      _no_zone -> WallClock.offset(from)
+    end
+  end
+
+  # The value's own offset stands where the zone has none for that wall time.
+  defp zone_offset(wall, time_zone, database, from) do
+    case WallClock.offset_at(wall, time_zone, database) do
+      {:ok, offset} -> offset
+      {:error, _no_offset} -> WallClock.offset(from)
     end
   end
 

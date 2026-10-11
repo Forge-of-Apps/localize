@@ -254,15 +254,7 @@ defmodule Localize.Inflection.Synthesizer.Ru do
 
       {count, gender} = deduce_count_gender(tokens, count, gender)
 
-      animacy =
-        with "" <- animacy,
-             "accusative" <- case_,
-             %{value: head} <- List.last(tokens),
-             grammemes when is_integer(grammemes) <- Dictionary.combined_grammemes(@locale, head) do
-          single_of(grammemes, @animacies)
-        else
-          _other -> animacy
-        end
+      animacy = deduce_animacy(animacy, case_, tokens)
 
       deduced = constraint_vector(case_, count, gender, animacy)
 
@@ -272,6 +264,20 @@ defmodule Localize.Inflection.Synthesizer.Ru do
       end
     end
   end
+
+  # Only an accusative phrase with no animacy of its own takes the animacy of
+  # its head word, and only where the dictionary knows that word.
+  defp deduce_animacy("", "accusative", tokens), do: head_animacy(List.last(tokens), "")
+  defp deduce_animacy(animacy, _case, _tokens), do: animacy
+
+  defp head_animacy(%{value: head}, animacy) do
+    case Dictionary.combined_grammemes(@locale, head) do
+      grammemes when is_integer(grammemes) -> single_of(grammemes, @animacies)
+      _not_in_the_dictionary -> animacy
+    end
+  end
+
+  defp head_animacy(_no_head, animacy), do: animacy
 
   defp remap_case("ablative"), do: "instrumental"
   defp remap_case("locative"), do: "prepositional"
@@ -313,24 +319,27 @@ defmodule Localize.Inflection.Synthesizer.Ru do
             inflected
 
           :error ->
-            lowercased = String.downcase(word)
-
-            with true <- lowercased != word,
-                 {:ok, inflected} <-
-                   Inflector.inflect_word(
-                     @locale,
-                     lowercased,
-                     phrase_type,
-                     constraint_values,
-                     options
-                   ) do
-              restore_case(word, inflected)
-            else
-              _other -> nil
-            end
+            inflected_lowercased(word, phrase_type, constraint_values, options)
         end
     end
   end
+
+  # A word the dictionary holds in lower case only is inflected lowercased and
+  # given its capitalisation back. `nil` where it is lower case already, or
+  # where the lower-cased form will not inflect either.
+  defp inflected_lowercased(word, phrase_type, constraint_values, options) do
+    lowercased = String.downcase(word)
+
+    if lowercased != word do
+      recased(
+        word,
+        Inflector.inflect_word(@locale, lowercased, phrase_type, constraint_values, options)
+      )
+    end
+  end
+
+  defp recased(word, {:ok, inflected}), do: restore_case(word, inflected)
+  defp recased(_word, _not_inflected), do: nil
 
   defp restore_case(original, inflected) do
     if original == String.upcase(original) and original != String.downcase(original) do
@@ -355,16 +364,29 @@ defmodule Localize.Inflection.Synthesizer.Ru do
       Enum.find_value(min(@max_suffix_length, length)..1//-1, fn suffix_length ->
         suffix = String.slice(word, length - suffix_length, suffix_length)
 
-        with [exemplar | _rest] <- Map.get(exemplars, suffix, []),
-             grammemes when is_integer(grammemes) <-
-               Dictionary.combined_grammemes(@locale, exemplar),
-             inflected when is_binary(inflected) <-
-               inflect_using_dictionary(exemplar, grammemes, constraint_values, pos) do
-          splice(word, exemplar, inflected)
-        else
-          _other -> nil
-        end
+        spliced_exemplar(word, Map.get(exemplars, suffix, []), constraint_values, pos)
       end)
+    end
+  end
+
+  # `nil` where the suffix has no exemplar, or where the exemplar will not
+  # inflect: the next shorter suffix is tried.
+  defp spliced_exemplar(_word, [], _constraint_values, _pos), do: nil
+
+  defp spliced_exemplar(word, [exemplar | _rest], constraint_values, pos) do
+    case Dictionary.combined_grammemes(@locale, exemplar) do
+      grammemes when is_integer(grammemes) ->
+        spliced(word, exemplar, grammemes, constraint_values, pos)
+
+      _not_in_the_dictionary ->
+        nil
+    end
+  end
+
+  defp spliced(word, exemplar, grammemes, constraint_values, pos) do
+    case inflect_using_dictionary(exemplar, grammemes, constraint_values, pos) do
+      inflected when is_binary(inflected) -> splice(word, exemplar, inflected)
+      _no_inflection -> nil
     end
   end
 

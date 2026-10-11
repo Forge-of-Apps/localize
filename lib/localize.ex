@@ -1299,13 +1299,40 @@ defmodule Localize do
   # "826" likewise — so validation alone rejects them. Reached only after
   # validation has failed.
   defp validate_territory_alias(territory) do
-    with key when is_binary(key) <- alias_key(territory),
-         replacement when not is_nil(replacement) <- territory_alias(key),
-         {:ok, territory_atom, _status} <- Localize.Validity.Territory.validate(replacement),
-         false <- is_nil(territory_atom) do
-      {:ok, canonical_territory(territory_atom)}
-    else
-      _no_alias -> {:error, Localize.UnknownTerritoryError.exception(territory: territory)}
+    case aliased_territory(territory) do
+      {:ok, territory_atom} -> {:ok, canonical_territory(territory_atom)}
+      :none -> {:error, Localize.UnknownTerritoryError.exception(territory: territory)}
+    end
+  end
+
+  # The territory a deprecated code is replaced by. The code may be of no
+  # shape CLDR aliases, may have no replacement, and the replacement may be
+  # no territory itself.
+  defp aliased_territory(territory) do
+    with {:ok, key} <- alias_key_of(territory),
+         {:ok, replacement} <- replacement_of(key) do
+      validated_territory(replacement)
+    end
+  end
+
+  defp alias_key_of(territory) do
+    case alias_key(territory) do
+      key when is_binary(key) -> {:ok, key}
+      _no_key -> :none
+    end
+  end
+
+  defp replacement_of(key) do
+    case territory_alias(key) do
+      nil -> :none
+      replacement -> {:ok, replacement}
+    end
+  end
+
+  defp validated_territory(replacement) do
+    case Localize.Validity.Territory.validate(replacement) do
+      {:ok, territory_atom, _status} when not is_nil(territory_atom) -> {:ok, territory_atom}
+      _not_a_territory -> :none
     end
   end
 
@@ -1315,13 +1342,15 @@ defmodule Localize do
   # `en-AN` to a territory of `:CW`. A single hop is enough — CLDR's
   # replacements are themselves current codes.
   defp canonical_territory(territory_atom) do
-    with replacement when not is_nil(replacement) <-
-           territory_alias(Atom.to_string(territory_atom)),
-         {:ok, canonical, _status} <- Localize.Validity.Territory.validate(replacement),
-         false <- is_nil(canonical) do
-      canonical
-    else
-      _no_alias -> territory_atom
+    case canonical_alias_of(territory_atom) do
+      {:ok, canonical} -> canonical
+      :none -> territory_atom
+    end
+  end
+
+  defp canonical_alias_of(territory_atom) do
+    with {:ok, replacement} <- replacement_of(Atom.to_string(territory_atom)) do
+      validated_territory(replacement)
     end
   end
 

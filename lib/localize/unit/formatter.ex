@@ -109,29 +109,43 @@ defmodule Localize.Unit.Formatter do
   defp range_pattern_tokens(unit_data, unit_1, unit_2, language_tag, options) do
     unit_name = normalize_unit_name(unit_1.name)
 
-    with unit_formats when is_map(unit_formats) <- find_unit_formats(unit_data, unit_name),
-         {:ok, range_category} <-
+    case find_unit_formats(unit_data, unit_name) do
+      unit_formats when is_map(unit_formats) ->
+        range_tokens(unit_formats, unit_1, unit_2, language_tag, options)
+
+      _no_formats ->
+        {:error, no_direct_pattern(unit_1.name, "Localize.Unit.to_range_string/3")}
+    end
+  end
+
+  defp range_tokens(unit_formats, unit_1, unit_2, language_tag, options) do
+    with {:ok, range_category} <-
            Localize.Number.PluralRule.Range.plural_rule_for(
              unit_1.value,
              unit_2.value,
-             language_tag
-           ),
-         grammatical_case = Keyword.get(options, :grammatical_case, :nominative),
-         tokens when is_list(tokens) <-
-           pattern_tokens(resolve_pattern(unit_formats, grammatical_case, range_category)) do
-      {:ok, tokens}
-    else
-      {:error, _reason} = error ->
-        error
+             Localize.Locale.data_locale_id(language_tag)
+           ) do
+      grammatical_case = Keyword.get(options, :grammatical_case, :nominative)
 
-      _no_pattern ->
-        {:error,
-         Localize.InvalidValueError.exception(
-           value: unit_1.name,
-           expected: "a unit with a direct CLDR pattern",
-           context: "Localize.Unit.to_range_string/3"
-         )}
+      direct_tokens(
+        pattern_tokens(resolve_pattern(unit_formats, grammatical_case, range_category)),
+        unit_1.name,
+        "Localize.Unit.to_range_string/3"
+      )
     end
+  end
+
+  # Only a unit the locale writes a pattern for can be written at all; a
+  # composed one is the caller's to fall back on.
+  defp direct_tokens(tokens, _name, _context) when is_list(tokens), do: {:ok, tokens}
+  defp direct_tokens(_no_pattern, name, context), do: {:error, no_direct_pattern(name, context)}
+
+  defp no_direct_pattern(name, context) do
+    Localize.InvalidValueError.exception(
+      value: name,
+      expected: "a unit with a direct CLDR pattern",
+      context: context
+    )
   end
 
   # # to_range_parts/3
@@ -228,24 +242,22 @@ defmodule Localize.Unit.Formatter do
   defp parts_pattern_tokens(unit_data, name, value, language_tag, options) do
     unit_name = normalize_unit_name(name)
 
-    with unit_formats when is_map(unit_formats) <- find_unit_formats(unit_data, unit_name),
-         plural = plural_form(value, language_tag, options),
-         grammatical_case = Keyword.get(options, :grammatical_case, :nominative),
-         {:ok, pattern} <-
-           select_pattern(unit_formats, grammatical_case, plural, language_tag, options),
-         tokens when is_list(tokens) <- pattern_tokens(pattern) do
-      {:ok, tokens}
-    else
-      {:error, _reason} = error ->
-        error
+    case find_unit_formats(unit_data, unit_name) do
+      unit_formats when is_map(unit_formats) ->
+        parts_tokens(unit_formats, name, value, language_tag, options)
 
-      _no_pattern ->
-        {:error,
-         Localize.InvalidValueError.exception(
-           value: name,
-           expected: "a unit with a direct CLDR pattern",
-           context: "Localize.Unit.to_parts/2"
-         )}
+      _no_formats ->
+        {:error, no_direct_pattern(name, "Localize.Unit.to_parts/2")}
+    end
+  end
+
+  defp parts_tokens(unit_formats, name, value, language_tag, options) do
+    plural = plural_form(value, Localize.Locale.data_locale_id(language_tag), options)
+    grammatical_case = Keyword.get(options, :grammatical_case, :nominative)
+
+    with {:ok, pattern} <-
+           select_pattern(unit_formats, grammatical_case, plural, language_tag, options) do
+      direct_tokens(pattern_tokens(pattern), name, "Localize.Unit.to_parts/2")
     end
   end
 
@@ -517,15 +529,20 @@ defmodule Localize.Unit.Formatter do
   # for the singular. Returns nil when the unit has no nominative
   # `:other` form in the locale data.
   defp denominator_nouns(unit_data, denominator_name) do
-    with %{nominative: %{other: other_pattern} = nominative} <-
-           find_unit_formats(unit_data, denominator_name),
-         plural when is_binary(plural) <- pattern_noun(other_pattern) do
-      singular = pattern_noun(Map.get(nominative, :one)) || plural
-      {singular, plural}
-    else
-      _other -> nil
+    case find_unit_formats(unit_data, denominator_name) do
+      %{nominative: %{other: other_pattern} = nominative} ->
+        nominative_nouns(nominative, pattern_noun(other_pattern))
+
+      _no_nominative_other ->
+        nil
     end
   end
+
+  defp nominative_nouns(nominative, plural) when is_binary(plural) do
+    {pattern_noun(Map.get(nominative, :one)) || plural, plural}
+  end
+
+  defp nominative_nouns(_nominative, _no_plural_noun), do: nil
 
   defp pattern_noun(pattern) when is_list(pattern) do
     noun =
@@ -612,7 +629,7 @@ defmodule Localize.Unit.Formatter do
   # CLDR unit pattern resolution: grammatical-case, plural-form, and
   # pattern-shape fallbacks each contribute a branch.
   defp format_with_pattern(value, unit_formats, locale, grammatical_case, options) do
-    plural = plural_form(value, locale, options)
+    plural = plural_form(value, Localize.Locale.data_locale_id(locale), options)
 
     case select_pattern(unit_formats, grammatical_case, plural, locale, options) do
       {:error, _reason} = error -> error
@@ -805,21 +822,30 @@ defmodule Localize.Unit.Formatter do
   # second"), the same composition the currency-unit path uses.
 
   defp format_compound_or_fallback(value, name, parsed, unit_data, locale, options) do
+    case compound_per_formats(parsed, unit_data) do
+      {:ok, numerator_formats, denominator_units} ->
+        format_compound_per_unit(
+          value,
+          numerator_formats,
+          denominator_units,
+          unit_data,
+          locale,
+          options
+        )
+
+      _not_a_per_compound ->
+        format_times_or_fallback(value, name, parsed, unit_data, locale, options)
+    end
+  end
+
+  # The locale's pattern for each half of a per-unit compound.
+  defp compound_per_formats(parsed, unit_data) do
     with {:ok, numerator_name, denominator_units} <- compound_per_parts(parsed),
          numerator_formats when not is_nil(numerator_formats) <-
            find_unit_formats(unit_data, normalize_unit_name(numerator_name)),
          {_count, denominator_base} when not is_nil(denominator_base) <-
            extract_denominator_parts(denominator_units) do
-      format_compound_per_unit(
-        value,
-        numerator_formats,
-        denominator_units,
-        unit_data,
-        locale,
-        options
-      )
-    else
-      _ -> format_times_or_fallback(value, name, parsed, unit_data, locale, options)
+      {:ok, numerator_formats, denominator_units}
     end
   end
 
@@ -831,11 +857,18 @@ defmodule Localize.Unit.Formatter do
   # or the times pattern is absent) fall back to the custom-unit / raw
   # path so nothing regresses to an error.
   defp format_times_or_fallback(value, name, parsed, unit_data, locale, options) do
-    with {:ok, single_units} <- compound_times_parts(parsed),
-         {:ok, string} <- format_times_compound(value, single_units, unit_data, locale, options) do
-      {:ok, string}
-    else
-      _ -> format_prefixed_or_fallback(value, name, parsed, unit_data, locale, options)
+    case times_compound(value, parsed, unit_data, locale, options) do
+      {:ok, string} ->
+        {:ok, string}
+
+      _not_a_times_compound ->
+        format_prefixed_or_fallback(value, name, parsed, unit_data, locale, options)
+    end
+  end
+
+  defp times_compound(value, parsed, unit_data, locale, options) do
+    with {:ok, single_units} <- compound_times_parts(parsed) do
+      format_times_compound(value, single_units, unit_data, locale, options)
     end
   end
 
@@ -845,11 +878,15 @@ defmodule Localize.Unit.Formatter do
   # per the CLDR `si_prefix` step of `patternTimes`. Prefixed units that
   # do have their own pattern ("kilojoule", "milligram") never reach here.
   defp format_prefixed_or_fallback(value, name, parsed, unit_data, locale, options) do
-    with {:ok, prefix, base} <- prefixed_single_unit(parsed),
-         {:ok, string} <- format_prefixed_unit(value, prefix, base, unit_data, locale, options) do
-      {:ok, string}
-    else
-      _ -> format_custom_or_fallback(value, name, locale, options)
+    case prefixed_unit(value, parsed, unit_data, locale, options) do
+      {:ok, string} -> {:ok, string}
+      _not_prefixed -> format_custom_or_fallback(value, name, locale, options)
+    end
+  end
+
+  defp prefixed_unit(value, parsed, unit_data, locale, options) do
+    with {:ok, prefix, base} <- prefixed_single_unit(parsed) do
+      format_prefixed_unit(value, prefix, base, unit_data, locale, options)
     end
   end
 
@@ -880,24 +917,37 @@ defmodule Localize.Unit.Formatter do
 
   defp format_prefixed_unit(value, prefix, base, unit_data, locale, options) do
     grammatical_case = Keyword.get(options, :grammatical_case, :nominative)
-    count_plural = plural_form(value, locale, options)
+    count_plural = plural_form(value, Localize.Locale.data_locale_id(locale), options)
 
-    with prefix_tokens when is_list(prefix_tokens) <- si_prefix_pattern_tokens(unit_data, prefix),
-         base_formats when not is_nil(base_formats) <-
-           find_unit_formats(unit_data, normalize_unit_name(base)),
-         base_pattern when is_list(base_pattern) <-
-           resolve_pattern(base_formats, grammatical_case, count_plural),
-         base_noun when is_binary(base_noun) <- pattern_noun(base_pattern) do
-      style = Keyword.get(options, :format, :long)
-      prefixed_noun = apply_prefix_pattern(prefix_tokens, base_noun, style)
-      final_tokens = splice_combined_noun(pattern_tokens(base_pattern), base_noun, prefixed_noun)
+    composed =
+      with prefix_tokens when is_list(prefix_tokens) <-
+             si_prefix_pattern_tokens(unit_data, prefix),
+           base_formats when not is_nil(base_formats) <-
+             find_unit_formats(unit_data, normalize_unit_name(base)),
+           base_pattern when is_list(base_pattern) <-
+             resolve_pattern(base_formats, grammatical_case, count_plural),
+           base_noun when is_binary(base_noun) <- pattern_noun(base_pattern) do
+        style = Keyword.get(options, :format, :long)
+        prefixed_noun = apply_prefix_pattern(prefix_tokens, base_noun, style)
 
-      with {:ok, number_str} <- format_number(value, options) do
-        result = Localize.Substitution.substitute(number_str, final_tokens)
-        {:ok, result |> :erlang.iolist_to_binary() |> String.trim()}
+        final_tokens =
+          splice_combined_noun(pattern_tokens(base_pattern), base_noun, prefixed_noun)
+
+        substituted(value, final_tokens, options)
       end
-    else
-      _ -> :error
+
+    composed_or_error(composed)
+  end
+
+  # A component the locale names no pattern for leaves nothing to compose.
+  defp composed_or_error({:ok, _string} = ok), do: ok
+  defp composed_or_error({:error, _exception} = error), do: error
+  defp composed_or_error(_uncomposable), do: :error
+
+  defp substituted(value, final_tokens, options) do
+    with {:ok, number_str} <- format_number(value, options) do
+      result = Localize.Substitution.substitute(number_str, final_tokens)
+      {:ok, result |> :erlang.iolist_to_binary() |> String.trim()}
     end
   end
 
@@ -924,12 +974,16 @@ defmodule Localize.Unit.Formatter do
   end
 
   defp si_prefix_pattern_tokens(unit_data, prefix) do
-    with key when is_binary(key) <- si_prefix_compound_key(prefix),
-         %{unit_prefix_pattern: pattern} <- get_in(unit_data, [:compound, safe_to_atom(key)]),
-         tokens when is_list(tokens) <- pattern do
-      tokens
-    else
-      _other -> nil
+    case si_prefix_compound_key(prefix) do
+      key when is_binary(key) -> prefix_pattern_tokens(unit_data, key)
+      _no_power_of_ten -> nil
+    end
+  end
+
+  defp prefix_pattern_tokens(unit_data, key) do
+    case get_in(unit_data, [:compound, safe_to_atom(key)]) do
+      %{unit_prefix_pattern: tokens} when is_list(tokens) -> tokens
+      _no_prefix_pattern -> nil
     end
   end
 
@@ -1017,7 +1071,7 @@ defmodule Localize.Unit.Formatter do
 
   defp format_times_compound(value, single_units, unit_data, locale, options) do
     grammatical_case = Keyword.get(options, :grammatical_case, :nominative)
-    count_plural = plural_form(value, locale, options)
+    count_plural = plural_form(value, Localize.Locale.data_locale_id(locale), options)
 
     # CLDR derives each component's plural and case from the compound as a
     # whole (grammaticalFeatures.xml `deriveComponent structure="times"`):
@@ -1039,22 +1093,26 @@ defmodule Localize.Unit.Formatter do
       Enum.map(leading_units, &{&1, leading_case, leading_plural}) ++
         [{trailing_unit, trailing_case, trailing_plural}]
 
-    with times_tokens when is_list(times_tokens) <- times_pattern_tokens(unit_data),
-         {:ok, [leading_pattern | _] = patterns} <- resolve_times_components(specs, unit_data),
-         nouns = Enum.map(patterns, &pattern_noun/1),
-         true <- Enum.all?(nouns, &is_binary/1) do
-      combined_noun = combine_times_nouns(nouns, times_tokens)
+    composed =
+      with times_tokens when is_list(times_tokens) <- times_pattern_tokens(unit_data),
+           {:ok, [leading_pattern | _] = patterns} <- resolve_times_components(specs, unit_data),
+           nouns when is_list(nouns) <- every_noun(patterns) do
+        combined_noun = combine_times_nouns(nouns, times_tokens)
 
-      final_tokens =
-        splice_combined_noun(pattern_tokens(leading_pattern), hd(nouns), combined_noun)
+        final_tokens =
+          splice_combined_noun(pattern_tokens(leading_pattern), hd(nouns), combined_noun)
 
-      with {:ok, number_str} <- format_number(value, options) do
-        result = Localize.Substitution.substitute(number_str, final_tokens)
-        {:ok, result |> :erlang.iolist_to_binary() |> String.trim()}
+        substituted(value, final_tokens, options)
       end
-    else
-      _ -> :error
-    end
+
+    composed_or_error(composed)
+  end
+
+  # `nil` unless every component's pattern names a noun.
+  defp every_noun(patterns) do
+    nouns = Enum.map(patterns, &pattern_noun/1)
+
+    if Enum.all?(nouns, &is_binary/1), do: nouns
   end
 
   # Resolves each `{single_unit, case, plural}` spec to its CLDR pattern,
@@ -1132,7 +1190,13 @@ defmodule Localize.Unit.Formatter do
   defp resolve_derived_category(:compound, compound_category), do: compound_category
   defp resolve_derived_category(category, _compound_category), do: category
 
-  defp times_language(%Localize.LanguageTag{language: language}), do: Atom.to_string(language)
+  defp times_language(locale) do
+    locale
+    |> Localize.Locale.data_locale_id()
+    |> Atom.to_string()
+    |> String.split("-")
+    |> hd()
+  end
 
   # ── Custom unit formatting ─────────────────────────────────
   #

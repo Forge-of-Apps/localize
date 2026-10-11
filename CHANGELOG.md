@@ -20,6 +20,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * The module that answers the Calendrical behaviour for `Calendar.ISO` is a full calendar a value may name as its own: it declares the `Calendar` behaviour, answers with dates of itself, and reads a date written for it as one of its own. A date, a time or an interval held in it is read, written and its weeks numbered exactly as the `Calendar.ISO` value of the same fields is.
 
+* `Localize.Number.Parser.parse/2` takes `:currency`, reading a string as an amount of that currency with the separators `Localize.Number.to_string/2` writes it with, so a currency amount reads back to the number it was written from. `de-AT` writes `€ 1.234,56` but `1 234,56` plain, so `"1.234,56"` is a number with the option and not one without it.
+
+* `Localize.Number.Parser.parse/2` takes `:separators`, naming the set of decimal and grouping separators to read with for a locale that has more than one: `en-ZA` writes `1 234,56` with its `:standard` set and `1,234.56` with its `:us` set. A locale without the named set reads with its standard one.
+
+* `Localize.Locale.data_locale_id/1` returns the id of the locale whose data is loaded for a locale, which is its own unless a fallback supplied it. Language rules now follow that locale so they agree with its text, while territory preferences keep following the requested locale.
+
+* `Localize.Number.Symbol.for_currency/2` returns the symbols an amount of a currency is written with, taking the currency's own decimal separator over the locale's currency separators over its plain ones.
+
 * The formatter's day of the month (`d`) is the day the calendar names, through an optional `cardinal_day/3` of the date's calendar, so a calendar whose months are counted from the year's first day — Calendrical's Julian year-start variants — writes 25 March 1750 from its month 1 day 1. A calendar without it writes the day field, as before.
 
 * A date written that way reads back, through an optional `date_from_julian_date/3` of the calendar, which takes the calendar's own year with the month and day that name it and answers the date they named: "March 25, 1750" reads as month 1 day 1 again, for a single date, a date read as a map and each end of an interval.
@@ -173,6 +181,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 * **Breaking.** A zero offset is spelled out wherever a localized GMT format is used, `"GMT+00:00"` long and `"GMT+0"` short, as TR35's examples and ICU give it. `Localize.DateTime.Timezone.gmt_format/3` drops its `:zero_format` option, which selected between the two.
 
 ### Fixed
+
+* A currency amount is separated by the locale's currency separators where CLDR gives it any: `fr-CH` writes `1'234.56 CHF` with the dot its `currencyDecimal` names and `de-AT` writes `€ 1.234,56` with the dot of its `currencyGroup`, where both used their plain-number separators. `Localize.Number.Symbol` had no fields for either, so generation dropped them.
+
+* Locale generation fails on a CLDR key its structs do not define, where `struct/2` discarded it silently. That is how the currency separators above went missing, and it is what a new CLDR release adding a key would otherwise do again. Symbols no formatter reads are left out by name.
+
+* A missing locale falls back to its parents and then to `:en` rather than to the `und` root, which has no currency data and no localized names. Only an explicit request for `:und` loads the root, and the error of a locale that cannot be loaded names the locale requested rather than the last fallback tried.
+
+* A pre-validated `Localize.Number.Format.Options` struct takes the sign from each number it formats. The sign of the number it was validated with was reused, so options validated with `0` formatted `-70` as "CHF 70.00".
+
+* `Localize.validate_locale/1` returns an error for an unknown `-u-tz-` timezone id, a `-t-` numeric value that is not a 4, 6 or 8 digit date and a `-t-` keyword without a value, where it raised. A `-u-vt-` value of several codepoints is accepted, where it raised too.
+
+* `Localize.Message.format_to_safe_list/3` returns a data-model error rather than raising `WithClauseError`: a duplicate declaration parses and then fails validation, which its `with` had no clause for.
+
+* RBNF plural-keyed substitutions select with the plural rules of the locale the rule set came from, since the forms they choose between are that locale's own words.
+
+* `Localize.Locale.gettext_locale_id/2` caches its match per locale and known Gettext locales, so a repeated call takes about 0.4 µs where it took about 34 µs.
+
+* `Localize.Currency.currency_strings/2` reads the index of currency-naming strings from the locale data, where the pipeline now generates it, so a call takes about 0.6 µs where it built the index each time for about 1.2 ms. A filtered call is still built, because a filter changes which strings name a single currency.
+
+* `Localize.validate_locale/1` returns `{:error, %Localize.InvalidLocaleError{}}` for an unknown `-u-tz-` timezone id (`"de-u-tz-zzz"`), a `-t-` numeric value that is not a 4, 6 or 8 digit date (`"de-t-d0-123"`) and a `-t-` keyword without a value (`"de-t-en-m0"`), where it raised. A `-u-vt-` value of several codepoints (`"de-u-vt-0020-0041"`) is accepted, where it raised too.
 
 * A display name is the name of the code it is keyed by, not of a code CLDR retired in that code's favour: `ak` is "Akan" where it was "Twi", and `fil` is "Filipino" in every locale rather than only on some toolchains. CLDR names both a canonical code and its deprecated aliases, which normalize onto one key, and the winner was decided by map iteration order — so the same CLDR sources generated different locale data on different OTP releases (#59).
 

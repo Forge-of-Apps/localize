@@ -341,17 +341,23 @@ defmodule Localize.Data do
   def repository_ref do
     directory = cldr_repo_dir()
 
-    with true <- File.dir?(directory),
-         {:ok, tags} <- git(directory, ["tag", "--points-at", "HEAD"]) do
-      tags = tags |> String.split("\n", trim: true) |> Enum.sort()
+    if File.dir?(directory), do: tagged_ref(directory)
+  end
 
-      # A release tag names the ref most readably, so one is preferred when
-      # HEAD carries several tags.
-      Enum.find(tags, &String.starts_with?(&1, "release-")) || List.first(tags) ||
-        head_commit(directory)
-    else
-      _no_repository -> nil
+  defp tagged_ref(directory) do
+    case git(directory, ["tag", "--points-at", "HEAD"]) do
+      {:ok, tags} -> preferred_tag(String.split(tags, "\n", trim: true), directory)
+      :error -> nil
     end
+  end
+
+  # A release tag names the ref most readably, so one is preferred when HEAD
+  # carries several tags.
+  defp preferred_tag(tags, directory) do
+    tags = Enum.sort(tags)
+
+    Enum.find(tags, &String.starts_with?(&1, "release-")) || List.first(tags) ||
+      head_commit(directory)
   end
 
   @doc """

@@ -109,19 +109,25 @@ defmodule Localize.Inflection.PhraseProperties do
   defp first_matchable_string(<<>>), do: nil
 
   defp dictionary_sound(locale, phrase, vowel_tag, consonant_tag) do
-    with mask when is_integer(mask) <- Dictionary.combined_grammemes(locale, phrase),
-         vowel when is_integer(vowel) <- Dictionary.binary_properties(locale, [vowel_tag]),
-         consonant when is_integer(consonant) <-
-           Dictionary.binary_properties(locale, [consonant_tag]) do
-      cond do
-        (mask &&& vowel) != 0 and (mask &&& consonant) == 0 -> :vowel
-        (mask &&& vowel) == 0 and (mask &&& consonant) != 0 -> :consonant
-        true -> :unknown
-      end
-    else
-      _other -> :unknown
+    sound_of(
+      Dictionary.combined_grammemes(locale, phrase),
+      Dictionary.binary_properties(locale, [vowel_tag]),
+      Dictionary.binary_properties(locale, [consonant_tag])
+    )
+  end
+
+  # A phrase the dictionary does not know, or whose locale names neither
+  # sound, sounds unknown — as does one tagged both ways or neither.
+  defp sound_of(mask, vowel, consonant)
+       when is_integer(mask) and is_integer(vowel) and is_integer(consonant) do
+    cond do
+      (mask &&& vowel) != 0 and (mask &&& consonant) == 0 -> :vowel
+      (mask &&& vowel) == 0 and (mask &&& consonant) != 0 -> :consonant
+      true -> :unknown
     end
   end
+
+  defp sound_of(_mask, _vowel, _consonant), do: :unknown
 
   defp vowels(locale) do
     case Atom.to_string(locale) do

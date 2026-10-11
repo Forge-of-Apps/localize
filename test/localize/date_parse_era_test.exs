@@ -118,12 +118,16 @@ defmodule Localize.DateParseEraTest do
       do: {:error, :missing_fields}
 
     def year_of_era(year, month, day) do
-      with {:ok, date} <- Date.new(year, month, day),
-           {start, era} <-
-             Enum.find(@eras, fn {start, _era} -> Date.compare(date, start) != :lt end) do
-        {year - start.year + 1, era}
-      else
-        _no_era -> {:error, :invalid_date}
+      case Date.new(year, month, day) do
+        {:ok, date} -> era_year(date)
+        {:error, _invalid_date} -> {:error, :invalid_date}
+      end
+    end
+
+    defp era_year(date) do
+      case Enum.find(@eras, fn {start, _era} -> Date.compare(date, start) != :lt end) do
+        {start, era} -> {date.year - start.year + 1, era}
+        nil -> {:error, :invalid_date}
       end
     end
 
@@ -186,14 +190,17 @@ defmodule Localize.DateParseEraTest do
       do: {:error, :missing_fields}
 
     def year_of_era(year, month, day) do
-      gregorian = {gregorian_year(year), month, day}
-
-      with true <- valid_date?(year, month, day),
-           {{start_year, _month, _day}, era} <-
-             Enum.find(@eras, fn {start, _era} -> gregorian >= start end) do
-        {gregorian_year(year) - start_year + 1, era}
+      if valid_date?(year, month, day) do
+        era_year({gregorian_year(year), month, day})
       else
-        _no_such_date_or_before_meiji -> {:error, :invalid_date}
+        {:error, :invalid_date}
+      end
+    end
+
+    defp era_year({gregorian_year, _month, _day} = gregorian) do
+      case Enum.find(@eras, fn {start, _era} -> gregorian >= start end) do
+        {{start_year, _month, _day}, era} -> {gregorian_year - start_year + 1, era}
+        nil -> {:error, :invalid_date}
       end
     end
 

@@ -228,13 +228,18 @@ defmodule Localize.Date.Parser do
   # `Calendar.ISO`, whose notation ISO 8601 is, its week-based year and week.
   # A week the year does not have is no week.
   defp iso_week(input, calendar_module, as) do
+    case week_reading(input, calendar_module, as) do
+      {:read, value} -> value
+      _not_a_week -> nil
+    end
+  end
+
+  defp week_reading(input, calendar_module, as) do
     with [_, y, w] <- Regex.run(~r/\A(\d{4})-?W(\d{2})\z/, input),
          {year, ""} <- Integer.parse(y),
          {week, ""} <- Integer.parse(w),
          %Date.Range{first: monday} <- Localize.Calendar.ISO.week(year, week) do
-      iso_week_value(monday, {year, week}, calendar_module, as)
-    else
-      _not_a_week -> nil
+      {:read, iso_week_value(monday, {year, week}, calendar_module, as)}
     end
   end
 
@@ -369,16 +374,21 @@ defmodule Localize.Date.Parser do
               format not in [:short, :medium, :long, :full] do
     first_day = %{calendar: own_calendar, year: reference.year, month: 1, day: 1}
 
-    with {:ok, language_tag} <- Localize.validate_locale(locale),
-         {:ok, pattern, _numbers} <-
-           Localize.Date.resolve_pattern_and_numbers(first_day, format, language_tag, options) do
-      [pattern]
-    else
+    case own_pattern(first_day, format, locale, options) do
+      {:read, pattern} -> [pattern]
       _unresolved -> []
     end
   end
 
   defp own_fields_pattern(_format, _options, _reading), do: []
+
+  defp own_pattern(first_day, format, locale, options) do
+    with {:ok, language_tag} <- Localize.validate_locale(locale),
+         {:ok, pattern, _numbers} <-
+           Localize.Date.resolve_pattern_and_numbers(first_day, format, language_tag, options) do
+      {:read, pattern}
+    end
+  end
 
   # A whole date of the calendar the text is read in, which a format is
   # resolved for: the reference date, or the first day of its year where it
@@ -492,11 +502,15 @@ defmodule Localize.Date.Parser do
   defp own_format_reading(_input, _locale, Calendar.ISO, _own_calendar, _reference), do: nil
 
   defp own_format_reading(input, locale, calendar_module, own_calendar, reference) do
-    with true <- Regex.match?(~r/\A\d{4}-\d{2}-\d{2}\z/, input),
-         {:ok, patterns, ctx} <- locale_patterns(locale, calendar_module, own_calendar, reference) do
-      run_locale_pass(patterns, input, ctx, :struct)
-    else
-      _not_a_date_iso_8601_reads -> nil
+    if Regex.match?(~r/\A\d{4}-\d{2}-\d{2}\z/, input) do
+      locale_pass(input, locale, calendar_module, own_calendar, reference)
+    end
+  end
+
+  defp locale_pass(input, locale, calendar_module, own_calendar, reference) do
+    case locale_patterns(locale, calendar_module, own_calendar, reference) do
+      {:ok, patterns, ctx} -> run_locale_pass(patterns, input, ctx, :struct)
+      _no_patterns -> nil
     end
   end
 
@@ -507,14 +521,25 @@ defmodule Localize.Date.Parser do
   # 8601.
   @spec own_format_date(String.t(), Keyword.t()) :: {:ok, Date.t()} | nil
   def own_format_date(input, options) do
-    with {:ok, calendar_module} <- calendar_option(options),
-         {:ok, ^calendar_module} <- Localize.Calendar.parsing_calendar(calendar_module) do
-      locale = Keyword.get(options, :locale) || Localize.get_locale()
-      reference = reference_date(options, calendar_module)
-      own_format_reading(input, locale, calendar_module, calendar_module, reference)
-    else
+    case own_parsing_calendar(options) do
+      {:read, calendar_module} -> own_calendar_reading(input, options, calendar_module)
       _read_in_another_calendar -> nil
     end
+  end
+
+  # A calendar read in another calendar's notation has no notation of its own.
+  defp own_parsing_calendar(options) do
+    with {:ok, calendar_module} <- calendar_option(options),
+         {:ok, ^calendar_module} <- Localize.Calendar.parsing_calendar(calendar_module) do
+      {:read, calendar_module}
+    end
+  end
+
+  defp own_calendar_reading(input, options, calendar_module) do
+    locale = Keyword.get(options, :locale) || Localize.get_locale()
+    reference = reference_date(options, calendar_module)
+
+    own_format_reading(input, locale, calendar_module, calendar_module, reference)
   end
 
   # The date partial input is completed against: the reference date in
@@ -828,36 +853,58 @@ defmodule Localize.Date.Parser do
   # locale's are (`match_any_interval_pattern/6`). A format with no
   # interval item, a pattern among them, has none.
   defp match_format_interval(inputs, format, reading, as) do
-    {locale, calendar_module, own_calendar, reference} = reading
+    {locale, calendar_module, _own_calendar, _reference} = reading
     cldr_calendar = cldr_calendar_type(calendar_module)
 
+    case format_interval_data(format, locale, calendar_module, cldr_calendar) do
+      {:read, defaults, variants, intervals, months_data} ->
+        format_interval_reading(
+          inputs,
+          as,
+          {defaults, variants},
+          {intervals, months_data},
+          reading
+        )
+
+      _no_patterns ->
+        :error
+    end
+  end
+
+  defp format_interval_data(format, locale, calendar_module, cldr_calendar) do
     with {:ok, {[_pattern | _rest] = defaults, variants}} <-
            Localize.Interval.written_patterns(format, locale, calendar_module, locale: locale),
          {:ok, intervals} <- Format.interval_formats(locale, cldr_calendar),
          {:ok, months_data} <- LCalendar.months(locale, cldr_calendar) do
-      order = Format.interval_order(intervals)
-      ctx = field_context(locale, calendar_module, own_calendar, reference, months_data)
-      ctx = %{ctx | interval_order: order}
-      years = written_years(locale, calendar_module, own_calendar, reference)
-
-      # The formatter writes an item's default unless it is asked for the
-      # variant, so every default is tried before any variant, as it is
-      # with no format.
-      defaults = pattern_entries(defaults, years, ctx)
-      variants = pattern_entries(variants, years, ctx)
-
-      inputs
-      |> Enum.find_value(:error, fn input ->
-        transliterated = transliterate_digits(input, locale)
-        plain_input = plain_spaces(transliterated)
-
-        (written_first_of(defaults, plain_input) ++ written_first_of(variants, plain_input))
-        |> Enum.find_value(&interval_reading(transliterated, &1, ctx, as))
-      end)
-      |> in_range_order(order)
-    else
-      _no_patterns -> :error
+      {:read, defaults, variants, intervals, months_data}
     end
+  end
+
+  defp format_interval_reading(inputs, as, patterns, data, reading) do
+    {locale, calendar_module, own_calendar, reference} = reading
+    {defaults, variants} = patterns
+    {intervals, months_data} = data
+
+    order = Format.interval_order(intervals)
+    ctx = field_context(locale, calendar_module, own_calendar, reference, months_data)
+    ctx = %{ctx | interval_order: order}
+    years = written_years(locale, calendar_module, own_calendar, reference)
+
+    # The formatter writes an item's default unless it is asked for the
+    # variant, so every default is tried before any variant, as it is
+    # with no format.
+    defaults = pattern_entries(defaults, years, ctx)
+    variants = pattern_entries(variants, years, ctx)
+
+    inputs
+    |> Enum.find_value(:error, fn input ->
+      transliterated = transliterate_digits(input, locale)
+      plain_input = plain_spaces(transliterated)
+
+      (written_first_of(defaults, plain_input) ++ written_first_of(variants, plain_input))
+      |> Enum.find_value(&interval_reading(transliterated, &1, ctx, as))
+    end)
+    |> in_range_order(order)
   end
 
   # Two dates alike in every field a format writes are written as one
@@ -869,11 +916,17 @@ defmodule Localize.Date.Parser do
   defp or_one_date({:ok, _range} = range, _input, _options, _calendar_module), do: range
 
   defp or_one_date({:error, _reason} = error, input, options, calendar_module) do
+    case one_date_at_format(input, options, calendar_module) do
+      {:read, date} -> finalise_range(date, date, true, Keyword.get(options, :as, :struct))
+      _no_date -> error
+    end
+  end
+
+  # Text read with no format is two dates, or none.
+  defp one_date_at_format(input, options, calendar_module) do
     with format when not is_nil(format) <- Keyword.get(options, :format),
          {:ok, date} <- do_parse(input, options, calendar_module) do
-      finalise_range(date, date, true, Keyword.get(options, :as, :struct))
-    else
-      _no_date -> error
+      {:read, date}
     end
   end
 
@@ -927,28 +980,48 @@ defmodule Localize.Date.Parser do
   defp match_any_interval_pattern(input, locale, calendar_module, own_calendar, reference, as) do
     cldr_calendar = cldr_calendar_type(calendar_module)
 
+    case locale_interval_data(locale, cldr_calendar) do
+      {:read, intervals, months_data} ->
+        any_interval_reading(
+          input,
+          {intervals, months_data},
+          {locale, calendar_module, own_calendar, reference},
+          as
+        )
+
+      _no_patterns ->
+        :error
+    end
+  end
+
+  defp locale_interval_data(locale, cldr_calendar) do
     with {:ok, intervals} <- Format.interval_formats(locale, cldr_calendar),
          {:ok, months_data} <- LCalendar.months(locale, cldr_calendar) do
-      transliterated = transliterate_digits(input, locale)
-      order = Format.interval_order(intervals)
-      ctx = field_context(locale, calendar_module, own_calendar, reference, months_data)
-      ctx = %{ctx | interval_order: order}
-      years = written_years(locale, calendar_module, own_calendar, reference)
-
-      # An item is a pattern or, in `en-CA`, a default pattern and a variant
-      # of it. The formatter writes the default unless it is asked for the
-      # variant, so every default is tried before any variant: `en-CA`'s
-      # `yMd` is "M/d/y–M/d/y" beside "d/M/y – d/M/y", and the
-      # "5/6/2026–7/8/2026" it writes is from 6 May.
-      {defaults, variants} = interval_patterns(intervals, years, ctx)
-      plain_input = plain_spaces(transliterated)
-
-      (written_first_of(defaults, plain_input) ++ written_first_of(variants, plain_input))
-      |> Enum.find_value(:error, &interval_reading(transliterated, &1, ctx, as))
-      |> in_range_order(order)
-    else
-      _ -> :error
+      {:read, intervals, months_data}
     end
+  end
+
+  defp any_interval_reading(input, data, reading, as) do
+    {intervals, months_data} = data
+    {locale, calendar_module, own_calendar, reference} = reading
+
+    transliterated = transliterate_digits(input, locale)
+    order = Format.interval_order(intervals)
+    ctx = field_context(locale, calendar_module, own_calendar, reference, months_data)
+    ctx = %{ctx | interval_order: order}
+    years = written_years(locale, calendar_module, own_calendar, reference)
+
+    # An item is a pattern or, in `en-CA`, a default pattern and a variant
+    # of it. The formatter writes the default unless it is asked for the
+    # variant, so every default is tried before any variant: `en-CA`'s
+    # `yMd` is "M/d/y–M/d/y" beside "d/M/y – d/M/y", and the
+    # "5/6/2026–7/8/2026" it writes is from 6 May.
+    {defaults, variants} = interval_patterns(intervals, years, ctx)
+    plain_input = plain_spaces(transliterated)
+
+    (written_first_of(defaults, plain_input) ++ written_first_of(variants, plain_input))
+    |> Enum.find_value(:error, &interval_reading(transliterated, &1, ctx, as))
+    |> in_range_order(order)
   end
 
   # The patterns a locale's intervals are read with in a calendar, the
@@ -1193,14 +1266,22 @@ defmodule Localize.Date.Parser do
   defp match_interval_tokens(input, {tokens, regex, numbers}, ctx, as) do
     ctx = %{ctx | two_digit_year: two_digit_year?(tokens), numbers: numbers}
 
+    case interval_partials(input, regex, numbers, ctx) do
+      {:read, left_partial, right_partial} ->
+        interval_endpoints_for(as, left_partial, right_partial, ctx)
+
+      _unread ->
+        :error
+    end
+  end
+
+  defp interval_partials(input, regex, numbers, ctx) do
     with %{} = captured <- Regex.named_captures(regex, input),
          caps = latin_digits(captured, numbers),
          {left_era, right_era} = interval_eras(caps),
          {:ok, left_partial} <- extract_partial(caps, {"left_", "right_"}, left_era, ctx),
          {:ok, right_partial} <- extract_partial(caps, {"right_", "left_"}, right_era, ctx) do
-      interval_endpoints_for(as, left_partial, right_partial, ctx)
-    else
-      _ -> :error
+      {:read, left_partial, right_partial}
     end
   end
 
@@ -1210,13 +1291,18 @@ defmodule Localize.Date.Parser do
   defp compile_interval_regex(tokens, ctx) do
     ctx = %{ctx | two_digit_year: two_digit_year?(tokens)}
 
+    case interval_regex(tokens, ctx) do
+      {:read, regex} -> regex
+      _no_interval -> nil
+    end
+  end
+
+  defp interval_regex(tokens, ctx) do
     with {tokens_l, [_ | _] = tokens_r} <- split_interval_tokens(tokens),
          left_regex = compile_capture_regex(joined(tokens_l), ctx, "left_"),
          right_regex = compile_capture_regex(spaced_dashes(tokens_r), ctx, "right_"),
          {:ok, regex} <- Regex.compile("\\A" <> left_regex <> right_regex <> "\\z", "u") do
-      regex
-    else
-      _no_interval -> nil
+      {:read, regex}
     end
   end
 
@@ -1265,15 +1351,16 @@ defmodule Localize.Date.Parser do
     %{calendar_module: calendar_module, reference_year: reference} = ctx
     {left_partial, right_partial} = sharing_a_written_year(left_partial, right_partial, ctx)
 
-    with true <- interval_partial_meaningful?(left_partial),
-         true <- interval_partial_meaningful?(right_partial),
-         {:ok, left_map} <-
-           partial_to_map(left_partial, right_partial, calendar_module, reference),
-         {:ok, right_map} <-
-           partial_to_map(right_partial, left_partial, calendar_module, reference) do
-      {:ok, left_map, right_map}
+    if interval_partial_meaningful?(left_partial) and
+         interval_partial_meaningful?(right_partial) do
+      with {:ok, left_map} <-
+             partial_to_map(left_partial, right_partial, calendar_module, reference),
+           {:ok, right_map} <-
+             partial_to_map(right_partial, left_partial, calendar_module, reference) do
+        {:ok, left_map, right_map}
+      end
     else
-      _ -> :error
+      :error
     end
   end
 
@@ -1291,8 +1378,6 @@ defmodule Localize.Date.Parser do
          {:ok, later_date} <-
            partial_beside(later, earlier, earlier_date, :after, ctx.calendar_module) do
       {:ok, earlier_date, later_date}
-    else
-      _ -> :error
     end
   end
 
@@ -1306,8 +1391,6 @@ defmodule Localize.Date.Parser do
          {:ok, earlier_date} <-
            partial_beside(earlier, later, later_date, :before, ctx.calendar_module) do
       {:ok, earlier_date, later_date}
-    else
-      _ -> :error
     end
   end
 
@@ -1316,8 +1399,6 @@ defmodule Localize.Date.Parser do
          {:ok, later_date} <-
            partial_beside(later, earlier, earlier_date, :after, ctx.calendar_module) do
       {:ok, earlier_date, later_date}
-    else
-      _ -> :error
     end
   end
 
@@ -1327,8 +1408,6 @@ defmodule Localize.Date.Parser do
     with {:ok, earlier_date} <- materialise(earlier, later, ctx.calendar_module),
          {:ok, later_date} <- materialise(later, earlier, ctx.calendar_module) do
       {:ok, earlier_date, later_date}
-    else
-      _ -> :error
     end
   end
 
@@ -1355,12 +1434,17 @@ defmodule Localize.Date.Parser do
     whole = %{partial | day: partial.day || anchor_partial.day || 1}
     anchor_whole = %{anchor_partial | day: anchor_partial.day || partial.day || 1}
 
+    case year_beside(whole, anchor_whole, side, ctx) do
+      {:read, year} -> %{partial | year: year}
+      _no_date -> partial
+    end
+  end
+
+  defp year_beside(whole, anchor_whole, side, ctx) do
     with {:ok, anchor} <- materialise(anchor_whole, whole, ctx.calendar_module),
          {:ok, %Date{year: year}} <-
            partial_beside(whole, anchor_whole, anchor, side, ctx.calendar_module) do
-      %{partial | year: year}
-    else
-      _no_date -> partial
+      {:read, year}
     end
   end
 
@@ -1403,14 +1487,19 @@ defmodule Localize.Date.Parser do
   defp date_beside(read, %Date{} = anchor, side, backwards?, next_year \\ &the_same_day/2) do
     in_the_anchors_year = read.(anchor)
 
+    case a_year_along(read, anchor, side, backwards?, next_year, in_the_anchors_year) do
+      {:read, date} -> {:ok, date}
+      _as_it_is -> in_the_anchors_year
+    end
+  end
+
+  defp a_year_along(read, anchor, side, backwards?, next_year, in_the_anchors_year) do
     with true <- other_side?(in_the_anchors_year, anchor, side),
          false <- backwards?.(in_the_anchors_year),
          {:ok, reference, a_year_away} <- next_year.(anchor, side),
          {:ok, %Date{} = date} <- read.(reference),
          true <- within_a_year?(date, anchor, a_year_away, side) do
-      {:ok, date}
-    else
-      _as_it_is -> in_the_anchors_year
+      {:read, date}
     end
   end
 
@@ -1453,12 +1542,15 @@ defmodule Localize.Date.Parser do
   defp a_year_away(%Date{year: year, month: month, day: day, calendar: calendar}, side) do
     years = if side == :after, do: 1, else: -1
 
-    with {:ok, {year, month, day}} <-
-           Localize.Calendar.shift(calendar, {year, month, day}, years, 0),
-         {:ok, date} <- Date.new(year, month, day, calendar) do
-      {:ok, date}
-    else
+    case shifted_day(calendar, {year, month, day}, years) do
+      {:ok, _date} = ok -> ok
       _no_such_day -> :error
+    end
+  end
+
+  defp shifted_day(calendar, fields, years) do
+    with {:ok, {year, month, day}} <- Localize.Calendar.shift(calendar, fields, years, 0) do
+      Date.new(year, month, day, calendar)
     end
   end
 
@@ -1809,12 +1901,17 @@ defmodule Localize.Date.Parser do
   defp in_cycle(year, cycle, _ctx) when is_nil(year) or is_nil(cycle), do: {:ok, year}
 
   defp in_cycle(year, raw, ctx) do
+    case cycle_reading(year, raw, ctx) do
+      :read -> {:ok, year}
+      _another_cycle -> :error
+    end
+  end
+
+  defp cycle_reading(year, raw, ctx) do
     with {cycle, ""} <- parse_year(raw),
          {:ok, related} <- related_year_of(year, ctx.calendar_module),
          ^cycle <- LCalendar.cycle_of_related_year(related) do
-      {:ok, year}
-    else
-      _another_cycle -> :error
+      :read
     end
   end
 
@@ -1895,10 +1992,15 @@ defmodule Localize.Date.Parser do
   # text before its digits is the sign, a year's pattern taking no other
   # text there.
   defp year_signed_in_words(raw) do
-    with [_all, digits] <- Regex.run(~r/\A\D+(\d+)\z/u, raw),
-         {year, ""} <- Integer.parse(digits) do
-      {-year, ""}
-    else
+    case Regex.run(~r/\A\D+(\d+)\z/u, raw) do
+      [_all, digits] -> negated_year(digits)
+      _no_year -> :error
+    end
+  end
+
+  defp negated_year(digits) do
+    case Integer.parse(digits) do
+      {year, ""} -> {-year, ""}
       _no_year -> :error
     end
   end
@@ -1952,17 +2054,8 @@ defmodule Localize.Date.Parser do
   defp year_with_related(nil, related, ctx) do
     %{calendar_module: calendar_module, reference_year: reference_year} = ctx
 
-    with {:ok, reference_related} <- related_year_of(reference_year, calendar_module),
-         estimate = related - (reference_related - reference_year),
-         {:ok, year} <- year_of_related(estimate, related, calendar_module, @related_year_steps) do
-      [year - 1, year, year + 1]
-      |> Enum.filter(&(held_related_year(&1, calendar_module) == {:ok, related}))
-      |> Enum.min_by(&abs(&1 - reference_year), fn -> nil end)
-      |> case do
-        nil -> :error
-        year -> {:ok, year}
-      end
-    else
+    case estimated_year(related, reference_year, calendar_module) do
+      {:read, year} -> nearest_related_year(year, related, reference_year, calendar_module)
       _no_such_year -> :error
     end
   end
@@ -1971,6 +2064,27 @@ defmodule Localize.Date.Parser do
     if related_year_of(year, ctx.calendar_module) == {:ok, related},
       do: {:ok, year},
       else: :error
+  end
+
+  defp estimated_year(related, reference_year, calendar_module) do
+    with {:ok, reference_related} <- related_year_of(reference_year, calendar_module),
+         estimate = related - (reference_related - reference_year),
+         {:ok, year} <-
+           year_of_related(estimate, related, calendar_module, @related_year_steps) do
+      {:read, year}
+    end
+  end
+
+  # The year of that related year nearest the reference, the estimate being
+  # a year out either way.
+  defp nearest_related_year(year, related, reference_year, calendar_module) do
+    [year - 1, year, year + 1]
+    |> Enum.filter(&(held_related_year(&1, calendar_module) == {:ok, related}))
+    |> Enum.min_by(&abs(&1 - reference_year), fn -> nil end)
+    |> case do
+      nil -> :error
+      nearest -> {:ok, nearest}
+    end
   end
 
   # A year of `related`, reached from `year` by the difference its own
@@ -2057,15 +2171,23 @@ defmodule Localize.Date.Parser do
   # calendar's year of the Gregorian year the era begins in, and the year
   # before it is counted from, a lunisolar year beginning after January.
   defp years_of_place_from(era_index, position, ctx) do
+    case era_first_place(era_index, ctx) do
+      {:read, first, first_place} ->
+        from = first - 1 + Integer.mod(position - first_place + 1, 60)
+        [from, from + 60, from + 120]
+
+      _no_beginning ->
+        []
+    end
+  end
+
+  defp era_first_place(era_index, ctx) do
     with {:ok, [start_year | _month_and_day]} <-
            Map.fetch(era_starts(ctx.calendar_module), era_index),
          {:ok, first} <- year_with_related(nil, start_year, ctx),
          first_place when is_integer(first_place) <-
            cyclic_position(first, ctx.calendar_module) do
-      from = first - 1 + Integer.mod(position - first_place + 1, 60)
-      [from, from + 60, from + 120]
-    else
-      _no_beginning -> []
+      {:read, first, first_place}
     end
   end
 
@@ -2191,6 +2313,13 @@ defmodule Localize.Date.Parser do
   # branch) and return the integer index `N` embedded in the
   # capture name, or `nil`.
   defp prefixed_indexed_capture(caps, prefix, marker, index_regex) do
+    case capture_index(caps, prefix, marker, index_regex) do
+      {:read, n} -> n
+      _no_index -> nil
+    end
+  end
+
+  defp capture_index(caps, prefix, marker, index_regex) do
     with {key, _value} <-
            Enum.find(caps, fn
              {key, value} -> String.starts_with?(key, prefix <> marker) and value != ""
@@ -2198,9 +2327,7 @@ defmodule Localize.Date.Parser do
            end),
          [_, index_str] <- Regex.run(index_regex, key),
          {n, ""} <- Integer.parse(index_str) do
-      n
-    else
-      _ -> nil
+      {:read, n}
     end
   end
 
@@ -2219,14 +2346,20 @@ defmodule Localize.Date.Parser do
     else
       {own_year, own_month, own_day} = calendar_date(year, month, day, calendar_module)
 
-      with month when is_integer(month) <- own_month,
-           {:ok, date} <- build_date(own_year, month, own_day, calendar_module) do
-        {:ok, date}
-      else
-        _ -> :error
-      end
+      built_date(own_year, own_month, own_day, calendar_module)
     end
   end
+
+  # A month the calendar does not have, and a day it does not have in that
+  # month, are no date.
+  defp built_date(own_year, own_month, own_day, calendar_module) when is_integer(own_month) do
+    case build_date(own_year, own_month, own_day, calendar_module) do
+      {:ok, date} -> {:ok, date}
+      _no_such_date -> :error
+    end
+  end
+
+  defp built_date(_own_year, _own_month, _own_day, _calendar_module), do: :error
 
   @doc """
   Parses pre-split range endpoints. See
@@ -2420,6 +2553,13 @@ defmodule Localize.Date.Parser do
   defp a_week_year_away(%Date{} = anchor, side, weeks) do
     %{calendar: calendar, data: week_data, year: week_year} = weeks
 
+    case week_year_away(anchor, side, calendar, week_data, week_year) do
+      {:read, reference, days} -> {:ok, reference, Date.add(anchor, days)}
+      _no_such_year -> :error
+    end
+  end
+
+  defp week_year_away(anchor, side, calendar, week_data, week_year) do
     with {:ok, middle} <- LCalendar.week(calendar, week_year, @mid_year_week, week_data),
          {:ok, middle_day} <- convert_value(middle.first, anchor.calendar),
          {:ok, reference} <- a_year_away(middle_day, side),
@@ -2428,9 +2568,7 @@ defmodule Localize.Date.Parser do
            LCalendar.week_of_year(day, week_data),
          {:ok, first} <- LCalendar.week(calendar, week_year, 1, week_data),
          {:ok, next_first} <- LCalendar.week(calendar, next_year, 1, week_data) do
-      {:ok, reference, Date.add(anchor, Date.diff(next_first.first, first.first))}
-    else
-      _no_such_year -> :error
+      {:read, reference, Date.diff(next_first.first, first.first)}
     end
   end
 
@@ -2682,35 +2820,47 @@ defmodule Localize.Date.Parser do
   # `YYYYMMDD` (basic, no separators). The 4+2+2 shape is
   # unambiguous and ISO 8601-conformant. The stdlib parser
   # rejects this; we accept it as a wire format.
-  defp try_iso_basic(input) do
-    case input do
-      <<y::binary-size(4), m::binary-size(2), d::binary-size(2)>> ->
-        with {year, ""} <- Integer.parse(y),
-             {month, ""} <- Integer.parse(m),
-             {day, ""} <- Integer.parse(d),
-             {:ok, date} <- Date.new(year, month, day) do
-          {:ok, date}
-        else
-          _ -> :error
-        end
+  defp try_iso_basic(<<y::binary-size(4), m::binary-size(2), d::binary-size(2)>>) do
+    case basic_fields(y, m, d) do
+      {:read, year, month, day} -> basic_date(year, month, day)
+      _not_three_numbers -> :error
+    end
+  end
 
-      _ ->
-        :error
+  defp try_iso_basic(_not_eight_digits), do: :error
+
+  defp basic_fields(y, m, d) do
+    with {year, ""} <- Integer.parse(y),
+         {month, ""} <- Integer.parse(m),
+         {day, ""} <- Integer.parse(d) do
+      {:read, year, month, day}
+    end
+  end
+
+  defp basic_date(year, month, day) do
+    case Date.new(year, month, day) do
+      {:ok, date} -> {:ok, date}
+      _no_such_date -> :error
     end
   end
 
   # `YYYY-DDD` and `YYYYDDD` (ordinal date — year + day-of-year, 1..366):
   # that day of the year's days, as `Localize.Calendar.ISO` gives them.
   defp try_iso_ordinal(input) do
+    case ordinal_reading(input) do
+      {:read, date} -> {:ok, date}
+      _not_an_ordinal_date -> :error
+    end
+  end
+
+  defp ordinal_reading(input) do
     with [_, y, d] <- Regex.run(~r/\A(\d{4})-?(\d{3})\z/u, input),
          {year, ""} <- Integer.parse(y),
          {day_of_year, ""} <- Integer.parse(d),
          %Date.Range{} = days <- Localize.Calendar.ISO.year(year),
          true <- day_of_year in 1..Enum.count(days)//1,
          {:ok, date} <- days.first |> Date.add(day_of_year - 1) |> Date.convert(Calendar.ISO) do
-      {:ok, date}
-    else
-      _ -> :error
+      {:read, date}
     end
   end
 
@@ -2720,6 +2870,13 @@ defmodule Localize.Date.Parser do
   # locale. A week the year does not have, `2026-W54-1` or `2025-W53-1`, is
   # no date.
   defp try_iso_week_date(input) do
+    case iso_week_reading(input) do
+      {:read, date} -> {:ok, date}
+      _not_a_week_date -> :error
+    end
+  end
+
+  defp iso_week_reading(input) do
     with [_, y, _separator, w, d] <- Regex.run(~r/\A(\d{4})(-?)W(\d{2})\2(\d)\z/u, input),
          {year, ""} <- Integer.parse(y),
          {week, ""} <- Integer.parse(w),
@@ -2727,9 +2884,7 @@ defmodule Localize.Date.Parser do
          true <- day in 1..7,
          %Date.Range{first: monday} <- Localize.Calendar.ISO.week(year, week),
          {:ok, date} <- monday |> Date.add(day - 1) |> Date.convert(Calendar.ISO) do
-      {:ok, date}
-    else
-      _ -> :error
+      {:read, date}
     end
   end
 
@@ -3165,14 +3320,28 @@ defmodule Localize.Date.Parser do
     as = Keyword.get(options, :as, :struct)
     options = Keyword.merge(options, calendar: parsing, own_calendar: calendar_module)
 
-    with :no_fields_of_its_own <- years_and_quarters(as, options, parsing, parse, calendar_module),
+    case converted_reading(as, options, parsing, parse, calendar_module) do
+      {:read, converted} ->
+        weeks = weeks_without_days(as, converted, options, parsing, parse)
+        {:ok, converted |> finalise.(as) |> without_days(weeks)}
+
+      {:ok, _fields_of_its_own} = read ->
+        read
+
+      unread ->
+        inverted_in_its_calendar(unread, calendar_module)
+    end
+  end
+
+  # The whole date read in the calendar its notation belongs to, converted
+  # to the calendar asked for. A year, or a year and a quarter, read as a
+  # map is the calendar's own fields and is answered as it is read.
+  defp converted_reading(as, options, parsing, parse, calendar_module) do
+    with :no_fields_of_its_own <-
+           years_and_quarters(as, options, parsing, parse, calendar_module),
          {:ok, value} <- parse.(Keyword.put(options, :as, :struct), parsing),
          {:ok, converted} <- convert_value(value, calendar_module) do
-      weeks = weeks_without_days(as, converted, options, parsing, parse)
-      {:ok, converted |> finalise.(as) |> without_days(weeks)}
-    else
-      {:ok, _fields_of_its_own} = read -> read
-      unread -> inverted_in_its_calendar(unread, calendar_module)
+      {:read, converted}
     end
   end
 
@@ -3241,16 +3410,26 @@ defmodule Localize.Date.Parser do
          {:error, %DateRangeParseError{reason: :inverted, from: %Date{}, to: %Date{}} = error},
          calendar_module
        ) do
-    with {:ok, from} <- convert_value(error.from, calendar_module),
-         {:ok, to} <- convert_value(error.to, calendar_module) do
-      input = if error.input == {error.from, error.to}, do: {from, to}, else: error.input
-      {:error, %{error | from: from, to: to, input: input}}
-    else
+    case converted_ends(error, calendar_module) do
+      {:read, from, to} -> {:error, inverted_error(error, from, to)}
       _unconvertible -> {:error, error}
     end
   end
 
   defp inverted_in_its_calendar(unread, _calendar_module), do: unread
+
+  defp converted_ends(error, calendar_module) do
+    with {:ok, from} <- convert_value(error.from, calendar_module),
+         {:ok, to} <- convert_value(error.to, calendar_module) do
+      {:read, from, to}
+    end
+  end
+
+  defp inverted_error(error, from, to) do
+    input = if error.input == {error.from, error.to}, do: {from, to}, else: error.input
+
+    %{error | from: from, to: to, input: input}
+  end
 
   # A week written for the calendar names no day, so read as a map it is
   # not the whole date of its first day but the fields its days share, as
@@ -3284,19 +3463,24 @@ defmodule Localize.Date.Parser do
     week_year = Map.get(fields, :week_based_year) || Map.get(fields, :year)
     others = Map.keys(fields) -- [:calendar, :year, :week_based_year, :week_of_year]
 
+    case one_calendar_week(others, week_year, week, first_day, week_data) do
+      {:read, fields} -> fields
+      _not_one_week -> nil
+    end
+  end
+
+  defp week_without_day(_fields, _first_day, _week_data), do: nil
+
+  defp one_calendar_week(others, week_year, week, first_day, week_data) do
     with [] <- others,
          true <- is_integer(week_year),
          {:ok, days} <- Localize.Calendar.week(first_day.calendar, week_year, week, week_data),
          %Date{calendar: calendar, year: year, month: month} <- days.first,
          %Date{year: ^year, month: ^month} <- days.last,
          :eq <- Localize.Calendar.compare_days(days.first, first_day) do
-      %{calendar: calendar, year: year, month: month}
-    else
-      _not_one_week -> nil
+      {:read, %{calendar: calendar, year: year, month: month}}
     end
   end
-
-  defp week_without_day(_fields, _first_day, _week_data), do: nil
 
   defp without_days(value, nil), do: value
   defp without_days(%{} = _whole, %{} = week), do: week
@@ -3370,12 +3554,17 @@ defmodule Localize.Date.Parser do
   # The digits of the locale's default number system, or `nil` where they
   # are Latin or the system has none.
   defp locale_digits(locale) do
+    case own_digits(locale) do
+      {:read, digits} -> digits
+      _latin_digits -> nil
+    end
+  end
+
+  defp own_digits(locale) do
     with {:ok, system} <- Localize.Number.System.number_system_from_locale(locale),
          {:ok, digits} when is_binary(digits) and digits not in ["", "0123456789"] <-
            Localize.Number.System.number_system_digits(system) do
-      digits
-    else
-      _ -> nil
+      {:read, digits}
     end
   end
 
@@ -3502,15 +3691,20 @@ defmodule Localize.Date.Parser do
   # calendar's years
   # are written as they are numbered.
   defp implied_era(%{calendar: calendar_module} = reference, calendar_module) do
-    with {:ok, shown} when shown != reference.year <- LCalendar.displayed_year(reference),
-         {:ok, {_year_of_era, era}} <- LCalendar.year_of_era(reference) do
-      era
-    else
+    case era_of_displayed_year(reference) do
+      {:read, era} -> era
       _year_as_numbered -> nil
     end
   end
 
   defp implied_era(_reference, _calendar_module), do: nil
+
+  defp era_of_displayed_year(reference) do
+    with {:ok, shown} when shown != reference.year <- LCalendar.displayed_year(reference),
+         {:ok, {_year_of_era, era}} <- LCalendar.year_of_era(reference) do
+      {:read, era}
+    end
+  end
 
   # Whether the formatter writes a year of the calendar as its place in the
   # sixty-year cycle rather than as its number, as TR35's `y` is in a
@@ -4094,15 +4288,23 @@ defmodule Localize.Date.Parser do
   # The numerals an algorithmic numbering (`hanidays`) writes for each
   # of `values` of `field`, as the formatter writes them.
   defp numeral_names(ctx, field, values) do
-    with system when not is_nil(system) <- field_numbering(ctx, field),
-         %{type: :algorithmic} <- Map.get(Localize.Number.System.number_systems(), system) do
-      for value <- values,
-          {:ok, numeral} <-
-            [Localize.DateTime.Formatter.number_in_system(value, system, ctx.locale)],
-          do: {value, numeral}
-    else
+    case algorithmic_numbering(ctx, field) do
+      {:read, system} -> numerals_in(system, values, ctx.locale)
       _numeric_or_none -> []
     end
+  end
+
+  defp algorithmic_numbering(ctx, field) do
+    with system when not is_nil(system) <- field_numbering(ctx, field),
+         %{type: :algorithmic} <- Map.get(Localize.Number.System.number_systems(), system) do
+      {:read, system}
+    end
+  end
+
+  defp numerals_in(system, values, locale) do
+    for value <- values,
+        {:ok, numeral} <- [Localize.DateTime.Formatter.number_in_system(value, system, locale)],
+        do: {value, numeral}
   end
 
   defp numeral_regex(numerals, marker) do
@@ -4122,12 +4324,17 @@ defmodule Localize.Date.Parser do
   # "-x: マイナス>>;"), so a day before the Japanese calendar's first era is
   # "大化マイナス688年3月15日", which was read as no date.
   defp year_sign(ctx) do
+    case spelled_sign(ctx) do
+      {:read, sign} -> "(?:[-−]|" <> Regex.escape(sign) <> ")?"
+      _a_plain_sign -> "[-−]?"
+    end
+  end
+
+  defp spelled_sign(ctx) do
     with [{-2, negative}, {2, positive}] <- numeral_names(ctx, "y", [-2, 2]),
          sign when sign not in ["", "-", "−", negative] <-
            String.replace_suffix(negative, positive, "") do
-      "(?:[-−]|" <> Regex.escape(sign) <> ")?"
-    else
-      _a_plain_sign -> "[-−]?"
+      {:read, sign}
     end
   end
 
@@ -4617,14 +4824,24 @@ defmodule Localize.Date.Parser do
   # reads the era by a narrow name it does not state matches only once
   # `ctx.narrow_eras` allows it (`read_by_narrow_era/4`).
   defp match_pattern(input, pattern, ctx, as) do
+    case pattern_captures(input, pattern, ctx) do
+      {:read, caps} ->
+        caps
+        |> latin_digits(pattern_numbers(pattern))
+        |> match_captures(%{ctx | two_digit_year: detail(ctx, pattern).two_digit_year?}, as)
+
+      _no_match ->
+        :no_match
+    end
+  end
+
+  # A narrow era is read only where the locale's eras are told apart by
+  # their narrow names, which `__f` captures.
+  defp pattern_captures(input, pattern, ctx) do
     with %Regex{} = regex <- Map.get(ctx.regexes, pattern),
          %{} = caps <- Regex.named_captures(regex, input),
          true <- ctx.narrow_eras or is_nil(named_capture_index(caps, "__f")) do
-      caps
-      |> latin_digits(pattern_numbers(pattern))
-      |> match_captures(%{ctx | two_digit_year: detail(ctx, pattern).two_digit_year?}, as)
-    else
-      _ -> :no_match
+      {:read, caps}
     end
   end
 
@@ -4648,11 +4865,16 @@ defmodule Localize.Date.Parser do
   defp match_captures(caps, ctx, as) do
     year_fallback = year_fallback_for(as, ctx.reference_year)
 
+    case captured_fields(caps, year_fallback, ctx) do
+      {:read, fields} -> match_result_for(as, fields, caps, ctx)
+      _unread -> :error
+    end
+  end
+
+  defp captured_fields(caps, year_fallback, ctx) do
     with {:ok, era_index} <- extract_era(caps),
          {:ok, fields} <- extract_fields(caps, year_fallback, era_index, ctx) do
-      match_result_for(as, fields, caps, ctx)
-    else
-      _ -> :error
+      {:read, fields}
     end
   end
 
@@ -4798,15 +5020,20 @@ defmodule Localize.Date.Parser do
   # (`Localize.Calendar.week_of_year/2`). The year it would otherwise be of
   # where the calendar does not say.
   defp reference_week_year(%{reference: %Date{} = reference} = ctx, calendar_year) do
-    with {:ok, date} <- Date.convert(reference, ctx.own_calendar),
-         {:ok, {week_year, _week}} <- LCalendar.week_of_year(date, ctx.week_config) do
-      week_year
-    else
+    case own_week_year(reference, ctx) do
+      {:read, week_year} -> week_year
       _no_week -> calendar_year
     end
   end
 
   defp reference_week_year(_ctx, calendar_year), do: calendar_year
+
+  defp own_week_year(reference, ctx) do
+    with {:ok, date} <- Date.convert(reference, ctx.own_calendar),
+         {:ok, {week_year, _week}} <- LCalendar.week_of_year(date, ctx.week_config) do
+      {:read, week_year}
+    end
+  end
 
   # A field whose captured value no date can have (month 15, day 32) is
   # `:invalid`, not absent: the pattern does not match, rather than read
@@ -5007,6 +5234,13 @@ defmodule Localize.Date.Parser do
   # return the integer index `N`, or `nil` when no such
   # capture matched.
   defp named_capture_index(caps, marker) do
+    case marked_capture_index(caps, marker) do
+      {:read, n} -> n
+      _no_index -> nil
+    end
+  end
+
+  defp marked_capture_index(caps, marker) do
     with {key, _value} <-
            Enum.find(caps, fn
              {key, value} -> String.starts_with?(key, marker) and value != ""
@@ -5015,9 +5249,7 @@ defmodule Localize.Date.Parser do
          [index_str, _] <-
            key |> String.replace_prefix(marker, "") |> String.split("__", parts: 2),
          {n, ""} <- Integer.parse(index_str) do
-      n
-    else
-      _ -> nil
+      {:read, n}
     end
   end
 
@@ -5062,13 +5294,18 @@ defmodule Localize.Date.Parser do
   defp counted_from_era_start(year, era_index, calendar_module) do
     starts = era_starts(calendar_module)
 
+    case era_first_years(starts, era_index, calendar_module) do
+      {:read, first_year, start_year} -> [first_year + year - 1, start_year + year - 1]
+      _no_era_start -> []
+    end
+  end
+
+  defp era_first_years(starts, era_index, calendar_module) do
     with true <- map_size(starts) > 1,
          {:ok, [start_year, start_month, start_day]} <- Map.fetch(starts, era_index),
          {:ok, start} <- Date.new(start_year, start_month, start_day),
          {:ok, %{year: first_year}} <- Date.convert(start, calendar_module) do
-      [first_year + year - 1, start_year + year - 1]
-    else
-      _no_era_start -> []
+      {:read, first_year, start_year}
     end
   end
 
@@ -5107,11 +5344,17 @@ defmodule Localize.Date.Parser do
   defp era_probe(calendar_module, year, month, day) do
     probe = %{calendar: calendar_module, year: year}
 
-    with true <- calendar_holds?(probe),
-         placed when is_integer(placed) <- named_month(era_month(month), year, calendar_module) do
-      probe |> Map.put(:month, placed) |> maybe_put(:day, era_day(day))
-    else
+    case placed_month(probe, month, year, calendar_module) do
+      {:read, placed} -> probe |> Map.put(:month, placed) |> maybe_put(:day, era_day(day))
       _no_month_to_ask_about -> probe
+    end
+  end
+
+  defp placed_month(probe, month, year, calendar_module) do
+    with true <- calendar_holds?(probe),
+         placed when is_integer(placed) <-
+           named_month(era_month(month), year, calendar_module) do
+      {:read, placed}
     end
   end
 
@@ -5266,6 +5509,13 @@ defmodule Localize.Date.Parser do
   # formatter writes `Q`: the days its `quarter/2` gives, taken into the
   # calendar the input is read in.
   defp build_from_quarter(fields, calendar_module) do
+    case first_of_quarter(fields, calendar_module) do
+      {:ok, _date} = ok -> ok
+      _no_such_quarter -> :error
+    end
+  end
+
+  defp first_of_quarter(fields, calendar_module) do
     with {:ok, days} <-
            Localize.Calendar.ask(
              fields.own_calendar,
@@ -5273,11 +5523,8 @@ defmodule Localize.Date.Parser do
              [fields.year, fields.quarter],
              "the days of a quarter",
              &match?(%Date.Range{}, &1)
-           ),
-         {:ok, date} <- convert_value(days.first, calendar_module) do
-      {:ok, date}
-    else
-      _no_such_quarter -> :error
+           ) do
+      convert_value(days.first, calendar_module)
     end
   end
 
@@ -5304,13 +5551,17 @@ defmodule Localize.Date.Parser do
   # (`fields.own_calendar`), and the date is taken into the calendar the
   # input is read in.
   defp date_from_week(week_year, week, day_of_week, fields, calendar_module) do
+    case day_of_calendar_week(week_year, week, day_of_week, fields, calendar_module) do
+      {:ok, _date} = ok -> ok
+      _no_such_day -> :error
+    end
+  end
+
+  defp day_of_calendar_week(week_year, week, day_of_week, fields, calendar_module) do
     with {:ok, days} <-
            Localize.Calendar.week(fields.own_calendar, week_year, week, fields.week_config),
-         %Date{} = date <- day_in_week(days, day_of_week),
-         {:ok, date} <- convert_value(date, calendar_module) do
-      {:ok, date}
-    else
-      _no_such_day -> :error
+         %Date{} = date <- day_in_week(days, day_of_week) do
+      convert_value(date, calendar_module)
     end
   end
 
@@ -5324,18 +5575,23 @@ defmodule Localize.Date.Parser do
   # that weekday, return :error.
   defp date_from_nth_weekday(year, month, weekday, n, calendar_module)
        when weekday in 1..7 and n in 1..5 do
-    with {:ok, first_of_month} <- build_date(year, month, 1, calendar_module),
-         first_dow = Date.day_of_week(first_of_month),
-         offset_to_first_occurrence = rem(weekday - first_dow + 7, 7),
-         day_number = offset_to_first_occurrence + 1 + (n - 1) * 7,
-         {:ok, candidate} <- build_date(year, month, day_number, calendar_module) do
-      {:ok, candidate}
-    else
-      _ -> :error
+    case nth_weekday_date(year, month, weekday, n, calendar_module) do
+      {:ok, _date} = ok -> ok
+      _no_such_day -> :error
     end
   end
 
   defp date_from_nth_weekday(_, _, _, _, _), do: :error
+
+  defp nth_weekday_date(year, month, weekday, n, calendar_module) do
+    with {:ok, first_of_month} <- build_date(year, month, 1, calendar_module) do
+      first_dow = Date.day_of_week(first_of_month)
+      offset_to_first_occurrence = rem(weekday - first_dow + 7, 7)
+      day_number = offset_to_first_occurrence + 1 + (n - 1) * 7
+
+      build_date(year, month, day_number, calendar_module)
+    end
+  end
 
   # ── Partial dates ────────────────────────────────────────────
 
@@ -5457,22 +5713,31 @@ defmodule Localize.Date.Parser do
   # the year's days, which the calendar gives (its `year/1`), counted from
   # the first. A number the year has no day for is no date.
   defp day_of_year(year, day_of_year, calendar_module) when is_integer(day_of_year) do
-    with {:ok, days} <-
-           Localize.Calendar.ask(
-             calendar_module,
-             :year,
-             [year],
-             "the days of a year",
-             &match?(%Date.Range{}, &1)
-           ),
-         true <- day_of_year in 1..Enum.count(days)//1 do
-      {:ok, Date.add(days.first, day_of_year - 1)}
-    else
-      _no_such_day -> :error
+    case days_of_year(year, calendar_module) do
+      {:ok, days} -> nth_day_of_year(days, day_of_year)
+      _no_such_year -> :error
     end
   end
 
   defp day_of_year(_year, _day_of_year, _calendar_module), do: :error
+
+  defp days_of_year(year, calendar_module) do
+    Localize.Calendar.ask(
+      calendar_module,
+      :year,
+      [year],
+      "the days of a year",
+      &match?(%Date.Range{}, &1)
+    )
+  end
+
+  defp nth_day_of_year(days, day_of_year) do
+    if day_of_year in 1..Enum.count(days)//1 do
+      {:ok, Date.add(days.first, day_of_year - 1)}
+    else
+      :error
+    end
+  end
 
   # The fields of a date given only as year, month and day, in the shape
   # `extract_fields/5` gives them. It has no week fields, so nothing reads

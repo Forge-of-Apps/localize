@@ -160,13 +160,24 @@ defmodule Localize.Inflection.PronounConcept do
   # generated data (zh-TW uses the zh features).
   defp resolve_model_locale(locale) do
     with {:ok, atom} <- Locale.resolve(locale),
-         :ok <- Data.ensure_loaded(atom) do
+         :ok <- loaded_data(atom, locale) do
       {:ok, atom}
-    else
+    end
+  end
+
+  # `ensure_loaded/1` reports a bare reason — a posix error, or an artifact
+  # predating the packed lexicon — which this names for the locale asked for.
+  # An error already carrying an exception, such as literal memory being
+  # exhausted, says more than that and is kept.
+  defp loaded_data(atom, locale) do
+    case Data.ensure_loaded(atom) do
+      :ok ->
+        :ok
+
       {:error, %_struct{} = exception} ->
         {:error, exception}
 
-      _error ->
+      {:error, _reason} ->
         {:error, Localize.InflectionDataNotAvailableError.exception(locale: locale)}
     end
   end
@@ -222,9 +233,18 @@ defmodule Localize.Inflection.PronounConcept do
   # available rather than raised.
   defp artifact_table(table_locale) do
     with {:ok, atom} <- Locale.resolve(table_locale),
-         {:ok, artifact} <- Data.metadata(atom) do
+         {:ok, artifact} <- artifact_metadata(atom, table_locale) do
       {:ok, table_locale, artifact.pronouns}
-    else
+    end
+  end
+
+  # As `loaded_data/2`: a bare reason is named for the locale asked for, and
+  # an error already carrying an exception is kept.
+  defp artifact_metadata(atom, table_locale) do
+    case Data.metadata(atom) do
+      {:ok, artifact} ->
+        {:ok, artifact}
+
       {:error, %{__exception__: true} = exception} ->
         {:error, exception}
 
@@ -236,12 +256,32 @@ defmodule Localize.Inflection.PronounConcept do
   defp script_table(table_locale) do
     [language | _subtags] = String.split(table_locale, "_")
 
-    with true <- language in Locale.supported(),
-         {:ok, atom} <- Locale.resolve(language),
-         {:ok, artifact} <- Data.metadata(atom) do
-      Map.get(artifact.script_pronouns, table_locale)
+    case supported_artifact(language) do
+      {:ok, artifact} -> Map.get(artifact.script_pronouns, table_locale)
+      :none -> nil
+    end
+  end
+
+  # `:none` where the language has no inflection data to read pronouns from.
+  defp supported_artifact(language) do
+    if language in Locale.supported() do
+      resolved_artifact(language)
     else
-      _unavailable -> nil
+      :none
+    end
+  end
+
+  defp resolved_artifact(language) do
+    case Locale.resolve(language) do
+      {:ok, atom} -> artifact_or_none(atom)
+      {:error, _unresolved} -> :none
+    end
+  end
+
+  defp artifact_or_none(atom) do
+    case Data.metadata(atom) do
+      {:ok, artifact} -> {:ok, artifact}
+      {:error, _unavailable} -> :none
     end
   end
 
@@ -554,42 +594,69 @@ defmodule Localize.Inflection.PronounConcept do
     end)
   end
 
-  # Entries are scanned in order; a candidate replaces the current
-  # best only when strictly better: fewer generic (empty-value)
-  # matches, or equally generic and fewer unmatched default
-  # constraints.
+  # Entries are scanned in order, `halted/2` deciding which of a candidate
+  # and the current best survives.
   defp best_match(concept, referenced_concept, candidates) do
-    Enum.reduce_while(candidates, nil, fn {_word, entry_constraints} = entry, best ->
-      with {:match, generics} <- match_constraints(concept.constraints, entry_constraints),
-           true <- dependencies_match?(concept, referenced_concept, entry_constraints) do
-        unmatched =
-          Enum.count(concept.default_constraints, fn {name, value} ->
-            match_state(entry_constraints, name, value) == :no_match
-          end)
-
-        better? =
-          case best do
-            nil ->
-              true
-
-            {_entry, best_generics, _u} when generics < best_generics ->
-              true
-
-            {_entry, best_generics, best_unmatched} ->
-              generics == best_generics and unmatched < best_unmatched
-          end
-
-        best = if better?, do: {entry, generics, unmatched}, else: best
-
-        case best do
-          {_entry, 0, 0} -> {:halt, best}
-          _other -> {:cont, best}
-        end
-      else
-        _no_match -> {:cont, best}
-      end
+    Enum.reduce_while(candidates, nil, fn entry, best ->
+      scanned(concept, referenced_concept, entry, best)
     end)
   end
+
+  # A candidate that matches neither the constraints nor the dependencies
+  # leaves the current best standing.
+  defp scanned(concept, referenced_concept, {_word, entry_constraints} = entry, best) do
+    case matched_generics(concept, referenced_concept, entry_constraints) do
+      {:ok, generics} -> scored(concept, entry, entry_constraints, generics, best)
+      :no_match -> {:cont, best}
+    end
+  end
+
+  defp matched_generics(concept, referenced_concept, entry_constraints) do
+    with {:match, generics} <- match_constraints(concept.constraints, entry_constraints),
+         :match <- dependency_state(concept, referenced_concept, entry_constraints) do
+      {:ok, generics}
+    end
+  end
+
+  # The predicate in the vocabulary `match_constraints/2` answers in, so that
+  # the `with` above needs no `else`.
+  defp dependency_state(concept, referenced_concept, entry_constraints) do
+    if dependencies_match?(concept, referenced_concept, entry_constraints) do
+      :match
+    else
+      :no_match
+    end
+  end
+
+  defp scored(concept, entry, entry_constraints, generics, best) do
+    unmatched =
+      Enum.count(concept.default_constraints, fn {name, value} ->
+        match_state(entry_constraints, name, value) == :no_match
+      end)
+
+    halted({entry, generics, unmatched}, best)
+  end
+
+  # A candidate replaces the current best only when strictly better: fewer
+  # generic matches, or equally generic and fewer unmatched defaults. An
+  # entry matching every constraint fully ends the scan.
+  defp halted(candidate, best), do: halt_or_continue(better_of(candidate, best))
+
+  defp better_of(candidate, nil), do: candidate
+
+  defp better_of({_entry, generics, _unmatched} = candidate, {_best, best_generics, _u})
+       when generics < best_generics do
+    candidate
+  end
+
+  defp better_of({_entry, generics, unmatched} = candidate, best) do
+    {_best, best_generics, best_unmatched} = best
+
+    if generics == best_generics and unmatched < best_unmatched, do: candidate, else: best
+  end
+
+  defp halt_or_continue({_entry, 0, 0} = best), do: {:halt, best}
+  defp halt_or_continue(best), do: {:cont, best}
 
   defp match_constraints(constraints, entry_constraints) do
     Enum.reduce_while(constraints, {:match, 0}, fn {name, value}, {:match, generics} ->

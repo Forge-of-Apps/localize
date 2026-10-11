@@ -51,24 +51,29 @@ defmodule Localize.Inflection.Synthesizer.Sr do
 
   @impl true
   def display_value(display_data, constraints, guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      display_string =
-        cond do
-          Dictionary.combined_grammemes(@locale, display_string) != nil ->
-            inflect_from_dictionary(constraints, display_string)
-
-          guess? ->
-            inflect_with_rule(constraints, display_string)
-
-          true ->
-            display_string
-        end
-
-      %DisplayValue{display_string: display_string, constraints: constraints}
-    else
-      _other -> nil
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} -> nil
+      %DisplayValue{} = display_value -> inflected_display(display_value, constraints, guess?)
+      _no_display_value -> nil
     end
+  end
+
+  defp inflected_display(display_value, constraints, guess?) do
+    display_string = display_value.display_string
+
+    display_string =
+      cond do
+        Dictionary.combined_grammemes(@locale, display_string) != nil ->
+          inflect_from_dictionary(constraints, display_string)
+
+        guess? ->
+          inflect_with_rule(constraints, display_string)
+
+        true ->
+          display_string
+      end
+
+    %DisplayValue{display_string: display_string, constraints: constraints}
   end
 
   defp inflect_from_dictionary(constraints, lemma) do

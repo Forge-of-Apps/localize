@@ -220,13 +220,13 @@ Why `:otp_app` is the recommended anchor: `Application.app_dir/2` is re-resolved
 
 * `:locale_cache_max_entries` is the maximum number of validated locales to hold in the ETS cache. A background sweeper runs every 10 seconds and evicts excess entries to prevent unbounded growth. The default is `1_000`.
 
-* `:format_cache_max_entries` is the maximum number of compiled format patterns (number and date/time) to hold in the ETS cache. A background sweeper runs every 10 seconds and evicts excess entries to prevent unbounded growth. The default is `2_000`.
+* `:format_cache_max_entries` is the maximum number of entries in the ETS cache, which holds compiled format patterns (number and date/time) and the Gettext locale match of a locale. An insert beyond the maximum evicts an entry first, and a background sweeper runs every 10 seconds, so the cache cannot grow without bound. The default is `2_000`.
 
 * `:otp_app` is an atom naming your application, and is **recommended**. Localize stores downloaded locale data under `Application.app_dir(<otp_app>, "priv/localize/locales")` — the same `:otp_app` convention used by `Ecto.Repo`, `Phoenix.Endpoint` and `Gettext.Backend`. It is resolved at every read, so it works correctly in mix tasks, `mix test` and releases without per-phase config. See [Configuring the locale cache directory](#configuring-the-locale-cache-directory) above for all three supported forms. The default is `nil`.
 
 * `:locale_cache_dir` is the path to the on-disk cache. Absolute paths are used verbatim and override `:otp_app`. **Relative** paths are valid only when paired with `:otp_app` — they resolve against the app's runtime root via `Application.app_dir/2`. A bare relative path with no `:otp_app` raises `Localize.LocaleCacheDirError` at app start. See `Localize.Locale.Provider.locale_cache_dir/0`. The default is `Application.app_dir(:localize, "priv/localize/locales")`.
 
-* `:allow_runtime_locale_download` determines whether locales not found in the on-disk cache are downloaded from the Localize CDN on first access. When `false`, missing locales return an error; use `mix localize.download_locales` to pre-populate the cache at build time. The default is `false`.
+* `:allow_runtime_locale_download` determines whether locales not found in the on-disk cache are downloaded from the Localize CDN on first access. When `false`, a locale missing from the cache falls back to its parent locales and then to `:en`; use `mix localize.download_locales` to pre-populate the cache at build time. The default is `false`.
 
 * `:nif` enables the optional NIF for faster Unicode normalisation and collation sort-key generation. It can also be enabled with the `LOCALIZE_NIF=true` environment variable at compile time. See `Localize.Nif` for details. The default is `false`.
 

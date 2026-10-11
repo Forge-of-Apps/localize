@@ -90,15 +90,20 @@ defmodule Localize.Inflection.Synthesizer.Tr do
 
   @impl true
   def display_value(display_data, constraints, _guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      %DisplayValue{
-        display_string: inflect(display_string, constraints),
-        constraints: constraints
-      }
-    else
-      _other -> nil
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} -> nil
+      %DisplayValue{} = display_value -> inflected_display(display_value, constraints)
+      _no_display_value -> nil
     end
+  end
+
+  defp inflected_display(display_value, constraints) do
+    display_string = display_value.display_string
+
+    %DisplayValue{
+      display_string: inflect(display_string, constraints),
+      constraints: constraints
+    }
   end
 
   defp inflect(display_string, constraints) do
@@ -448,17 +453,25 @@ defmodule Localize.Inflection.Synthesizer.Tr do
           {:cont, number}
 
         nil ->
-          fallback =
-            with last when last != nil and last != "0" <- String.last(segment),
-                 {digit, _rest} <- Integer.parse(last) do
-              digit
-            else
-              _other -> last_parsed
-            end
-
-          {:halt, fallback}
+          {:halt, last_digit(segment, last_parsed)}
       end
     end)
+  end
+
+  # The digit a segment that is not itself a number ends in, and the number
+  # read so far where it ends in none.
+  defp last_digit(segment, last_parsed) do
+    case String.last(segment) do
+      last when last in [nil, "0"] -> last_parsed
+      last -> parsed_digit(last, last_parsed)
+    end
+  end
+
+  defp parsed_digit(last, last_parsed) do
+    case Integer.parse(last) do
+      {digit, _rest} -> digit
+      :error -> last_parsed
+    end
   end
 
   defp parse_turkish_number(segment) do

@@ -1,6 +1,8 @@
 defmodule Localize.Number.RbnfDecimalCoverageTest do
   use ExUnit.Case, async: true
 
+  @en_context %{locale: :en, plural_locale: :en}
+
   alias Localize.Number
   alias Localize.Number.Rbnf.Processor
 
@@ -108,16 +110,16 @@ defmodule Localize.Number.RbnfDecimalCoverageTest do
 
   describe "Processor.process/5 with raw rule maps" do
     test "a matching rule with a decimal-format call is applied" do
-      assert Processor.process(5, "test-set", @raw_rules, %{}, :en) == {:ok, "small5"}
+      assert Processor.process(5, "test-set", @raw_rules, %{}, @en_context) == {:ok, "small5"}
     end
 
     test "a rule referencing an unknown rule set returns an error" do
-      assert Processor.process(25, "test-set", @raw_rules, %{}, :en) ==
+      assert Processor.process(25, "test-set", @raw_rules, %{}, @en_context) ==
                {:error, "Rule set \"nope\" not found"}
     end
 
     test "an empty rule list returns a no-matching-rule error" do
-      assert Processor.process(7, "empty", [], %{}, :en) ==
+      assert Processor.process(7, "empty", [], %{}, @en_context) ==
                {:error, "No matching rule for 7 in empty"}
     end
   end

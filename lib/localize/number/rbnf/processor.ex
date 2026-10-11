@@ -19,28 +19,36 @@ defmodule Localize.Number.Rbnf.Processor do
   # * `rules` is a list of rule maps from the locale data.
   # * `all_rule_sets` is the complete map of rule sets for
   #   the locale (for cross-referencing).
-  # * `locale` is the locale identifier atom or string used by
-  #   the public entry point. This is threaded through the
-  #   processor so that `$(cardinal,…)` and `$(ordinal,…)`
-  #   plural-keyed substitutions look up the correct plural
-  #   form for the *requested* locale rather than always
-  #   defaulting to English.
+  # * `context` is a map of two locale ids, threaded through the
+  #   processor. `:locale` is the requested locale, whose number
+  #   symbols format the digits and whose decimal separator picks
+  #   the `x.x` or `x,x` rule. `:plural_locale` is the locale of
+  #   the data the rule sets came from, whose plural rules select
+  #   the forms of `$(cardinal,…)$` and `$(ordinal,…)$` — those
+  #   forms are the data's own words, so the rules choosing among
+  #   them have to be the data's too.
   #
   # ### Returns
   # * `{:ok, formatted_string}` or `{:error, reason}`.
-  @spec process(number(), String.t(), list(), map(), atom() | String.t()) ::
+  @spec process(number(), String.t(), list(), map(), %{locale: atom(), plural_locale: atom()}) ::
           {:ok, String.t()} | {:error, String.t()}
-  def process(number, rule_set_name, rules, all_rule_sets, locale \\ :en) do
-    case find_matching_rule(number, rules, locale) do
+  def process(
+        number,
+        rule_set_name,
+        rules,
+        all_rule_sets,
+        context \\ %{locale: :en, plural_locale: :en}
+      ) do
+    case find_matching_rule(number, rules, context) do
       nil ->
         {:error, "No matching rule for #{inspect(number)} in #{rule_set_name}"}
 
       rule ->
-        process_matched_rule(number, rule, rule_set_name, rules, all_rule_sets, locale)
+        process_matched_rule(number, rule, rule_set_name, rules, all_rule_sets, context)
     end
   end
 
-  defp process_matched_rule(number, rule, rule_set_name, rules, all_rule_sets, locale) do
+  defp process_matched_rule(number, rule, rule_set_name, rules, all_rule_sets, context) do
     rule_struct =
       rule
       |> to_rule_struct()
@@ -75,7 +83,7 @@ defmodule Localize.Number.Rbnf.Processor do
             rule_struct,
             parsed,
             all_rule_sets,
-            locale
+            context
           )
 
         case result do
@@ -138,15 +146,15 @@ defmodule Localize.Number.Rbnf.Processor do
 
   # ── Rule matching ──────────────────────────────────────────
 
-  defp find_matching_rule(number, rules, locale) when is_number(number) and number < 0 do
+  defp find_matching_rule(number, rules, context) when is_number(number) and number < 0 do
     # Look for -x rule first
     Enum.find(rules, fn rule ->
       base = get_base_value(rule)
       base == "-x"
-    end) || find_matching_rule(abs(number), rules, locale)
+    end) || find_matching_rule(abs(number), rules, context)
   end
 
-  defp find_matching_rule(number, rules, locale) when is_float(number) do
+  defp find_matching_rule(number, rules, context) when is_float(number) do
     # Per TR35: when the integer part is zero but the value is
     # non-zero (e.g. `0.05`), prefer the `0.x` rule if the locale
     # defines one. This is currently used by `ee` and `ko`. Falls
@@ -157,11 +165,11 @@ defmodule Localize.Number.Rbnf.Processor do
         Enum.find(rules, fn rule -> get_base_value(rule) == "0.x" end)
       end
 
-    zero_x_rule || decimal_separator_rule(rules, locale) ||
+    zero_x_rule || decimal_separator_rule(rules, context) ||
       find_matching_integer_rule(trunc(number), rules)
   end
 
-  defp find_matching_rule(number, rules, _locale) when is_integer(number) do
+  defp find_matching_rule(number, rules, _context) when is_integer(number) do
     find_matching_integer_rule(number, rules)
   end
 
@@ -170,8 +178,8 @@ defmodule Localize.Number.Rbnf.Processor do
   # to use is the one matching the locale's own decimal separator. Taking
   # whichever appeared first in the rule list meant `ca`, `es` and every
   # other comma locale that ships both was spelled with the point form.
-  defp decimal_separator_rule(rules, locale) do
-    preferred = if decimal_separator(locale) == ",", do: "x,x", else: "x.x"
+  defp decimal_separator_rule(rules, context) do
+    preferred = if decimal_separator(context.locale) == ",", do: "x,x", else: "x.x"
 
     Enum.find(rules, &(get_base_value(&1) == preferred)) ||
       Enum.find(rules, &(get_base_value(&1) in ["x.x", "x,x"]))
@@ -241,16 +249,19 @@ defmodule Localize.Number.Rbnf.Processor do
     base = get_base_value(rule)
     divisor = get_divisor(rule)
 
-    with true <- is_integer(divisor) and divisor > 0,
-         0 <- rem(number, divisor),
-         true <- rem(base, divisor) != 0,
-         true <- two_substitutions?(rule),
-         preceding when not is_nil(preceding) <-
-           Enum.find(rules, &(get_base_value(&1) < base)) do
-      preceding
+    if rolls_back?(rule, number, base, divisor) do
+      Enum.find(rules, &(get_base_value(&1) < base)) || rule
     else
-      _no_rollback -> rule
+      rule
     end
+  end
+
+  # A rule rolls back to the preceding one where its divisor divides the
+  # number but not its own base value, and where it writes both of its
+  # substitutions.
+  defp rolls_back?(rule, number, base, divisor) do
+    is_integer(divisor) and divisor > 0 and rem(number, divisor) == 0 and
+      rem(base, divisor) != 0 and two_substitutions?(rule)
   end
 
   # True when the rule has its two substitutions: a quotient, `<<` or
@@ -295,10 +306,10 @@ defmodule Localize.Number.Rbnf.Processor do
 
   # ── Rule execution ─────────────────────────────────────────
 
-  defp do_rule(number, rule_set_name, rule, parsed, all_rule_sets, locale) do
+  defp do_rule(number, rule_set_name, rule, parsed, all_rule_sets, context) do
     results =
       Enum.map(parsed, fn {operation, argument} ->
-        do_operation(operation, number, rule_set_name, rule, argument, all_rule_sets, locale)
+        do_operation(operation, number, rule_set_name, rule, argument, all_rule_sets, context)
       end)
 
     if Enum.any?(results, &match?({:error, _}, &1)) do
@@ -319,22 +330,22 @@ defmodule Localize.Number.Rbnf.Processor do
 
   # ── Operations ─────────────────────────────────────────────
 
-  defp do_operation(:literal, _number, _rule_set, _rule, string, _all_sets, _locale) do
+  defp do_operation(:literal, _number, _rule_set, _rule, string, _all_sets, _context) do
     string
   end
 
   # Modulo for negative numbers (-x rule)
-  defp do_operation(:modulo, number, rule_set, _rule, argument, all_sets, locale)
+  defp do_operation(:modulo, number, rule_set, _rule, argument, all_sets, context)
        when is_number(number) and number < 0 do
     case argument do
       {:rule, rule_name} ->
-        apply_rule_set(abs(number), to_string(rule_name), all_sets, locale)
+        apply_rule_set(abs(number), to_string(rule_name), all_sets, context)
 
       nil ->
-        apply_rule_set(abs(number), rule_set, all_sets, locale)
+        apply_rule_set(abs(number), rule_set, all_sets, context)
 
       {:format, format} ->
-        format_with_pattern(abs(number), format, locale)
+        format_with_pattern(abs(number), format, context)
     end
   end
 
@@ -347,12 +358,12 @@ defmodule Localize.Number.Rbnf.Processor do
   # TR35 specifies a numerator/denominator algorithm for those
   # cases; we provide non-crashing best-effort handling here and
   # leave the full algorithm as a follow-up.
-  defp do_operation(:modulo, number, rule_set, _rule, nil, all_sets, locale)
+  defp do_operation(:modulo, number, rule_set, _rule, nil, all_sets, context)
        when is_float(number) do
-    format_fraction(number, rule_set, all_sets, " ", locale)
+    format_fraction(number, rule_set, all_sets, " ", context)
   end
 
-  defp do_operation(:modulo, number, _rule_set, _rule, {:rule, rule_name}, all_sets, locale)
+  defp do_operation(:modulo, number, _rule_set, _rule, {:rule, rule_name}, all_sets, context)
        when is_float(number) do
     # Full TR35 fraction-with-rule numerator/denominator
     # algorithm: rule selection runs against the denominator
@@ -362,10 +373,10 @@ defmodule Localize.Number.Rbnf.Processor do
     # (`x.x: ←← бүтүн →%%z-spellout-fraction→`); produces e.g.
     # `1.5 ky → бир бүтүн ондон беш` instead of the prior
     # best-effort `бир бүтүн беш`.
-    format_fraction_via_rule(number, to_string(rule_name), all_sets, locale)
+    format_fraction_via_rule(number, to_string(rule_name), all_sets, context)
   end
 
-  defp do_operation(:modulo, number, _rule_set, _rule, {:format, format}, _all_sets, locale)
+  defp do_operation(:modulo, number, _rule_set, _rule, {:format, format}, _all_sets, context)
        when is_float(number) do
     # Apply the decimal-format pattern to the fractional digits
     # treated as an integer.
@@ -378,23 +389,23 @@ defmodule Localize.Number.Rbnf.Processor do
         exp < 0 -> Integer.undigits(List.duplicate(0, -exp) ++ digits)
       end
 
-    format_with_pattern(fraction, format, locale)
+    format_with_pattern(fraction, format, context)
   end
 
   # Modulo for integers
-  defp do_operation(:modulo, number, rule_set, rule, argument, all_sets, locale)
+  defp do_operation(:modulo, number, rule_set, rule, argument, all_sets, context)
        when is_integer(number) do
     mod = number - div(number, rule.divisor) * rule.divisor
 
     case argument do
       {:rule, rule_name} ->
-        apply_rule_set(mod, to_string(rule_name), all_sets, locale)
+        apply_rule_set(mod, to_string(rule_name), all_sets, context)
 
       nil ->
-        apply_rule_set(mod, rule_set, all_sets, locale)
+        apply_rule_set(mod, rule_set, all_sets, context)
 
       {:format, format} ->
-        format_with_pattern(mod, format, locale)
+        format_with_pattern(mod, format, context)
     end
   end
 
@@ -409,9 +420,9 @@ defmodule Localize.Number.Rbnf.Processor do
   # The "preceding rule" semantic for non-fraction integer modulo
   # is not exercised by any locale in current CLDR data; for that
   # case we fall back to standard rule-selection on the remainder.
-  defp do_operation(:modulo_preceding, number, rule_set, _rule, nil, all_sets, locale)
+  defp do_operation(:modulo_preceding, number, rule_set, _rule, nil, all_sets, context)
        when is_float(number) do
-    format_fraction(number, rule_set, all_sets, "", locale)
+    format_fraction(number, rule_set, all_sets, "", context)
   end
 
   # `>>>` for integers: TR35 says "bypass normal rule selection
@@ -428,16 +439,16 @@ defmodule Localize.Number.Rbnf.Processor do
          %Rule{preceding_rule: preceding} = rule,
          argument,
          all_sets,
-         locale
+         context
        )
        when is_integer(number) and not is_nil(preceding) do
     mod = number - div(number, rule.divisor) * rule.divisor
 
-    apply_preceding_rule(mod, preceding, rule_set, all_sets, locale, argument)
+    apply_preceding_rule(mod, preceding, rule_set, all_sets, context, argument)
   end
 
-  defp do_operation(:modulo_preceding, number, rule_set, rule, argument, all_sets, locale) do
-    do_operation(:modulo, number, rule_set, rule, argument, all_sets, locale)
+  defp do_operation(:modulo_preceding, number, rule_set, rule, argument, all_sets, context) do
+    do_operation(:modulo, number, rule_set, rule, argument, all_sets, context)
   end
 
   # Quotient for float (integer part). The float case takes the
@@ -447,14 +458,14 @@ defmodule Localize.Number.Rbnf.Processor do
   # locale `0.x` rules use `<%spellout-cardinal-sinokorean<` on
   # the integer side (e.g. ko); without these clauses the `0.x`
   # path crashes on a float input.
-  defp do_operation(:quotient, number, rule_set, _rule, nil, all_sets, locale)
+  defp do_operation(:quotient, number, rule_set, _rule, nil, all_sets, context)
        when is_float(number) do
-    apply_rule_set(trunc(number), rule_set, all_sets, locale)
+    apply_rule_set(trunc(number), rule_set, all_sets, context)
   end
 
-  defp do_operation(:quotient, number, _rule_set, _rule, {:rule, rule_name}, all_sets, locale)
+  defp do_operation(:quotient, number, _rule_set, _rule, {:rule, rule_name}, all_sets, context)
        when is_float(number) do
-    apply_rule_set(trunc(number), to_string(rule_name), all_sets, locale)
+    apply_rule_set(trunc(number), to_string(rule_name), all_sets, context)
   end
 
   defp do_operation(
@@ -464,10 +475,10 @@ defmodule Localize.Number.Rbnf.Processor do
          _rule,
          {:format, format},
          _all_sets,
-         locale
+         context
        )
        when is_float(number) do
-    format_with_pattern(trunc(number), format, locale)
+    format_with_pattern(trunc(number), format, context)
   end
 
   # Quotient for integers. The TR35 syntax allows three argument
@@ -483,7 +494,7 @@ defmodule Localize.Number.Rbnf.Processor do
   # `div(denominator, rule.divisor)`. This implements the TR35
   # numerator/denominator algorithm for `>%name>` substitutions
   # on a float in a parent rule's body.
-  defp do_operation(:quotient, number, rule_set, rule, argument, all_sets, locale)
+  defp do_operation(:quotient, number, rule_set, rule, argument, all_sets, context)
        when is_integer(number) do
     divisor =
       case rule do
@@ -493,23 +504,23 @@ defmodule Localize.Number.Rbnf.Processor do
 
     case argument do
       {:rule, rule_name} ->
-        apply_rule_set(divisor, to_string(rule_name), all_sets, locale)
+        apply_rule_set(divisor, to_string(rule_name), all_sets, context)
 
       nil ->
-        apply_rule_set(divisor, rule_set, all_sets, locale)
+        apply_rule_set(divisor, rule_set, all_sets, context)
 
       {:format, format} ->
-        format_with_pattern(divisor, format, locale)
+        format_with_pattern(divisor, format, context)
     end
   end
 
   # Call another rule or format
-  defp do_operation(:call, number, _rule_set, _rule, {:format, format}, _all_sets, locale) do
-    format_with_pattern(number, format, locale)
+  defp do_operation(:call, number, _rule_set, _rule, {:format, format}, _all_sets, context) do
+    format_with_pattern(number, format, context)
   end
 
-  defp do_operation(:call, number, _rule_set, _rule, {:rule, rule_name}, all_sets, locale) do
-    apply_rule_set(number, to_string(rule_name), all_sets, locale)
+  defp do_operation(:call, number, _rule_set, _rule, {:rule, rule_name}, all_sets, context) do
+    apply_rule_set(number, to_string(rule_name), all_sets, context)
   end
 
   # Plural operations — use the requested locale (Bug L). Without
@@ -530,14 +541,22 @@ defmodule Localize.Number.Rbnf.Processor do
   # (fraction rules), of which TR35 says nothing, the selection is on
   # `round(number * divisor)`, as in ICU's formatter, which TR35 names
   # as the reference for RBNF's details.
-  defp do_operation(:ordinal, number, _rule_set, rule, plurals, _all_sets, locale) do
-    plural = Localize.Number.PluralRule.Ordinal.plural_rule(plural_operand(number, rule), locale)
+  defp do_operation(:ordinal, number, _rule_set, rule, plurals, _all_sets, context) do
+    plural =
+      Localize.Number.PluralRule.Ordinal.plural_rule(
+        plural_operand(number, rule),
+        context.plural_locale
+      )
+
     Map.get(plurals, plural) || Map.get(plurals, :other, "")
   end
 
-  defp do_operation(:cardinal, number, _rule_set, rule, plurals, _all_sets, locale) do
+  defp do_operation(:cardinal, number, _rule_set, rule, plurals, _all_sets, context) do
     plural =
-      Localize.Number.PluralRule.Cardinal.plural_rule(plural_operand(number, rule), locale)
+      Localize.Number.PluralRule.Cardinal.plural_rule(
+        plural_operand(number, rule),
+        context.plural_locale
+      )
 
     Map.get(plurals, plural) || Map.get(plurals, :other, "")
   end
@@ -553,12 +572,12 @@ defmodule Localize.Number.Rbnf.Processor do
   # Afrikaans `%%2d-year`'s `0: honderd[ >%spellout-numbering>]` spells 1100
   # "elf honderd nul" there, where TR35's sentence gives "elf honderd". The
   # test data is followed (user, 2026-10-06, `plans/tr35-audit.md`).
-  defp do_operation(:conditional, number, rule_set, rule, argument, all_sets, locale)
+  defp do_operation(:conditional, number, rule_set, rule, argument, all_sets, context)
        when is_integer(number) do
     mod = number - div(number, rule.divisor) * rule.divisor
 
     if mod > 0 or not splits_on_optional_text?(rule) do
-      do_rule(mod, rule_set, rule, argument, all_sets, locale)
+      do_rule(mod, rule_set, rule, argument, all_sets, context)
     else
       ""
     end
@@ -570,16 +589,16 @@ defmodule Localize.Number.Rbnf.Processor do
   # 1.5 as "одной целой пятью десятыми" and 0.5 as just "пятью десятыми".
   # Returning "" for every non-integer dropped the integer part from all of
   # them.
-  defp do_operation(:conditional, number, rule_set, rule, argument, all_sets, locale)
+  defp do_operation(:conditional, number, rule_set, rule, argument, all_sets, context)
        when is_float(number) do
     if trunc(abs(number)) > 0 do
-      do_rule(number, rule_set, rule, argument, all_sets, locale)
+      do_rule(number, rule_set, rule, argument, all_sets, context)
     else
       ""
     end
   end
 
-  defp do_operation(:conditional, _number, _rule_set, _rule, _argument, _all_sets, _locale) do
+  defp do_operation(:conditional, _number, _rule_set, _rule, _argument, _all_sets, _context) do
     ""
   end
 
@@ -594,7 +613,7 @@ defmodule Localize.Number.Rbnf.Processor do
          rule,
          {present, absent},
          all_sets,
-         locale
+         context
        )
        when is_integer(number) do
     mod = number - div(number, rule.divisor) * rule.divisor
@@ -606,7 +625,7 @@ defmodule Localize.Number.Rbnf.Processor do
     # needs `<<` to see 201 so it can spell "две", and passing the remainder
     # gave it 0 and spelled "ноль". `>>` reaches the same value either way,
     # since it takes the remainder of whatever it is given.
-    do_rule(number, rule_set, rule, branch, all_sets, locale)
+    do_rule(number, rule_set, rule, branch, all_sets, context)
   end
 
   # A non-integer has no whole remainder to test. The plain form omits its
@@ -619,9 +638,9 @@ defmodule Localize.Number.Rbnf.Processor do
          rule,
          {_present, absent},
          all_sets,
-         locale
+         context
        ) do
-    do_rule(number, rule_set, rule, absent, all_sets, locale)
+    do_rule(number, rule_set, rule, absent, all_sets, context)
   end
 
   # ── Helpers ────────────────────────────────────────────────
@@ -662,7 +681,7 @@ defmodule Localize.Number.Rbnf.Processor do
 
   defp plural_operand(number, _rule), do: number
 
-  defp apply_rule_set(number, rule_set_name, all_rule_sets, locale) do
+  defp apply_rule_set(number, rule_set_name, all_rule_sets, context) do
     # Normalize rule set name (CLDR uses hyphens, we may use underscores)
     normalized_name = String.replace(rule_set_name, "-", "_")
 
@@ -675,7 +694,7 @@ defmodule Localize.Number.Rbnf.Processor do
         {:error, "Rule set #{inspect(rule_set_name)} not found"}
 
       %{rules: rules} ->
-        case process(number, rule_set_name, rules, all_rule_sets, locale) do
+        case process(number, rule_set_name, rules, all_rule_sets, context) do
           {:ok, result} -> result
           {:error, _} = error -> error
         end
@@ -721,14 +740,14 @@ defmodule Localize.Number.Rbnf.Processor do
   # grouping separator must be the locale's own (fr "1 141e",
   # de "1.141."). English's comma masked this when the locale was
   # dropped.
-  defp format_with_pattern(number, format, locale) do
-    case Localize.Number.to_string(number, format: format, locale: locale) do
+  defp format_with_pattern(number, format, context) do
+    case Localize.Number.to_string(number, format: format, locale: context.locale) do
       {:ok, result} -> result
       {:error, _} -> to_string(number)
     end
   end
 
-  defp format_fraction(number, rule_set, all_sets, separator, locale) do
+  defp format_fraction(number, rule_set, all_sets, separator, context) do
     number
     |> fractional_digit_list()
     |> Enum.map_join(separator, fn n ->
@@ -740,8 +759,8 @@ defmodule Localize.Number.Rbnf.Processor do
       #
       # It stays as the fallback: a rule set need not define rules for the
       # single digits, and `spellout_numbering` always does.
-      case apply_rule_set(n, rule_set, all_sets, locale) do
-        {:error, _} -> apply_rule_set_or_string(n, "spellout_numbering", all_sets, locale)
+      case apply_rule_set(n, rule_set, all_sets, context) do
+        {:error, _} -> apply_rule_set_or_string(n, "spellout_numbering", all_sets, context)
         result -> result
       end
     end)
@@ -780,7 +799,7 @@ defmodule Localize.Number.Rbnf.Processor do
   #           apply spellout-numbering(5) → `беш`
   #       Result: `ондон беш`
   #   * Final: `бир бүтүн ондон беш`
-  defp format_fraction_via_rule(number, rule_set_name, all_sets, locale) do
+  defp format_fraction_via_rule(number, rule_set_name, all_sets, context) do
     digits = fractional_digit_list(number)
 
     cond do
@@ -799,7 +818,7 @@ defmodule Localize.Number.Rbnf.Processor do
           nil ->
             # Fall back to digit-by-digit through the named rule
             # set if it can't be found.
-            format_fraction(number, rule_set_name, all_sets, " ", locale)
+            format_fraction(number, rule_set_name, all_sets, " ", context)
 
           %{rules: rules} ->
             apply_fraction_rule(
@@ -808,14 +827,14 @@ defmodule Localize.Number.Rbnf.Processor do
               rule_set_name,
               rules,
               all_sets,
-              locale
+              context
             )
         end
     end
   end
 
-  defp apply_fraction_rule(numerator, denominator, rule_set_name, rules, all_sets, locale) do
-    case find_matching_rule(denominator, rules, locale) do
+  defp apply_fraction_rule(numerator, denominator, rule_set_name, rules, all_sets, context) do
+    case find_matching_rule(denominator, rules, context) do
       nil ->
         Integer.to_string(numerator)
 
@@ -826,7 +845,7 @@ defmodule Localize.Number.Rbnf.Processor do
           denominator,
           rule_set_name,
           all_sets,
-          locale
+          context
         )
     end
   end
@@ -837,14 +856,14 @@ defmodule Localize.Number.Rbnf.Processor do
          denominator,
          rule_set_name,
          all_sets,
-         locale
+         context
        ) do
     rule_struct = to_rule_struct(rule)
     wrapped = %{rule_struct | fraction_numerator: numerator}
 
     case Rule.parse(rule_struct.definition) do
       {:ok, parsed} ->
-        case do_rule(denominator, rule_set_name, wrapped, parsed, all_sets, locale) do
+        case do_rule(denominator, rule_set_name, wrapped, parsed, all_sets, context) do
           {:error, _} -> Integer.to_string(numerator)
           string when is_binary(string) -> string
         end
@@ -889,23 +908,23 @@ defmodule Localize.Number.Rbnf.Processor do
   # `find_matching_rule/2` rule selection. Used by `>>>` (TR35
   # `:modulo_preceding`) for integers. Falls back to standard
   # rule-selection on the same rule set on parse error.
-  defp apply_preceding_rule(value, preceding_rule, rule_set, all_sets, locale, _argument) do
+  defp apply_preceding_rule(value, preceding_rule, rule_set, all_sets, context, _argument) do
     rule_struct = to_rule_struct(preceding_rule)
 
     case Rule.parse(rule_struct.definition) do
       {:ok, parsed} ->
-        case do_rule(value, rule_set, rule_struct, parsed, all_sets, locale) do
-          {:error, _} -> apply_rule_set(value, rule_set, all_sets, locale)
+        case do_rule(value, rule_set, rule_struct, parsed, all_sets, context) do
+          {:error, _} -> apply_rule_set(value, rule_set, all_sets, context)
           string when is_binary(string) -> string
         end
 
       {:error, _} ->
-        apply_rule_set(value, rule_set, all_sets, locale)
+        apply_rule_set(value, rule_set, all_sets, context)
     end
   end
 
-  defp apply_rule_set_or_string(number, rule_set, all_sets, locale) do
-    case apply_rule_set(number, rule_set, all_sets, locale) do
+  defp apply_rule_set_or_string(number, rule_set, all_sets, context) do
+    case apply_rule_set(number, rule_set, all_sets, context) do
       {:error, _} -> to_string(number)
       result -> result
     end

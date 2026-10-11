@@ -263,21 +263,12 @@ defmodule Localize.Locale.LocaleDisplay do
   def type_value_name(value, options) when value in ["yes", "no"] and is_keyword_list(options) do
     locale = Keyword.get(options, :locale, Localize.get_locale())
 
+    keys = [:locale_display_names, :type_values, value]
+
     with {:ok, language_tag} <- Localize.validate_locale(locale),
          {:ok, display_names} <- Localize.Locale.get(language_tag, [:locale_display_names]),
-         %{} = type_values <- Map.get(display_names, :type_values),
-         name when is_binary(name) <- Map.get(type_values, value) do
-      {:ok, name}
-    else
-      {:error, _reason} = error ->
-        error
-
-      _no_type_values ->
-        {:error,
-         Localize.ItemNotFoundError.exception(
-           locale: locale,
-           keys: [:locale_display_names, :type_values, value]
-         )}
+         {:ok, type_values} <- found_map(Map.get(display_names, :type_values), locale, keys) do
+      found_name(Map.get(type_values, value), locale, keys)
     end
   end
 
@@ -334,21 +325,12 @@ defmodule Localize.Locale.LocaleDisplay do
   def key_name(key, options) when is_keyword_list(options) do
     locale = Keyword.get(options, :locale, Localize.get_locale())
 
+    keys = [:locale_display_names, :keys, key]
+
     with {:ok, language_tag} <- Localize.validate_locale(locale),
          {:ok, display_names} <- Localize.Locale.get(language_tag, [:locale_display_names]),
-         {:ok, display_key} <- display_key(key),
-         name when is_binary(name) <- get_in(display_names, [:keys, display_key]) do
-      {:ok, name}
-    else
-      {:error, _reason} = error ->
-        error
-
-      _not_found ->
-        {:error,
-         Localize.ItemNotFoundError.exception(
-           locale: locale,
-           keys: [:locale_display_names, :keys, key]
-         )}
+         {:ok, display_key} <- found_key(key, locale, keys) do
+      found_name(get_in(display_names, [:keys, display_key]), locale, keys)
     end
   end
 
@@ -402,29 +384,40 @@ defmodule Localize.Locale.LocaleDisplay do
   def type_name(key, value, options) when is_keyword_list(options) do
     locale = Keyword.get(options, :locale, Localize.get_locale())
 
+    keys = [:locale_display_names, :types, key, value]
+
     with {:ok, prefer} <- preference_from_options(options, [:standard, :menu]),
          {:ok, language_tag} <- Localize.validate_locale(locale),
          {:ok, display_names} <- Localize.Locale.get(language_tag, [:locale_display_names]),
-         {:ok, display_key} <- display_key(key),
-         {:ok, type_value} <- display_key(value),
-         name when is_binary(name) <-
-           type_name_for(prefer, display_names, display_key, type_value) do
-      {:ok, name}
-    else
-      {:error, _reason} = error ->
-        error
-
-      _not_found ->
-        {:error,
-         Localize.ItemNotFoundError.exception(
-           locale: locale,
-           keys: [:locale_display_names, :types, key, value]
-         )}
+         {:ok, display_key} <- found_key(key, locale, keys),
+         {:ok, type_value} <- found_key(value, locale, keys) do
+      prefer
+      |> type_name_for(display_names, display_key, type_value)
+      |> found_name(locale, keys)
     end
   end
 
   def type_name(_key, _value, options),
     do: {:error, Localize.Utils.Helpers.invalid_options(options)}
+
+  defp found_name(name, _locale, _keys) when is_binary(name), do: {:ok, name}
+
+  defp found_name(_absent, locale, keys),
+    do: {:error, Localize.ItemNotFoundError.exception(locale: locale, keys: keys)}
+
+  # A key or value that is no known atom names nothing in any locale, which is
+  # the same answer as a locale that does not carry the name.
+  defp found_key(key, locale, keys) do
+    case display_key(key) do
+      {:ok, display_key} -> {:ok, display_key}
+      :error -> {:error, Localize.ItemNotFoundError.exception(locale: locale, keys: keys)}
+    end
+  end
+
+  defp found_map(%{} = map, _locale, _keys), do: {:ok, map}
+
+  defp found_map(_absent, locale, keys),
+    do: {:error, Localize.ItemNotFoundError.exception(locale: locale, keys: keys)}
 
   # The menu name is CLDR's `scope="core"` name for the value. There is no
   # fallback to the full name: a caller asking for this one name is told

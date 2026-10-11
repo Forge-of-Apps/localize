@@ -266,53 +266,62 @@ defmodule Localize.Inflection.Synthesizer.Fr do
   # Rewrites a leading "le"/"les" into the contracted form, e.g.
   # "le Louvre" + dePrepArticle -> "du Louvre".
   defp apply_contraction(display_value, sg_m, plural) do
-    display_string = display_value.display_string
+    contracted(display_value.display_string, sg_m, plural)
+  end
 
-    with false <- display_string == "",
-         %{clean: clean, stop: stop} <- Tokenizer.first_word(@locale, display_string),
-         true <- clean in ["le", "les"] do
-      rest =
-        if byte_size(display_string) > stop do
-          binary_part(display_string, stop + 1, byte_size(display_string) - stop - 1)
-        else
-          ""
-        end
+  # `nil` where the value does not open with a definite article to contract.
+  defp contracted("", _sg_m, _plural), do: nil
 
-      article = if clean == "le", do: sg_m, else: plural
-      String.trim(article <> rest)
-    else
-      _other -> nil
+  defp contracted(display_string, sg_m, plural) do
+    case Tokenizer.first_word(@locale, display_string) do
+      %{clean: clean, stop: stop} when clean in ["le", "les"] ->
+        article = if clean == "le", do: sg_m, else: plural
+        String.trim(article <> after_article(display_string, stop))
+
+      _no_definite_article ->
+        nil
     end
   end
+
+  defp after_article(display_string, stop) when byte_size(display_string) > stop do
+    binary_part(display_string, stop + 1, byte_size(display_string) - stop - 1)
+  end
+
+  defp after_article(_display_string, _stop), do: ""
 
   defp parse(value, _allowed) when value in [nil, ""], do: nil
   defp parse(value, allowed), do: if(value in allowed, do: value)
 
   @impl true
   def display_value(display_data, constraints, guess?) do
-    with %DisplayValue{} = display_value <- List.first(display_data),
-         display_string when display_string != "" <- display_value.display_string do
-      value_constraints = Map.merge(display_value.constraints, constraints)
+    case List.first(display_data) do
+      %DisplayValue{display_string: ""} -> nil
+      %DisplayValue{} = display_value -> inflected_display(display_value, constraints, guess?)
+      _no_display_value -> nil
+    end
+  end
 
-      inflected =
-        if Map.get(constraints, "number") || Map.get(constraints, "gender") do
-          inflect_string(display_string, constraints, guess?)
-        else
-          {:ok, display_string}
-        end
+  defp inflected_display(display_value, constraints, guess?) do
+    display_string = display_value.display_string
 
-      case inflected do
-        :error ->
-          nil
+    value_constraints = Map.merge(display_value.constraints, constraints)
 
-        {:ok, display_string} ->
-          add_definiteness(
-            %DisplayValue{display_string: display_string, constraints: value_constraints},
-            constraints
-          )
+    inflected =
+      if Map.get(constraints, "number") || Map.get(constraints, "gender") do
+        inflect_string(display_string, constraints, guess?)
+      else
+        {:ok, display_string}
       end
-    else
-      _other -> nil
+
+    case inflected do
+      :error ->
+        nil
+
+      {:ok, display_string} ->
+        add_definiteness(
+          %DisplayValue{display_string: display_string, constraints: value_constraints},
+          constraints
+        )
     end
   end
 

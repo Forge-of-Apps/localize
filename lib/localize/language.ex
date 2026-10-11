@@ -357,11 +357,16 @@ defmodule Localize.Language do
   defp first_matching_name([], _languages, _style), do: :error
 
   defp first_matching_name([code | rest], languages, style) do
-    with {:ok, names} <- Map.fetch(languages, code),
-         {:ok, _} = result <- resolve_style_with_standard(names, style) do
-      result
-    else
-      _ -> first_matching_name(rest, languages, style)
+    case styled_name(languages, code, style) do
+      {:ok, _name} = result -> result
+      :error -> first_matching_name(rest, languages, style)
+    end
+  end
+
+  defp styled_name(languages, code, style) do
+    case Map.fetch(languages, code) do
+      {:ok, names} -> resolve_style_with_standard(names, style)
+      :error -> :error
     end
   end
 

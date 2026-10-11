@@ -150,35 +150,38 @@ defmodule Localize.Inflection.Data do
   defp load(locale) do
     path = Localize.Inflection.DataDir.path("#{locale}.etf")
 
-    with {:ok, binary} <- File.read(path),
-         raw = :erlang.binary_to_term(binary),
-         %Lexicon{} = lexicon <- Map.get(raw, :lexicon) do
-      artifact = %{
-        lexicon: lexicon,
-        grammeme_names: raw.grammeme_names,
-        grammeme_bits: raw.grammeme_bits,
-        patterns: raw.patterns,
-        pattern_index: raw.pattern_index,
-        features: raw.features,
-        contractions: MapSet.new(raw.contractions),
-        suffix_exemplars: Map.get(raw, :suffix_exemplars, %{}),
-        pronouns: Map.get(raw, :pronouns, []),
-        script_pronouns: Map.get(raw, :script_pronouns, %{})
-      }
-
-      # A lexicon is megabytes, and one the VM's literal memory has no room
-      # for is an error, where keeping it would stop the VM.
-      what = "the inflection data of " <> inspect(locale)
-      Localize.LiteralMemory.put({__MODULE__, locale}, artifact, what)
-    else
-      {:error, _reason} = error ->
-        error
-
-      # The artifact carries no packed lexicon, so it predates the
-      # packed format. Report it rather than raising; the caller turns
-      # a bare reason into InflectionDataNotAvailableError.
-      _other ->
-        {:error, :incompatible_inflection_artifact}
+    case File.read(path) do
+      {:ok, binary} -> stored_artifact(locale, :erlang.binary_to_term(binary))
+      {:error, _reason} = error -> error
     end
+  end
+
+  # The artifact carries no packed lexicon, so it predates the packed format.
+  # It is reported rather than raised; the caller turns a bare reason into
+  # `InflectionDataNotAvailableError`.
+  defp stored_artifact(locale, %{lexicon: %Lexicon{} = lexicon} = raw) do
+    put_artifact(locale, lexicon, raw)
+  end
+
+  defp stored_artifact(_locale, _unpacked), do: {:error, :incompatible_inflection_artifact}
+
+  defp put_artifact(locale, lexicon, raw) do
+    artifact = %{
+      lexicon: lexicon,
+      grammeme_names: raw.grammeme_names,
+      grammeme_bits: raw.grammeme_bits,
+      patterns: raw.patterns,
+      pattern_index: raw.pattern_index,
+      features: raw.features,
+      contractions: MapSet.new(raw.contractions),
+      suffix_exemplars: Map.get(raw, :suffix_exemplars, %{}),
+      pronouns: Map.get(raw, :pronouns, []),
+      script_pronouns: Map.get(raw, :script_pronouns, %{})
+    }
+
+    # A lexicon is megabytes, and one the VM's literal memory has no room
+    # for is an error, where keeping it would stop the VM.
+    what = "the inflection data of " <> inspect(locale)
+    Localize.LiteralMemory.put({__MODULE__, locale}, artifact, what)
   end
 end

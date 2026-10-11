@@ -68,6 +68,10 @@ defmodule Mix.Tasks.Localize.PublishLocales do
   @progress_every 50
   @purge_batch_size 30
 
+  @purge_credentials_needed "Purging the Cloudflare cache needs ELIXIR_LOCALIZE_CACHE_PURGE_API_TOKEN and CLOUDFLARE_ZONE_ID; " <>
+                              "--skip-purge publishes without it, and cached copies of replaced files are then " <>
+                              "served for up to an hour."
+
   @impl Mix.Task
   def run(args) do
     {options, _rest} =
@@ -79,19 +83,26 @@ defmodule Mix.Tasks.Localize.PublishLocales do
     version = Localize.Locale.Provider.version_segment()
     bucket = System.get_env("R2_BUCKET") || @default_bucket
 
+    case plan(version, bucket) do
+      {:ok, plan} -> report_or_publish(plan, options)
+      {:error, message} -> Mix.raise(message)
+    end
+  end
+
+  defp plan(version, bucket) do
     with :ok <- Localize.Data.verify_sources(),
          {:ok, manifest} <- read_manifest(),
          {:ok, files} <- generated_files(manifest),
          :ok <- check_unreleased(version) do
-      plan = %{version: version, bucket: bucket, manifest: manifest, files: files}
+      {:ok, %{version: version, bucket: bucket, manifest: manifest, files: files}}
+    end
+  end
 
-      if options[:dry_run] do
-        report(plan, options)
-      else
-        publish(plan, options)
-      end
+  defp report_or_publish(plan, options) do
+    if options[:dry_run] do
+      report(plan, options)
     else
-      {:error, message} -> Mix.raise(message)
+      publish(plan, options)
     end
   end
 
@@ -150,8 +161,14 @@ defmodule Mix.Tasks.Localize.PublishLocales do
   # released exactly when the latest release tag carries it. The tags read
   # are the local ones.
   defp check_unreleased(version) do
-    with {:ok, tag} <- latest_release_tag(),
-         ^version <- data_version_at(tag) do
+    case latest_release_tag() do
+      {:ok, tag} -> refuse_released_version(version, tag)
+      _no_release_tag -> :ok
+    end
+  end
+
+  defp refuse_released_version(version, tag) do
+    if data_version_at(tag) == version do
       {:error,
        """
        Data version #{version} is the one the latest release, #{tag}, carries, so it is \
@@ -159,7 +176,7 @@ defmodule Mix.Tasks.Localize.PublishLocales do
        changed data under a new data version.
        """}
     else
-      _unreleased -> :ok
+      :ok
     end
   end
 
@@ -225,17 +242,13 @@ defmodule Mix.Tasks.Localize.PublishLocales do
   defp credentials_status({:error, message}), do: message
 
   defp publish(plan, options) do
-    with {:ok, r2} <- R2.config(),
-         {:ok, purge} <- purge_config(options),
-         :new <- recorded(r2, plan),
-         :ok <- upload(r2, plan),
-         :ok <- purge(purge, plan),
-         :ok <- R2.put(r2, plan.bucket, "#{prefix(plan)}/#{@manifest_record}", plan.manifest) do
-      Mix.shell().info(
-        "Published #{length(plan.files)} locale files to #{plan.bucket}/#{prefix(plan)}/ " <>
-          "and recorded their manifest."
-      )
-    else
+    case uploaded(plan, options) do
+      :ok ->
+        Mix.shell().info(
+          "Published #{length(plan.files)} locale files to #{plan.bucket}/#{prefix(plan)}/ " <>
+            "and recorded their manifest."
+        )
+
       :published ->
         Mix.shell().info(
           "#{plan.bucket}/#{prefix(plan)}/ already records this manifest; nothing to do."
@@ -243,6 +256,18 @@ defmodule Mix.Tasks.Localize.PublishLocales do
 
       {:error, message} ->
         Mix.raise(message)
+    end
+  end
+
+  # `:published` where R2 already records this manifest, which is neither a
+  # failure nor work done.
+  defp uploaded(plan, options) do
+    with {:ok, r2} <- R2.config(),
+         {:ok, purge} <- purge_config(options),
+         :new <- recorded(r2, plan),
+         :ok <- upload(r2, plan),
+         :ok <- purge(purge, plan) do
+      R2.put(r2, plan.bucket, "#{prefix(plan)}/#{@manifest_record}", plan.manifest)
     end
   end
 
@@ -331,24 +356,30 @@ defmodule Mix.Tasks.Localize.PublishLocales do
 
   # ── The Cloudflare cache ───────────────────────────────────────
 
+  defp purge_env(name) do
+    case System.get_env(name) do
+      value when is_binary(value) -> {:ok, value}
+      _unset -> {:error, @purge_credentials_needed}
+    end
+  end
+
+  defp zone_id_shape(zone) do
+    if Regex.match?(~r/^[0-9a-f]{32}$/, zone) do
+      :ok
+    else
+      {:error, "CLOUDFLARE_ZONE_ID is not a Cloudflare zone ID"}
+    end
+  end
+
   defp purge_config(options) do
     if options[:skip_purge], do: {:ok, nil}, else: purge_credentials()
   end
 
   defp purge_credentials do
-    with token when is_binary(token) <- System.get_env("ELIXIR_LOCALIZE_CACHE_PURGE_API_TOKEN"),
-         zone when is_binary(zone) <- System.get_env("CLOUDFLARE_ZONE_ID"),
-         {:zone, true} <- {:zone, Regex.match?(~r/^[0-9a-f]{32}$/, zone)} do
+    with {:ok, token} <- purge_env("ELIXIR_LOCALIZE_CACHE_PURGE_API_TOKEN"),
+         {:ok, zone} <- purge_env("CLOUDFLARE_ZONE_ID"),
+         :ok <- zone_id_shape(zone) do
       {:ok, %{token: token, zone: zone}}
-    else
-      {:zone, false} ->
-        {:error, "CLOUDFLARE_ZONE_ID is not a Cloudflare zone ID"}
-
-      nil ->
-        {:error,
-         "Purging the Cloudflare cache needs ELIXIR_LOCALIZE_CACHE_PURGE_API_TOKEN and CLOUDFLARE_ZONE_ID; " <>
-           "--skip-purge publishes without it, and cached copies of replaced files are then " <>
-           "served for up to an hour."}
     end
   end
 

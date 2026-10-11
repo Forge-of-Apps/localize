@@ -251,28 +251,42 @@ defmodule Localize.Collation.Table.Parser do
   # back into allkeys primary space once the whole file has been read (the
   # boundary header lines appear after the data lines in FractionalUCA.txt).
   defp track_lead_primary(acc, line) do
-    with [_cp_part, rest] <- String.split(line, ";", parts: 2),
-         [_, frac_hex] <- Regex.run(~r/\[([0-9A-Fa-f][0-9A-Fa-f ]*),/, rest),
-         [_, allkeys_hex] <-
-           Regex.run(~r/\[([0-9A-Fa-f]{4})\.[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\]/, rest),
-         primary = String.to_integer(allkeys_hex, 16),
-         true <- primary > 0 do
-      lead =
-        frac_hex
-        |> String.split()
-        |> hd()
-        |> String.to_integer(16)
-
-      lead_primaries =
-        Map.update(acc.lead_primaries, lead, {primary, primary}, fn {min_p, max_p} ->
-          {min(min_p, primary), max(max_p, primary)}
-        end)
-
-      %{acc | lead_primaries: lead_primaries}
-    else
-      _ -> acc
+    case String.split(line, ";", parts: 2) do
+      [_cp_part, rest] -> track_weights(acc, rest)
+      _not_a_weight_line -> acc
     end
   end
+
+  defp track_weights(acc, rest) do
+    frac = Regex.run(~r/\[([0-9A-Fa-f][0-9A-Fa-f ]*),/, rest)
+    allkeys = Regex.run(~r/\[([0-9A-Fa-f]{4})\.[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\]/, rest)
+
+    case {frac, allkeys} do
+      {[_, frac_hex], [_, allkeys_hex]} ->
+        track_primary(acc, frac_hex, String.to_integer(allkeys_hex, 16))
+
+      _no_weights ->
+        acc
+    end
+  end
+
+  # The implicit primary weight 0 belongs to no lead byte.
+  defp track_primary(acc, frac_hex, primary) when primary > 0 do
+    lead =
+      frac_hex
+      |> String.split()
+      |> hd()
+      |> String.to_integer(16)
+
+    lead_primaries =
+      Map.update(acc.lead_primaries, lead, {primary, primary}, fn {min_p, max_p} ->
+        {min(min_p, primary), max(max_p, primary)}
+      end)
+
+    %{acc | lead_primaries: lead_primaries}
+  end
+
+  defp track_primary(acc, _frac_hex, _primary), do: acc
 
   # Maps the variable boundary lead bytes into an allkeys `{min, max}` primary
   # range using the per-lead-byte primaries collected during parsing. Falls

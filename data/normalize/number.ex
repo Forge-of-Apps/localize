@@ -74,8 +74,6 @@ defmodule Localize.Data.Normalize.Number do
           currency: currency_formats["standard"],
           currency_no_symbol: currency_formats["standard_no_currency"],
           currency_alpha_next_to_number: currency_formats["standard_alpha_next_to_number"],
-          currency_with_iso:
-            normalize_iso_format(currency_formats["currency_pattern_append_iso"]),
           currency_short: normalize_short_format(currency_short_format),
           currency_long: currency_long_format(currency_formats),
           accounting: currency_formats["accounting"],
@@ -169,12 +167,6 @@ defmodule Localize.Data.Normalize.Number do
     format
     |> Enum.map(fn {k, v} -> {k, Localize.Substitution.parse(v)} end)
     |> Map.new()
-  end
-
-  def normalize_iso_format(nil), do: nil
-
-  def normalize_iso_format(format) when is_binary(format) do
-    Localize.Substitution.parse(format)
   end
 
   def normalize_rational_formats(nil), do: nil

@@ -94,6 +94,19 @@ defmodule Localize.Number.Parser do
     group to be exactly the locale's grouping size, so `fr` takes
     `"1 234 567"` and refuses `"1 23"`.
 
+  * `:currency` is a currency code or a `t:Localize.Currency.t/0`. When set,
+    the string is read as an amount of that currency, with the separators
+    `Localize.Number.to_string/2` formats it with. Some locales separate a
+    currency amount differently from a plain number: `de-AT` formats
+    `€ 1.234,56` with a dot for grouping but writes `1 234,56` plain, so
+    `"1.234"` is a different number with and without this option. The default
+    is `nil`, a plain number.
+
+  * `:separators` names the set of decimal and grouping separators to read
+    with, for a locale that has more than one. `en-ZA` writes `1 234,56` with
+    its `:standard` set and `1,234.56` with its `:us` set. A locale without
+    the named set reads with its standard one. The default is `:standard`.
+
   ### Returns
 
   * A list of strings and numbers.
@@ -115,10 +128,8 @@ defmodule Localize.Number.Parser do
          locale = Keyword.get(options, :locale, Localize.get_locale()),
          {:ok, language_tag} <- Localize.validate_locale(locale),
          {:ok, _number_type} <- number_type(Keyword.get(options, :number)),
-         {:ok, symbols} <- Symbol.number_symbols_for(language_tag),
-         {:ok, number_system} <- digits_number_system_from(language_tag, options) do
-      symbol = symbols_for_number_system(symbols, number_system)
-
+         {:ok, number_system} <- digits_number_system_from(language_tag, options),
+         {:ok, symbol} <- number_symbols(language_tag, number_system, options) do
       scanner =
         @number_format
         |> localize_format_string(symbol, options)
@@ -207,6 +218,19 @@ defmodule Localize.Number.Parser do
     group to be exactly the locale's grouping size, so `fr` takes
     `"1 234 567"` and refuses `"1 23"`.
 
+  * `:currency` is a currency code or a `t:Localize.Currency.t/0`. When set,
+    the string is read as an amount of that currency, with the separators
+    `Localize.Number.to_string/2` formats it with. Some locales separate a
+    currency amount differently from a plain number: `de-AT` formats
+    `€ 1.234,56` with a dot for grouping but writes `1 234,56` plain, so
+    `"1.234"` is a different number with and without this option. The default
+    is `nil`, a plain number.
+
+  * `:separators` names the set of decimal and grouping separators to read
+    with, for a locale that has more than one. `en-ZA` writes `1 234,56` with
+    its `:standard` set and `1,234.56` with its `:us` set. A locale without
+    the named set reads with its standard one. The default is `:standard`.
+
   ### Returns
 
   * `{:ok, number}` on success.
@@ -269,22 +293,29 @@ defmodule Localize.Number.Parser do
 
     with {:ok, language_tag} <- Localize.validate_locale(locale),
          {:ok, number_type} <- number_type(Keyword.get(options, :number)),
-         {:ok, symbols} <- Symbol.number_symbols_for(language_tag),
-         {:ok, number_system} <- digits_number_system_from(language_tag, options) do
-      symbol = symbols_for_number_system(symbols, number_system)
-
+         {:ok, number_system} <- digits_number_system_from(language_tag, options),
+         {:ok, symbol} <- number_symbols(language_tag, number_system, options) do
       lenient? = Keyword.get(options, :lenient, true)
 
-      with {:ok, normalized} <-
-             string
-             |> transliterate_digits(number_system)
-             |> normalize_number_string(symbol, language_tag, number_system, lenient?),
-           {:ok, _value} = success <-
-             normalized |> String.trim() |> parse_number(number_type) do
-        bound_decimal_exponent(success, string)
-      else
-        _error -> {:error, parse_error(string)}
-      end
+      read_number(string, number_type, number_system, symbol, language_tag, lenient?)
+    end
+  end
+
+  # Text that is not a number of this locale is a parse error naming the
+  # text, not whichever step of the reading first refused it.
+  defp read_number(string, number_type, number_system, symbol, language_tag, lenient?) do
+    case normalized_value(string, number_type, number_system, symbol, language_tag, lenient?) do
+      {:ok, _value} = success -> bound_decimal_exponent(success, string)
+      _unreadable -> {:error, parse_error(string)}
+    end
+  end
+
+  defp normalized_value(string, number_type, number_system, symbol, language_tag, lenient?) do
+    with {:ok, normalized} <-
+           string
+           |> transliterate_digits(number_system)
+           |> normalize_number_string(symbol, language_tag, number_system, lenient?) do
+      normalized |> String.trim() |> parse_number(number_type)
     end
   end
 
@@ -399,14 +430,21 @@ defmodule Localize.Number.Parser do
     filters = [only: only_filter, except: except_filter]
 
     with {:ok, language_tag} <- Localize.validate_locale(locale),
-         locale_id <- locale_id(language_tag),
-         {:ok, currency_strings} <- Localize.Currency.currency_strings(locale_id, filters),
+         {:ok, currency_strings} <-
+           Localize.Currency.currency_strings(locale_id(language_tag), filters),
          {:ok, currency} <-
-           find_or_resolve_currency(currency_strings, string, fuzzy, language_tag, filters) do
+           found_currency(currency_strings, string, fuzzy, language_tag, filters) do
       currency
-    else
-      # Only finding no currency means the currency is unknown. An invalid
-      # `:fuzzy` value or locale is reported as itself.
+    end
+  end
+
+  # Only finding no currency means the currency is unknown. An invalid
+  # `:fuzzy` value is reported as itself.
+  defp found_currency(currency_strings, string, fuzzy, language_tag, filters) do
+    case find_or_resolve_currency(currency_strings, string, fuzzy, language_tag, filters) do
+      {:ok, _currency} = found ->
+        found
+
       {:error, %Localize.InvalidValueError{context: "Localize.Number.Parser"}} ->
         {:error, Localize.UnknownCurrencyError.exception(currency: string)}
 
@@ -428,18 +466,30 @@ defmodule Localize.Number.Parser do
         found
 
       {:error, _not_found} = error ->
-        resolve_ambiguous(string, fuzzy, language_tag, filters) || error
+        resolved_claimants(string, fuzzy, language_tag, filters, error)
     end
   end
 
-  defp resolve_ambiguous(string, fuzzy, language_tag, filters) do
-    with {:ok, ambiguous} <-
-           Localize.Currency.ambiguous_currency_strings(locale_id(language_tag), filters),
-         {:ok, found} when is_list(found) <- find_and_replace(ambiguous, string, fuzzy),
-         {:ok, resolved} <- resolve_claimants(found, language_tag) do
-      {:ok, resolved}
-    else
-      _unresolved -> nil
+  # The error stands where the string is not one the locale's currencies
+  # share, or where its claimants cannot be told apart.
+  defp resolved_claimants(string, fuzzy, language_tag, filters, error) do
+    case Localize.Currency.ambiguous_currency_strings(locale_id(language_tag), filters) do
+      {:ok, ambiguous} -> claimants_in(ambiguous, string, fuzzy, language_tag, error)
+      {:error, _no_shared_strings} -> error
+    end
+  end
+
+  defp claimants_in(ambiguous, string, fuzzy, language_tag, error) do
+    case find_and_replace(ambiguous, string, fuzzy) do
+      {:ok, found} when is_list(found) -> nearest_claimants(found, language_tag, error)
+      _not_a_shared_string -> error
+    end
+  end
+
+  defp nearest_claimants(found, language_tag, error) do
+    case resolve_claimants(found, language_tag) do
+      {:ok, resolved} -> {:ok, resolved}
+      :error -> error
     end
   end
 
@@ -471,12 +521,19 @@ defmodule Localize.Number.Parser do
           is_number(distance) and distance < @good_fit_distance,
           do: {distance, code}
 
-    with [_ | _] <- scored,
-         nearest = scored |> Enum.map(&elem(&1, 0)) |> Enum.min(),
-         [code] <- for({^nearest, code} <- scored, uniq: true, do: code) do
-      {:ok, code}
-    else
-      _none_or_tied -> :error
+    nearest_code(scored)
+  end
+
+  # `:error` where nothing is a good fit, and where two codes are equally
+  # near: a tie names no currency.
+  defp nearest_code([]), do: :error
+
+  defp nearest_code(scored) do
+    nearest = scored |> Enum.map(&elem(&1, 0)) |> Enum.min()
+
+    case for({^nearest, code} <- scored, uniq: true, do: code) do
+      [code] -> {:ok, code}
+      _tied -> :error
     end
   end
 
@@ -591,10 +648,8 @@ defmodule Localize.Number.Parser do
     with :ok <- validate_arguments(string, :string, options),
          locale = Keyword.get(options, :locale, Localize.get_locale()),
          {:ok, language_tag} <- Localize.validate_locale(locale),
-         {:ok, symbols} <- Symbol.number_symbols_for(language_tag),
-         {:ok, number_system} <- digits_number_system_from(language_tag, options) do
-      symbol = symbols_for_number_system(symbols, number_system)
-
+         {:ok, number_system} <- digits_number_system_from(language_tag, options),
+         {:ok, symbol} <- number_symbols(language_tag, number_system, []) do
       per_strings =
         build_per_strings(symbol)
 
@@ -978,9 +1033,45 @@ defmodule Localize.Number.Parser do
     end
   end
 
-  defp symbols_for_number_system(symbols, number_system) do
-    Map.get(symbols, number_system) || Map.get(symbols, :latn)
+  defp number_symbols(language_tag, number_system, options) do
+    with {:ok, symbols} <- symbols_for(language_tag, number_system, options[:currency]) do
+      separators = Keyword.get(options, :separators, :standard)
+
+      {:ok,
+       %{
+         symbols
+         | decimal: variant(symbols.decimal, separators),
+           group: variant(symbols.group, separators)
+       }}
+    end
   end
+
+  # CLDR gives a few locales a second set of separators, such as the `:us` set
+  # of `en-ZA`. A locale without the requested set reads with its standard one.
+  defp variant(%{standard: standard} = separators, name), do: Map.get(separators, name, standard)
+  defp variant(separator, _name), do: separator
+
+  defp symbols_for(language_tag, number_system, nil) do
+    with {:ok, symbols} <- Symbol.number_symbols_for(language_tag) do
+      {:ok, Map.get(symbols, number_system) || Map.get(symbols, :latn)}
+    end
+  end
+
+  # A currency amount is read with the symbols `Localize.Number.to_string/2`
+  # formats it with, so what it formats parses back.
+  defp symbols_for(language_tag, number_system, currency) do
+    with {:ok, symbols} <- Symbol.number_symbols_for(language_tag, number_system),
+         {:ok, currency} <- currency_for(currency, language_tag) do
+      {:ok, Symbol.for_currency(symbols, currency)}
+    end
+  end
+
+  defp currency_for(%Localize.Currency{} = currency, _language_tag), do: {:ok, currency}
+
+  # Reading needs only the currency's separators, not its display names, so a
+  # currency the locale has no names for reads with its parent's data.
+  defp currency_for(code, language_tag),
+    do: Localize.Currency.currency_for_code(code, locale: language_tag, fallback: true)
 
   defp localize_format_string(string, symbols, _options) do
     group_sep = extract_separator(symbols.group)

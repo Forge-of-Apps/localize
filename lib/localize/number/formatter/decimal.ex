@@ -242,8 +242,8 @@ defmodule Localize.Number.Formatter.Decimal do
 
   # ── Core formatting pipeline ──────────────────────────────
 
-  defp do_to_string(%Decimal{coef: :NaN}, meta, options) do
-    options = resolve_sign_display_for_nan(options)
+  defp do_to_string(%Decimal{coef: :NaN} = number, meta, options) do
+    options = resolve_sign_display_for_nan(options, number)
 
     options.symbols.nan
     |> assemble_format(meta, options)
@@ -295,8 +295,8 @@ defmodule Localize.Number.Formatter.Decimal do
   # number string is still computed — the currency-spacing
   # predicates, padding width, and the zero-suppressed minus all
   # depend on it.
-  defp do_to_parts(%Decimal{coef: :NaN}, meta, options) do
-    options = resolve_sign_display_for_nan(options)
+  defp do_to_parts(%Decimal{coef: :NaN} = number, meta, options) do
+    options = resolve_sign_display_for_nan(options, number)
     body = [%{type: :nan, value: options.symbols.nan}]
     walk_format_parts(body, options.symbols.nan, meta, options)
   end
@@ -417,11 +417,9 @@ defmodule Localize.Number.Formatter.Decimal do
 
   defp parts_transliteration_map(%{number_system: system})
        when system not in [nil, :latn] do
-    with {:ok, digits} <- Localize.Number.System.number_system_digits(system),
-         {:ok, latn_digits} <- Localize.Number.System.number_system_digits(:latn) do
-      Localize.Number.System.generate_transliteration_map(latn_digits, digits)
-    else
-      _ -> nil
+    case transliteration_map(system) do
+      {:ok, map} -> map
+      {:error, _no_digits} -> nil
     end
   end
 
@@ -477,7 +475,8 @@ defmodule Localize.Number.Formatter.Decimal do
   # The plural category is taken from the digits the number displays, as
   # TR35's operands are (`v`, "the number of visible fraction digits in N,
   # with trailing zeros"), so "1.00" (v=2) selects `other` in English. NaN
-  # and infinity display no digits and select `other`.
+  # and infinity display no digits and select `other`. The rules are those of
+  # the loaded locale data, whose currency names they select.
   defp currency_plural_name(digits, %{currency: currency, locale: locale}) do
     category =
       case digits do
@@ -485,7 +484,10 @@ defmodule Localize.Number.Formatter.Decimal do
           :other
 
         digits ->
-          Localize.Number.PluralRule.Cardinal.plural_rule(displayed_decimal(digits), locale)
+          Localize.Number.PluralRule.Cardinal.plural_rule(
+            displayed_decimal(digits),
+            Localize.Locale.data_locale_id(locale)
+          )
       end
 
     counts = currency.count || %{}
@@ -616,13 +618,11 @@ defmodule Localize.Number.Formatter.Decimal do
   # plus sign (see `pattern_parts/2`). Zero-ness is judged on the
   # digits after rounding, as ECMA-402 judges it — `-0.001` at zero
   # fractional digits is a zero for `:except_zero` and `:negative`.
-  defp resolve_sign_display(%{sign_display: sign_display} = options, number, zero?)
-       when sign_display in [:always, :except_zero, :negative, :never] do
-    %{options | pattern: sign_display_pattern(sign_display, negative_number?(number), zero?)}
-  end
-
-  defp resolve_sign_display(options, _number, _zero?) do
-    options
+  defp resolve_sign_display(options, number, zero?) do
+    %{
+      options
+      | pattern: sign_display_pattern(options.sign_display, negative_number?(number), zero?)
+    }
   end
 
   defp sign_display_pattern(:never, _negative?, _zero?), do: :positive
@@ -634,21 +634,23 @@ defmodule Localize.Number.Formatter.Decimal do
   defp sign_display_pattern(:negative, _negative?, true), do: :positive
   defp sign_display_pattern(:negative, true, false), do: :negative
   defp sign_display_pattern(:negative, false, false), do: :positive
+  defp sign_display_pattern(auto, true, _zero?) when auto in [nil, :auto], do: :negative
+  defp sign_display_pattern(auto, false, _zero?) when auto in [nil, :auto], do: :positive
 
   # Per ECMA-402, NaN takes a plus sign under `:always` and no sign
   # under the other explicit modes; `:auto` (and `nil`) keeps the
   # pattern already resolved from the input's sign.
-  defp resolve_sign_display_for_nan(%{sign_display: :always} = options) do
+  defp resolve_sign_display_for_nan(%{sign_display: :always} = options, _number) do
     %{options | pattern: :positive_plus}
   end
 
-  defp resolve_sign_display_for_nan(%{sign_display: sign_display} = options)
+  defp resolve_sign_display_for_nan(%{sign_display: sign_display} = options, _number)
        when sign_display in [:except_zero, :negative, :never] do
     %{options | pattern: :positive}
   end
 
-  defp resolve_sign_display_for_nan(options) do
-    options
+  defp resolve_sign_display_for_nan(options, number) do
+    resolve_sign_display(options, number, false)
   end
 
   # In `:auto` mode a number whose digits round away to a bare zero drops its
@@ -1085,9 +1087,8 @@ defmodule Localize.Number.Formatter.Decimal do
          meta,
          options
        ) do
-    decimal_sep = decimal_separator(options, @decimal_separator)
     integer = if integer == [], do: [~c"0"], else: integer
-    fraction = if fraction == [], do: fraction, else: [decimal_sep, fraction]
+    fraction = if fraction == [], do: fraction, else: [@decimal_separator, fraction]
 
     exponent_part =
       if meta.exponent_digits > 0 do
@@ -1196,19 +1197,26 @@ defmodule Localize.Number.Formatter.Decimal do
   end
 
   defp transliterate_string(number_string, %{number_system: number_system} = options) do
-    translated =
-      with {:ok, digits} <- Localize.Number.System.number_system_digits(number_system),
-           {:ok, latn_digits} <- Localize.Number.System.number_system_digits(:latn) do
-        map = Localize.Number.System.generate_transliteration_map(latn_digits, digits)
-        Localize.Number.Transliterate.transliterate_digits(number_string, map)
-      else
-        # `:latn` digits are bundled in the supplemental data and should
-        # always resolve, but if either side fails we leave the digits
-        # untransliterated rather than crashing the whole format pipeline.
-        _ -> number_string
-      end
+    number_string
+    |> transliterated_digits(number_system)
+    |> transliterate_separators(options)
+  end
 
-    transliterate_separators(translated, options)
+  # The `:latn` digits are bundled in the supplemental data and should always
+  # resolve, but if either side is missing the digits are left as they are
+  # rather than failing the whole format pipeline.
+  defp transliterated_digits(number_string, number_system) do
+    case transliteration_map(number_system) do
+      {:ok, map} -> Localize.Number.Transliterate.transliterate_digits(number_string, map)
+      {:error, _no_digits} -> number_string
+    end
+  end
+
+  defp transliteration_map(number_system) do
+    with {:ok, digits} <- Localize.Number.System.number_system_digits(number_system),
+         {:ok, latn_digits} <- Localize.Number.System.number_system_digits(:latn) do
+      {:ok, Localize.Number.System.generate_transliteration_map(latn_digits, digits)}
+    end
   end
 
   # Replace placeholder separators (,.) with locale-specific symbols
@@ -1619,8 +1627,4 @@ defmodule Localize.Number.Formatter.Decimal do
     String.match?(number_string, Regex.compile!("^" <> spacing[:surrounding_match], "u")) &&
       String.match?(to_string(symbol), Regex.compile!(spacing[:currency_match] <> "$", "u"))
   end
-
-  defp decimal_separator(%{currency: %{decimal_separator: nil}}, default), do: default
-  defp decimal_separator(%{currency: %{decimal_separator: sep}}, _default), do: sep
-  defp decimal_separator(_options, default), do: default
 end

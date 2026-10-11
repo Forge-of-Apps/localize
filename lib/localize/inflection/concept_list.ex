@@ -258,16 +258,22 @@ defmodule Localize.Inflection.ConceptList do
   # non-breaking spaces replaced by regular spaces.
   defp separators(locale, style) do
     with {:ok, patterns} <- Localize.List.list_patterns_for(list_pattern_locale(locale)),
-         %{^style => pattern} <- patterns do
+         {:ok, pattern} <- styled_pattern(patterns, style, locale) do
       {:ok,
        %{
          two: pattern_separator(Map.fetch!(pattern, :two)),
          delimiter: pattern_separator(Map.fetch!(pattern, :start)),
          before_last: pattern_separator(Map.fetch!(pattern, :end))
        }}
-    else
+    end
+  end
+
+  # A locale with list patterns but not this style of them cannot write a
+  # list of concepts in it.
+  defp styled_pattern(patterns, style, locale) do
+    case patterns do
+      %{^style => pattern} -> {:ok, pattern}
       %{} -> {:error, Localize.InflectionNotSupportedError.exception(locale: locale)}
-      {:error, _reason} = error -> error
     end
   end
 

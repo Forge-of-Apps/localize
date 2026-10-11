@@ -155,10 +155,21 @@ defmodule Localize.Number.Format.Compiler do
   """
   @spec compile(String.t()) :: {:ok, Meta.t()} | {:error, String.t()}
   def compile(definition) when is_binary(definition) do
-    with {:ok, format} <- parse(definition),
-         {:ok, meta_data} <- format_to_metadata(format) do
-      {:ok, meta_data}
-    else
+    with {:ok, format} <- parsed_format(definition) do
+      format_to_metadata(format)
+    end
+  end
+
+  def compile(definition),
+    do: {:error, "a format string was expected, got: #{inspect(definition)}"}
+
+  # The parser reports a position and a token list, which reads as a message
+  # naming the compiler.
+  defp parsed_format(definition) do
+    case parse(definition) do
+      {:ok, format} ->
+        {:ok, format}
+
       {:error, {_line, _parser, [message, context]}} ->
         {:error, "Decimal format compiler: #{message}#{Enum.join(context)}"}
 
@@ -166,9 +177,6 @@ defmodule Localize.Number.Format.Compiler do
         {:error, message}
     end
   end
-
-  def compile(definition),
-    do: {:error, "a format string was expected, got: #{inspect(definition)}"}
 
   @doc """
   Extracts metadata from a parsed format.

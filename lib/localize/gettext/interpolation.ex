@@ -107,28 +107,42 @@ defmodule Localize.Gettext.Interpolation do
     # Syntax first, then the TR35 data-model rules, so a mis-authored
     # msgid fails the build rather than surfacing at runtime. Parsing and
     # validation are separate passes — see `Localize.Message.Validator`.
-    with {:ok, parsed} <- Localize.Message.Parser.parse(message),
-         :ok <- Localize.Message.Validator.validate(parsed) do
-      quote do
-        case unquote(bindings) do
-          %{__localize_skip_interpolation__: _} ->
-            {:ok, unquote(message)}
+    parsed = parsed_message!(message)
 
-          regular_bindings ->
-            Localize.Gettext.Interpolation.do_interpolate(
-              unquote(Macro.escape(parsed)),
-              regular_bindings
-            )
-        end
+    quote do
+      case unquote(bindings) do
+        %{__localize_skip_interpolation__: _} ->
+          {:ok, unquote(message)}
+
+        regular_bindings ->
+          Localize.Gettext.Interpolation.do_interpolate(
+            unquote(Macro.escape(parsed)),
+            regular_bindings
+          )
       end
-    else
-      {:error, exception} when is_exception(exception) ->
-        raise ArgumentError, "could not parse MF2 message: #{Exception.message(exception)}"
-
-      {:error, {reason, detail}} ->
-        raise ArgumentError,
-              "invalid MF2 message #{inspect(message)}: #{reason} (#{detail})"
     end
+  end
+
+  defp parsed_message!(message) do
+    case Localize.Message.Parser.parse(message) do
+      {:ok, parsed} -> validated_message!(parsed, message)
+      {:error, reason} -> raise ArgumentError, mis_authored(message, reason)
+    end
+  end
+
+  defp validated_message!(parsed, message) do
+    case Localize.Message.Validator.validate(parsed) do
+      :ok -> parsed
+      {:error, reason} -> raise ArgumentError, mis_authored(message, reason)
+    end
+  end
+
+  defp mis_authored(_message, exception) when is_exception(exception) do
+    "could not parse MF2 message: #{Exception.message(exception)}"
+  end
+
+  defp mis_authored(message, {reason, detail}) do
+    "invalid MF2 message #{inspect(message)}: #{reason} (#{detail})"
   end
 
   @impl Gettext.Interpolation

@@ -97,15 +97,26 @@ defmodule Localize.DateTime.Format do
   # order of the map they come from changes between VMs and a parser tries
   # them first.
   defp standard_entries(format_type, locale_id, calendar_type) do
-    with {:ok, skeletons} <- formats_for_type(format_type, locale_id, calendar_type),
-         {:ok, patterns} <- patterns_for_type(format_type, locale_id, calendar_type) do
-      for format <- @standard_formats,
-          {:ok, skeleton} <- [Map.fetch(skeletons, format)],
-          {:ok, pattern} <- [Map.fetch(patterns, format)] do
-        {skeleton, pattern}
-      end
-    else
-      _no_standard_formats -> []
+    case skeletons_with_patterns(format_type, locale_id, calendar_type) do
+      {:ok, skeletons, patterns} -> standard_pairs(skeletons, patterns)
+      :none -> []
+    end
+  end
+
+  defp skeletons_with_patterns(format_type, locale_id, calendar_type) do
+    with {:ok, skeletons} <-
+           formats_or_none(formats_for_type(format_type, locale_id, calendar_type)),
+         {:ok, patterns} <-
+           formats_or_none(patterns_for_type(format_type, locale_id, calendar_type)) do
+      {:ok, skeletons, patterns}
+    end
+  end
+
+  defp standard_pairs(skeletons, patterns) do
+    for format <- @standard_formats,
+        {:ok, skeleton} <- [Map.fetch(skeletons, format)],
+        {:ok, pattern} <- [Map.fetch(patterns, format)] do
+      {skeleton, pattern}
     end
   end
 
@@ -364,11 +375,10 @@ defmodule Localize.DateTime.Format do
         ) :: %{String.t() => atom()}
   def number_system_overrides(format_type, format_name, locale_id, calendar_type)
       when is_atom(format_name) do
-    with {:ok, formats_map} <- formats_for_type(format_type, locale_id, calendar_type),
-         {:ok, available} <- available_formats(locale_id, calendar_type) do
-      pattern =
-        if format_name in @standard_formats do
-          standard_pattern(
+    case formats_with_available(format_type, locale_id, calendar_type) do
+      {:ok, formats_map, available} ->
+        number_system_of(
+          named_pattern(
             format_type,
             format_name,
             formats_map,
@@ -376,20 +386,41 @@ defmodule Localize.DateTime.Format do
             locale_id,
             calendar_type
           )
-        else
-          Map.get(available, format_name)
-        end
+        )
 
-      case pattern do
-        %{number_system: %{} = overrides} -> overrides
-        _ -> %{}
-      end
-    else
-      _ -> %{}
+      :none ->
+        %{}
     end
   end
 
   def number_system_overrides(_format_type, _format_name, _locale_id, _calendar_type), do: %{}
+
+  defp formats_with_available(format_type, locale_id, calendar_type) do
+    with {:ok, formats_map} <-
+           formats_or_none(formats_for_type(format_type, locale_id, calendar_type)),
+         {:ok, available} <- formats_or_none(available_formats(locale_id, calendar_type)) do
+      {:ok, formats_map, available}
+    end
+  end
+
+  defp named_pattern(format_type, format_name, formats_map, available, locale_id, calendar_type)
+       when format_name in @standard_formats do
+    standard_pattern(
+      format_type,
+      format_name,
+      formats_map,
+      available,
+      locale_id,
+      calendar_type
+    )
+  end
+
+  defp named_pattern(_format_type, format_name, _formats_map, available, _locale_id, _calendar) do
+    Map.get(available, format_name)
+  end
+
+  defp number_system_of(%{number_system: %{} = overrides}), do: overrides
+  defp number_system_of(_no_number_system), do: %{}
 
   # # resolve_variant/2
   #
@@ -492,6 +523,12 @@ defmodule Localize.DateTime.Format do
     do: time_format_patterns(locale_id, calendar_type)
 
   defp patterns_for_type(:date_time, _locale_id, _calendar_type), do: :error
+
+  # Both lookups answer `:none` where the locale has no formats, so the
+  # `with` expressions that read them need no `else`.
+  defp formats_or_none({:ok, formats}), do: {:ok, formats}
+  defp formats_or_none({:error, _no_formats}), do: :none
+  defp formats_or_none(:error), do: :none
 
   defp formats_for_type(:date, locale_id, calendar_type),
     do: date_formats(locale_id, calendar_type)

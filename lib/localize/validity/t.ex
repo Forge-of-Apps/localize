@@ -145,9 +145,16 @@ defmodule Localize.Validity.T do
     end
   end
 
+  # A keyword given without a value parses as nil.
+  defp valid(key, nil) when key in @valid_keys do
+    {:error, U.invalid_value_error(key, nil)}
+  end
+
+  # A `-t-` field value is a date of 4, 6 or 8 digits; any other run of digits
+  # is not one, and `make_date_tuple/1` has no clause for it.
   defp valid(key, value) when key in @valid_keys do
     case Integer.parse(value) do
-      {_integer, ""} -> {:ok, make_date_tuple(value)}
+      {_integer, ""} when byte_size(value) in [4, 6, 8] -> {:ok, make_date_tuple(value)}
       _other -> {:error, U.invalid_value_error(key, value)}
     end
   end
