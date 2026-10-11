@@ -251,11 +251,15 @@ defmodule Mix.Tasks.Localize.UpdateCldr do
   # `_cldrVersion` carries. It is read from the repository because the
   # JSON may not be built yet.
   defp source_cldr_version(cldr_repo) do
-    with {:ok, dtd} <- File.read(supplemental_dtd_path(cldr_repo)),
-         [_match, version] <-
-           Regex.run(~r/<!ATTLIST version cldrVersion CDATA #FIXED "([^"]+)"/, dtd) do
-      version
-    else
+    case File.read(supplemental_dtd_path(cldr_repo)) do
+      {:ok, dtd} -> fixed_cldr_version(dtd)
+      {:error, _unreadable} -> nil
+    end
+  end
+
+  defp fixed_cldr_version(dtd) do
+    case Regex.run(~r/<!ATTLIST version cldrVersion CDATA #FIXED "([^"]+)"/, dtd) do
+      [_match, version] -> version
       _no_version -> nil
     end
   end

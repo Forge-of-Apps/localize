@@ -89,17 +89,43 @@ defmodule Mix.Tasks.Localize.Inflection.Download do
     Enum.reduce_while(bases, :error, fn base, _acc ->
       url = "#{base}/#{Provider.upstream_sha()}/#{remote}"
 
-      with 0 <- Mix.shell().cmd("curl -fsSL -o #{destination} #{url}", quiet: true),
-           {:ok, file} <- File.open(destination, [:read, :binary]),
-           head = IO.binread(file, 40),
-           :ok <- File.close(file),
-           false <- is_binary(head) and String.starts_with?(head, "version https://git-lfs") do
-        {:halt, :ok}
-      else
-        _other -> {:cont, :error}
+      case downloaded(url, destination) do
+        :ok -> {:halt, :ok}
+        :error -> {:cont, :error}
       end
     end)
   end
+
+  # A base that does not serve the file, or that serves a Git LFS pointer in
+  # place of it, is not the one holding the artifact.
+  defp downloaded(url, destination) do
+    case Mix.shell().cmd("curl -fsSL -o #{destination} #{url}", quiet: true) do
+      0 -> real_artifact(destination)
+      _status -> :error
+    end
+  end
+
+  defp real_artifact(destination) do
+    case File.open(destination, [:read, :binary]) do
+      {:ok, file} -> read_head(file)
+      {:error, _posix} -> :error
+    end
+  end
+
+  defp read_head(file) do
+    head = IO.binread(file, 40)
+
+    case File.close(file) do
+      :ok -> not_lfs_pointer(head)
+      {:error, _posix} -> :error
+    end
+  end
+
+  defp not_lfs_pointer(head) when is_binary(head) do
+    if String.starts_with?(head, "version https://git-lfs"), do: :error, else: :ok
+  end
+
+  defp not_lfs_pointer(_not_read), do: :ok
 
   defp locale_downloads(locale) do
     [

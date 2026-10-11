@@ -144,12 +144,16 @@ defmodule Mix.Tasks.Localize.UpdateMf2Conformance do
     url = "https://raw.githubusercontent.com/#{@upstream}/#{ref}/#{upstream_path}"
     local_path = Path.join(dest_dir, name)
 
+    case checked_upstream(url, name) do
+      {:ok, upstream_body} -> compare_and_write(name, local_path, upstream_body, check?)
+      {:error, reason} -> {:missing, "#{name}: #{reason}"}
+    end
+  end
+
+  defp checked_upstream(url, name) do
     with {:ok, upstream_body} <- download(url),
          :ok <- validate_json(upstream_body, name) do
-      compare_and_write(name, local_path, upstream_body, check?)
-    else
-      {:error, reason} ->
-        {:missing, "#{name}: #{reason}"}
+      {:ok, upstream_body}
     end
   end
 

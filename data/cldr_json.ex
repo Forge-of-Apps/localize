@@ -359,12 +359,21 @@ defmodule Localize.Data.CldrJson do
   defp required_java(repository) do
     path = Path.join([repository, "tools", "pom.xml"])
 
-    with {:ok, pom} <- File.read(path),
-         [_match, release] <- Regex.run(~r{<java-release>(\d+)</java-release>}, pom) do
-      {:ok, String.to_integer(release)}
-    else
-      _unreadable -> {:error, "Cannot read the <java-release> CLDR's tools need from #{path}."}
+    case File.read(path) do
+      {:ok, pom} -> declared_java_release(pom, path)
+      {:error, _unreadable} -> {:error, no_java_release(path)}
     end
+  end
+
+  defp declared_java_release(pom, path) do
+    case Regex.run(~r{<java-release>(\d+)</java-release>}, pom) do
+      [_match, release] -> {:ok, String.to_integer(release)}
+      nil -> {:error, no_java_release(path)}
+    end
+  end
+
+  defp no_java_release(path) do
+    "Cannot read the <java-release> CLDR's tools need from #{path}."
   end
 
   defp maven_java do
@@ -384,18 +393,35 @@ defmodule Localize.Data.CldrJson do
   # tracked files differ from it. Untracked files, such as Maven's `target`
   # directories, are not data.
   defp clean_commit(repository) do
-    with {:ok, changes} <- git(repository, ["status", "--porcelain", "--untracked-files=no"]),
-         {:clean, ""} <- {:clean, String.trim(changes)},
-         {:ok, commit} <- git(repository, ["rev-parse", "HEAD"]) do
-      {:ok, String.trim(commit)}
-    else
-      {:clean, _changes} ->
-        {:error,
-         "#{repository} has uncommitted changes, so the JSON would not be the data of any commit."}
-
-      :error ->
-        {:error, "#{repository} is not a readable git checkout of the CLDR repository."}
+    with {:ok, changes} <- checkout_status(repository),
+         :ok <- committed(repository, changes) do
+      head_commit(repository)
     end
+  end
+
+  defp checkout_status(repository) do
+    case git(repository, ["status", "--porcelain", "--untracked-files=no"]) do
+      {:ok, changes} -> {:ok, String.trim(changes)}
+      :error -> {:error, unreadable_checkout(repository)}
+    end
+  end
+
+  defp committed(_repository, ""), do: :ok
+
+  defp committed(repository, _changes) do
+    {:error,
+     "#{repository} has uncommitted changes, so the JSON would not be the data of any commit."}
+  end
+
+  defp head_commit(repository) do
+    case git(repository, ["rev-parse", "HEAD"]) do
+      {:ok, commit} -> {:ok, String.trim(commit)}
+      :error -> {:error, unreadable_checkout(repository)}
+    end
+  end
+
+  defp unreadable_checkout(repository) do
+    "#{repository} is not a readable git checkout of the CLDR repository."
   end
 
   # A mistyped CLDR_PRODUCTION must not cost anyone a directory, so only

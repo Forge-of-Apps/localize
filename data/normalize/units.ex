@@ -109,11 +109,16 @@ defmodule Localize.Data.Normalize.Units do
   # case atom and plural category, or returns nil for keys that are
   # not case-keyed unit patterns.
   defp grammatical_case_count(key) do
-    with [case_name, count] <- String.split(key, "_count_", parts: 2),
-         {:ok, grammatical_case} <- Map.fetch(@grammatical_cases, case_name) do
-      {grammatical_case, count}
-    else
-      _other -> nil
+    case String.split(key, "_count_", parts: 2) do
+      [case_name, count] -> named_case_count(case_name, count)
+      _not_a_case_key -> nil
+    end
+  end
+
+  defp named_case_count(case_name, count) do
+    case Map.fetch(@grammatical_cases, case_name) do
+      {:ok, grammatical_case} -> {grammatical_case, count}
+      :error -> nil
     end
   end
 
