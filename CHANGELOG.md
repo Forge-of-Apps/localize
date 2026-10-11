@@ -182,6 +182,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+* A locale's `-u-mu-fahrenhe` overrides the unit to Fahrenheit. BCP-47 caps a key's value at eight characters, so CLDR spells the override `fahrenhe`; read as a unit identifier it named no unit, so the override was dropped as not convertible and the locale's own preference stood. `celsius` and `kelvin` were unaffected, their BCP-47 value and unit name being spelled alike.
+
 * A currency amount is separated by the locale's currency separators where CLDR gives it any: `fr-CH` writes `1'234.56 CHF` with the dot its `currencyDecimal` names and `de-AT` writes `€ 1.234,56` with the dot of its `currencyGroup`, where both used their plain-number separators. `Localize.Number.Symbol` had no fields for either, so generation dropped them.
 
 * Locale generation fails on a CLDR key its structs do not define, where `struct/2` discarded it silently. That is how the currency separators above went missing, and it is what a new CLDR release adding a key would otherwise do again. Symbols no formatter reads are left out by name.

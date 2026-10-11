@@ -87,6 +87,22 @@ defmodule Localize.Unit.Preference do
                       end)
                     )
 
+  # The CLDR units that the BCP-47 `mu` values name. The three values are
+  # the `type` names of key `mu` in CLDR's `common/bcp47/measure.xml`, and
+  # a BCP-47 key value is at most eight characters, so Fahrenheit is
+  # `fahrenhe` there and has to be named in full here (TR35, "Measurement
+  # Unit Preference Override"). CLDR gives no machine-readable link between
+  # the two — its `alias` attribute names a measurement *system*, not a
+  # unit — so the mapping is written out, as `-u-ms`'s `uksystem` is in
+  # `Localize.Data.Normalize.LocaleDisplayNames`. The validity data rejects
+  # any other value, so a value CLDR adds later overrides nothing until it
+  # is added here.
+  @measurement_units %{
+    celsius: :celsius,
+    fahrenhe: :fahrenheit,
+    kelvin: :kelvin
+  }
+
   @doc """
   Returns the preferred units for a given unit, territory, and usage.
 
@@ -108,8 +124,14 @@ defmodule Localize.Unit.Preference do
   * `:territory` is a territory code atom (e.g., `:US`, `:GB`). The
     default is derived from the current locale.
 
-  * `:locale` is a locale identifier. Used to derive the territory when
-    `:territory` is not provided.
+  * `:locale` is a locale identifier. Its territory is used when
+    `:territory` is not given, and its `u` extension keywords are honoured
+    in TR35's order `mu > ms > rg > territory`: `-u-mu` names the unit
+    outright, `-u-ms` a measurement system and `-u-rg` a region to take
+    preferences from. CLDR supports `-u-mu` for temperature only, and its
+    three values are `celsius`, `kelvin` and `fahrenhe` — BCP-47 caps a
+    key's value at eight characters, so Fahrenheit is spelled `fahrenhe`.
+    A `-u-mu` unit that is not convertible from the unit given is ignored.
 
   * `:scope` is `:small` or `nil`. Forward-compatible placeholder for
     CLDR's planned scope-keyed preferences (small-quantity contexts);
@@ -141,6 +163,11 @@ defmodule Localize.Unit.Preference do
       iex> {:ok, units, _opts} = Localize.Unit.Preference.preferred_units(many_meters, usage: :road, territory: :US)
       iex> units
       [:mile]
+
+      iex> warm = Localize.Unit.new!(20, "celsius")
+      iex> {:ok, units, _opts} = Localize.Unit.Preference.preferred_units(warm, locale: "de-u-mu-fahrenhe")
+      iex> units
+      [:fahrenheit]
 
   """
   @spec preferred_units(Unit.t(), Keyword.t()) ::
@@ -390,25 +417,32 @@ defmodule Localize.Unit.Preference do
   # for a length still gets centimetres.
   defp measurement_unit_override(options, %Unit{} = unit) do
     case locale_measurement_unit(Keyword.get(options, :locale)) do
-      {:ok, mu} -> convertible_override(unit, mu)
+      {:ok, override} -> convertible_override(unit, override)
       :none -> nil
     end
   end
 
   # `:none` where no locale was given, the locale does not validate, or it
-  # carries no `-u-mu`.
+  # carries no `-u-mu`. A locale with no `-u-` extension at all carries no
+  # `:mu` key, which the last clause answers for.
   defp locale_measurement_unit(nil), do: :none
 
   defp locale_measurement_unit(locale) do
     case Localize.validate_locale(locale) do
-      {:ok, %{locale: %{mu: nil}}} -> :none
-      {:ok, %{locale: %{mu: mu}}} -> {:ok, mu}
+      {:ok, %{locale: %{mu: mu}}} -> named_measurement_unit(mu)
       _no_measurement_unit -> :none
     end
   end
 
-  defp convertible_override(unit, mu) do
-    if convertible_from?(unit, mu), do: {:ok, [mu], []}, else: nil
+  defp named_measurement_unit(mu) do
+    case Map.fetch(@measurement_units, mu) do
+      {:ok, unit} -> {:ok, unit}
+      :error -> :none
+    end
+  end
+
+  defp convertible_override(unit, override) do
+    if convertible_from?(unit, override), do: {:ok, [override], []}, else: nil
   end
 
   defp convertible_from?(%Unit{name: name}, target) do
