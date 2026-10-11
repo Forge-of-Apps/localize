@@ -134,6 +134,52 @@ defmodule Localize.Number.ApiCoverageTest do
     end
   end
 
+  describe "a pre-validated options struct" do
+    # The sign pattern used to be fixed when the options were validated, so a
+    # struct validated with `0` formatted every number as positive and one
+    # validated with `-1` formatted every number as negative.
+    test "formats a negative number as negative when validated with 0" do
+      {:ok, options} = Options.validate_options(0, locale: :en, currency: :CHF)
+      assert Number.to_string(-70, options) == {:ok, "-CHF\u00A070.00"}
+    end
+
+    test "formats a positive number as positive when validated with -1" do
+      {:ok, options} = Options.validate_options(-1, locale: :en, currency: :CHF)
+      assert Number.to_string(70, options) == {:ok, "CHF\u00A070.00"}
+    end
+
+    test "takes the sign from each number in a compact format" do
+      {:ok, options} = Options.validate_options(0, locale: :en, format: :decimal_short)
+      assert Number.to_string(-7000, options) == {:ok, "-7K"}
+    end
+
+    test "formats a Decimal NaN without a sign when validated with -1" do
+      {:ok, options} = Options.validate_options(-1, locale: :en)
+      assert Number.to_string(Decimal.new("NaN"), options) == {:ok, "NaN"}
+    end
+
+    test "gives the same result as formatting without a validated struct" do
+      for {number, opts} <- [
+            {-70, [locale: :en, currency: :CHF]},
+            {-7000, [locale: :en, format: :decimal_short]},
+            {-0.0, [locale: :en]},
+            {0, [locale: :en]}
+          ] do
+        {:ok, options} = Options.validate_options(0, opts)
+
+        assert Number.to_string(number, options) == Number.to_string(number, opts),
+               "#{inspect(number)} with #{inspect(opts)} differed between the two paths"
+      end
+    end
+
+    test "parts for a negative number start with a minus sign" do
+      {:ok, options} = Options.validate_options(0, locale: :en, currency: :CHF)
+
+      assert {:ok, [%{type: :minus_sign, value: "-"} | _rest]} =
+               Localize.Number.Formatter.Decimal.to_parts(-70, options.format, options)
+    end
+  end
+
   describe "number system overrides" do
     test "a number system the locale does not list formats with that system's digits" do
       # Per TR35/ICU any CLDR numbering system is honoured; formats
