@@ -135,4 +135,25 @@ defmodule Localize.Message.SafeListTest do
       end
     end
   end
+
+  describe "a message that parses but breaks the data model" do
+    # A duplicate declaration passes the parser and fails the validator, which
+    # returns a `FormatError`. The `with` in `format_to_safe_list/3` carried an
+    # `else` matching only `ParseError`, so this raised `WithClauseError`
+    # instead of returning the error its spec promises.
+    test "is an error rather than a WithClauseError" do
+      message = ".local $x = {1}\n.local $x = {2}\n{{ {$x} }}"
+
+      assert {:ok, _ast} = Localize.Message.Parser.parse(message)
+      assert {:error, %Localize.FormatError{}} = Message.format_to_safe_list(message, %{})
+    end
+
+    test "raises that error from the bang function" do
+      message = ".local $x = {1}\n.local $x = {2}\n{{ {$x} }}"
+
+      assert_raise Localize.FormatError, fn ->
+        Message.format_to_safe_list!(message, %{})
+      end
+    end
+  end
 end

@@ -505,9 +505,6 @@ defmodule Localize.Message do
         {:format_error, payload} ->
           {:error, format_error_from_payload(message, :format, payload)}
       end
-    else
-      {:error, %Localize.ParseError{}} = error ->
-        error
     end
   end
 

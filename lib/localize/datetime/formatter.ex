@@ -291,8 +291,6 @@ defmodule Localize.DateTime.Formatter do
     with {:ok, pattern, options} <- date_placeholder(datetime, locale_id, options),
          {:ok, parts} <- format_to_parts(datetime, pattern, locale_id, options) do
       parts
-    else
-      {:error, _} = error -> error
     end
   end
 
@@ -301,8 +299,6 @@ defmodule Localize.DateTime.Formatter do
     with {:ok, pattern} <- placeholder_pattern(:time, datetime, locale_id, options),
          {:ok, parts} <- format_to_parts(datetime, pattern, locale_id, options) do
       parts
-    else
-      {:error, _} = error -> error
     end
   end
 
@@ -1785,8 +1781,6 @@ defmodule Localize.DateTime.Formatter do
     with {:ok, pattern, options} <- date_placeholder(datetime, locale_id, options),
          {:ok, formatted} <- format(datetime, pattern, locale_id, options) do
       formatted
-    else
-      {:error, _} = error -> error
     end
   end
 
@@ -1799,8 +1793,6 @@ defmodule Localize.DateTime.Formatter do
     with {:ok, pattern} <- placeholder_pattern(:time, datetime, locale_id, options),
          {:ok, formatted} <- format(datetime, pattern, locale_id, options) do
       formatted
-    else
-      {:error, _} = error -> error
     end
   end
 
