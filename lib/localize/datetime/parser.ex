@@ -308,9 +308,8 @@ defmodule Localize.DateTime.Parser do
 
     # ISO 8601 writes a Gregorian date and time, which is converted into
     # the calendar asked for. The locale's patterns read the date half
-    # through `Localize.Date.parse/2`, which reads it in the calendar's
-    # `parsing_calendar/0` and converts it, as for a calendar of weeks. A
-    # date and time in the calendar's own formats comes before either.
+    # through `Localize.Date.parse/2`, in the calendar asked for. A date
+    # and time in the calendar's own formats comes before either.
     #
     # Where a format names how the text was written, each half is read
     # with its part of it and with nothing else, ISO 8601 included, as
@@ -322,8 +321,6 @@ defmodule Localize.DateTime.Parser do
         end
 
       {:ok, halves} ->
-        time_calendar = time_calendar(Keyword.get(options, :format), calendar_module)
-        halves = Keyword.put(halves, :time_calendar, time_calendar)
         try_locale_glue_candidates(candidates, locale, Keyword.merge(options, halves), as)
 
       {:error, _exception} = error ->
@@ -786,31 +783,13 @@ defmodule Localize.DateTime.Parser do
   # `:time_format`, as that parser's `:format`, or none.
   defp date_options(options), do: half_options(options, :date_format)
 
-  defp time_options(options) do
-    time_calendar = Keyword.get(options, :time_calendar)
-    options = half_options(options, :time_format)
-    if is_nil(time_calendar), do: options, else: Keyword.put(options, :calendar, time_calendar)
-  end
+  defp time_options(options), do: half_options(options, :time_format)
 
   defp half_options(options, half) do
     format = Keyword.get(options, half)
-    options = Keyword.drop(options, [:format, :date_format, :time_format, :glue, :time_calendar])
+    options = Keyword.drop(options, [:format, :date_format, :time_format, :glue])
     if is_nil(format), do: options, else: Keyword.put(options, :format, format)
   end
-
-  # The calendar whose formats the time of a date and time is read in: the
-  # one the formatter wrote it in. A skeleton of a date and time is written
-  # in one calendar's formats, the value's own or, where the skeleton names
-  # a calendar of weeks' week, the calendar its dates are read in
-  # (`Localize.Date.formats_calendar/2`). th.xml's `Hm` is "HH:mm น." in the
-  # Gregorian calendar and root's "HH:mm" in the generic one, a calendar of
-  # weeks' own, so "10:30 น.", written with the first, was read with the
-  # second, as no time.
-  defp time_calendar(format, calendar_module)
-       when is_atom(format) and not is_nil(format) and format not in @standard_formats,
-       do: Localize.Date.formats_calendar(calendar_module, format)
-
-  defp time_calendar(_format, calendar_module), do: calendar_module
 
   defp half_error({:error, %error{}} = result) when error in @format_errors, do: result
   defp half_error(_unread), do: nil
@@ -989,9 +968,10 @@ defmodule Localize.DateTime.Parser do
     end
   end
 
-  # The date before the `T`. A calendar with a notation of its own reads it
-  # first, as it reads a date alone and a date before a space: "2026-W25-2"
-  # is a calendar of weeks' own week 25, not ISO 8601's, and so is the basic
+  # The date before the `T`. A week date is the week of the calendar asked
+  # for, as it is alone and before a space: every calendar answers for its
+  # own, so "2026-W25-2" is ISO 8601's week 25 for `Calendar.ISO` and a
+  # calendar's own week 25 for a calendar built of weeks, and so is the basic
   # form of it, "2026W252" (`Localize.Date.Parser.week_date/2`). A week date
   # the calendar does not have is no date, and a week alone is none before a
   # time. Any other date is ISO 8601's, and either is carried as the
@@ -1000,16 +980,8 @@ defmodule Localize.DateTime.Parser do
   defp iso_date(text, calendar_module) do
     case Localize.Date.Parser.week_date(text, calendar_module) do
       {:ok, date} -> Date.convert(date, Calendar.ISO)
-      :none -> other_iso_date(text, calendar_module)
-      _no_such_day -> :error
-    end
-  end
-
-  defp other_iso_date(text, calendar_module) do
-    case Localize.Calendar.from_notation(text, calendar_module) do
-      {:ok, date} -> Date.convert(date, Calendar.ISO)
       :none -> Localize.Date.Parser.from_iso8601(text)
-      {:error, _exception} -> :error
+      _no_such_day -> :error
     end
   end
 

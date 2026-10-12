@@ -80,8 +80,6 @@ defmodule Localize.CalendarISOValueTest do
       assert ISO.parsing_calendar() == ISO
       assert Localize.Calendar.parsing_calendar(ISO) == {:ok, ISO}
       assert Localize.Calendar.parsing_calendar(Calendar.ISO) == {:ok, Calendar.ISO}
-      assert Localize.Calendar.own_notation?(ISO) == {:ok, false}
-      assert Localize.Calendar.own_notation?(Calendar.ISO) == {:ok, false}
     end
   end
 

@@ -220,10 +220,9 @@ defmodule Localize.DateTime.Formatter do
   @era_handlers [:era, :year, :extended_year]
 
   # A week of the year and its week-based year need the day too, unless the
-  # days a date without one could be are all in one week, as the days of a
-  # calendar of weeks' year and week are. Which week that is does not turn
-  # on the locale's weeks: a `Calendar.ISO` month runs through several by
-  # any of them.
+  # days a date without one could be are all in one week. Which week that is
+  # does not turn on the locale's weeks: a `Calendar.ISO` month runs through
+  # several by any of them.
   @week_handlers [:week_of_year, :week_aligned_year]
 
   @iso_week_data {1, 4}

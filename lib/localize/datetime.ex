@@ -73,12 +73,7 @@ defmodule Localize.DateTime do
     `Localize.DateTime.SemanticSkeleton` or a format pattern
     string. The default is `:medium`. A standard format sets the
     width of the date and the time together; `:date_format` and
-    `:time_format` override each axis separately. A date in a
-    calendar of weeks, such as `Calendrical.ISOWeek`, is written at
-    a standard format in the calendar's own notation, as
-    `Localize.Date.to_string/2` writes it: "2026-W25-2, 10:30:00 AM".
-    A skeleton's month is its week and its day the weekday:
-    `:yMMMdHm` writes "Tue, week 25 of 2026, 10:30".
+    `:time_format` override each axis separately.
     A value with no time zone, a `t:NaiveDateTime.t/0` or a map
     holding neither `:time_zone` nor `:utc_offset`, is written at
     `:long` and `:full` with the time `Localize.Time.to_string/2`
@@ -554,14 +549,10 @@ defmodule Localize.DateTime do
       |> Localize.Time.hour_cycle_skeleton(Keyword.get(options, :locale, locale_id))
       |> Localize.DateTime.Format.Match.split_fractional_seconds()
 
-    # A calendar of weeks' month is its week and its day the weekday, in a
-    # date and time as in a date (`Localize.Date.own_fields/2`).
-    {skeleton, _calendar} = Localize.Date.own_fields(datetime, skeleton)
-
     with {:ok, available} <-
            Localize.DateTime.Format.available_formats(
              locale_id,
-             formats_calendar(datetime, skeleton)
+             Localize.Calendar.date_calendar_type(datetime)
            ) do
       # A skeleton naming only zone fields is its own pattern: there is one
       # field, so nothing to order, and `availableFormats` carries no
@@ -633,7 +624,7 @@ defmodule Localize.DateTime do
     case Localize.DateTime.Format.Match.best_match(
            skeleton,
            locale_id,
-           formats_calendar(datetime, skeleton)
+           Localize.Calendar.date_calendar_type(datetime)
          ) do
       {:ok, matched_skeleton} when is_atom(matched_skeleton) ->
         format_matched_skeleton(
@@ -699,7 +690,7 @@ defmodule Localize.DateTime do
         case AppendItems.augment(
                skeleton,
                locale_id,
-               formats_calendar(datetime, skeleton),
+               Localize.Calendar.date_calendar_type(datetime),
                options
              ) do
           {:ok, pattern} ->
@@ -730,7 +721,7 @@ defmodule Localize.DateTime do
     alias Localize.DateTime.Format.AppendItems
     alias Localize.DateTime.Format.Match
 
-    calendar = formats_calendar(datetime, skeleton)
+    calendar = Localize.Calendar.date_calendar_type(datetime)
 
     case resolved_halves(date_skeleton, time_skeleton, locale_id, calendar, options) do
       {:ok, date_pattern, time_pattern} ->
@@ -807,7 +798,7 @@ defmodule Localize.DateTime do
        ) do
     alias Localize.DateTime.Format.AppendItems
 
-    calendar = formats_calendar(datetime, skeleton)
+    calendar = Localize.Calendar.date_calendar_type(datetime)
 
     case glued_pattern(kind, date_skeleton, time_skeleton, locale_id, calendar, options) do
       {:ok, pattern} -> invoke_formatter(output, datetime, pattern, locale_id, Map.new(options))
@@ -863,14 +854,6 @@ defmodule Localize.DateTime do
 
       {:ok, time_pattern, weekday_pattern}
     end
-  end
-
-  # The CLDR calendar whose formats write a skeleton for a value: the
-  # value's own, or, for a calendar of weeks' skeleton that names a week,
-  # the calendar its dates are read in (`Localize.Date.own_fields/2`).
-  defp formats_calendar(datetime, skeleton) do
-    {_skeleton, calendar} = Localize.Date.own_fields(datetime, skeleton)
-    calendar
   end
 
   defp unresolved_skeleton(skeleton, locale_id) do
@@ -1161,20 +1144,19 @@ defmodule Localize.DateTime do
   * `:calendar` is a calendar module, such as `Calendar.ISO` (the
     default), `Calendrical.Gregorian` or `Calendrical.Hebrew`. The input is
     read with the locale's patterns for the calendar's CLDR type, and the
-    date is built and returned in this module. A calendar of weeks, such
-    as `Calendrical.ISOWeek`, reads its own notation as it writes it,
-    `"2024-W05-4"`, and in the other forms ISO 8601 writes a week date
-    in, `"2024W054"` and the week alone, `"2024-W05"`, and any other
-    input as a Gregorian date, as its
-    `parsing_calendar/0` says, since a written month and day name no
-    single week; the date is converted into it, so `"Feb 1, 2024"` is
-    2024-W05-4. A calendar's own formats come before ISO 8601: a year, a
+    date is built and returned in this module. A week date, in any
+    form ISO 8601 writes one in (`"2024-W05-4"`, `"2024W054"`), is the
+    calendar's own, as its `date_from_week_date/3` answers: ISO 8601's
+    week for `Calendar.ISO`, and the fifth week of its own year for a
+    calendar built of weeks. Text that none of the calendar's own
+    formats reads is read in the calendar its `parsing_calendar/0`
+    names, and converted, as `Localize.Date.parse/2` reads a date. A
+    calendar's own formats come before ISO 8601: a year, a
     month and a day between hyphens that any of them reads, as CLDR's
     root short date of the Chinese calendar does (`r-MM-dd`), and a time
     after a space are the calendar's own, and where none does, or with
     ISO 8601's `T`, the text is an ISO 8601 date and time, converted into
-    the calendar. A calendar of weeks' own notation is its own date before
-    a `T` too, as it is alone. Anything that is not a calendar module,
+    the calendar. Anything that is not a calendar module,
     including a CLDR calendar name such as `:hebrew` or `"gregorian"`, and
     a module that implements only the `Calendar` behaviour, returns a
     `t:Localize.UnknownCalendarError.t/0`.

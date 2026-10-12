@@ -20,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * The module that answers the Calendrical behaviour for `Calendar.ISO` is a full calendar a value may name as its own: it declares the `Calendar` behaviour, answers with dates of itself, and reads a date written for it as one of its own. A date, a time or an interval held in it is read, written and its weeks numbered exactly as the `Calendar.ISO` value of the same fields is.
 
-* The module that answers the Calendrical behaviour for `Calendar.ISO` answers a week date as every calendar does: `date_from_week_date/3`, `week_date_from_date/3` and `weeks_in_week_year/1`, which are ISO 8601's own week dates ("2026-W25-2" is 16 June 2026).
+* A week date in any form ISO 8601 writes one in ("2026-W25-2", "2026W252", "2026-W25") is the week and the day of the calendar it is read for, which every calendar answers with `date_from_week_date/3`, so `Calendar.ISO`'s is ISO 8601's and a calendar of weeks' its own. The module that answers the Calendrical behaviour for `Calendar.ISO` answers `date_from_week_date/3`, `week_date_from_date/3` and `weeks_in_week_year/1`.
 
 * `Localize.Number.Parser.parse/2` takes `:currency`, reading a string as an amount of that currency with the separators `Localize.Number.to_string/2` writes it with, so a currency amount reads back to the number it was written from. `de-AT` writes `€ 1.234,56` but `1 234,56` plain, so `"1.234,56"` is a number with the option and not one without it.
 
@@ -144,9 +144,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * **Breaking.** An interval joins a date and a time with the locale's standard date-time pattern, as TR35 says an interval takes, where it took the "at" pattern: "June 15, 2026, 10:00 – 14:30" and "June 15, 2026, 10:00 – June 16, 2026, 14:30" in `en`. `style: :at` restores it.
 
-* **Breaking.** A date parsed for a calendar of weeks is read as a Gregorian date and converted into it, as the calendar's `parsing_calendar/0` says, since a written month and day name no single week: "Feb 1, 2024" in `Calendrical.ISOWeek` is 2024-W05-4, and `as: :map` gives it whole. An ISO 8601 date and time is returned in the `:calendar` module, as a date is, where it came back in `Calendar.ISO`.
+* **Breaking.** Text that none of a calendar's own formats reads is read in the calendar its `parsing_calendar/0` names, and converted: a calendar of weeks names `Calendar.ISO`, so "Feb 1, 2024" in `Calendrical.ISOWeek` is 1 February 2024, where "M02 1, 2024 AD", its own format, is the first day of its second month. An ISO 8601 date and time is returned in the `:calendar` module, as a date is, where it came back in `Calendar.ISO`.
 
-* **Breaking.** A date in a calendar of weeks is written in the calendar's own notation, "2026-W25-2" from its `date_to_string/3`, at every standard format, in a date and time and in an interval, and parses back as itself, where its week was written as its month ("25/2/26"). A pattern takes the calendar's answers, its months named by CLDR's generic calendar ("M06").
+* **Breaking.** A date in a calendar of weeks is a year, a month of its pattern of weeks and a day of that month, and is written in the locale's formats of CLDR's generic calendar, "M06 16, 2026 AD", where its week was written as its month ("25/2/26"). It reads back as itself, a day of a 35-day month too, where a day above 31 was no day.
 
 * **Breaking.** The parse functions no longer take `:return_calendar`: the date comes back in the `:calendar` module, and `Date.convert/2` gives it in any other calendar.
 
@@ -214,9 +214,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * A skeleton that asks a date of another calendar for a field its formats lack has the field appended, as TR35's Missing Skeleton Fields has it, where it was an error in every calendar but the Gregorian: a Hebrew date's `:yMMMdw` is "1 Tamuz 5786 (week: 39)" and its `:ywE` "Tue, week 39 of 5786". A skeleton is matched against the calendar's formats and then the Gregorian calendar's, which TR35 has most calendars inherit, in a date and time as in a date, and the Chinese and Dangi calendars, which it excepts, take their own alone: their `:yw` is "2026(bing-wu) (week: 18)" where it was "week 18 of 4663".
 
-* A calendar of weeks reads a week date as its own in every form ISO 8601 writes one in, where only the form it writes was: "2026W252" and a week alone, "2026-W25", were ISO 8601's weeks, so in a calendar whose weeks are not ISO 8601's one text named two days as its hyphens came and went. A week or a day the calendar does not have is an error, where "2026-W53-1" was ISO 8601's week 53 for a calendar whose 2026 has 52 weeks.
+* A week date is the calendar's own in every form ISO 8601 writes one in: "2026W252" and a week alone, "2026-W25", were ISO 8601's weeks for every calendar, so in a calendar whose weeks are not ISO 8601's one text named two days as its hyphens came and went. A week or a day the calendar does not have is an error, where "2026-W53-1" was ISO 8601's week 53 for a calendar whose 2026 has 52 weeks.
 
-* A year, and a year and a quarter, written for a calendar whose dates are read in another are read as a map of the fields written: a calendar of weeks' "2023 AD" is `%{year: 2023}`, as the Gregorian calendar's "2023" is, where it was an error, and "Q2 2023 AD" is the year and the quarter, where it was the quarter's whole first day.
+* A year, and a year and a quarter, written for a calendar other than `Calendar.ISO` are read as a map of the fields written: a calendar of weeks' "2023 AD" is `%{year: 2023}`, as the Gregorian calendar's "2023" is, where it was an error, and "Q2 2023 AD" is the year and the quarter, where it was the quarter's whole first day.
 
 * A related Gregorian year is read as the calendar's year that begins in it, however far from the reference date: the Islamic calendar's "AH 1699-12-28", 16 June 1700, was an error read in 2026, its year taken as far from the reference date's as 1699 is from 2025, where the two calendars' years are not one length. Of two years that begin in one Gregorian year, as the Islamic years 1429 and 1430 did in 2008, the nearer the reference date is read.
 
@@ -230,7 +230,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * A pattern's `''`, a quote written as text, is read inside quoted text and outside it, as TR35 has it and as it was written: `mt`'s week of the year, "w 'ġimgħa' 'ta''' Y", is written "25 ġimgħa ta' 2026" and read as no week, its "ta'" read as "ta". A date or a time read with such a pattern as its `:format` reads back too.
 
-* A skeleton's month is a calendar of weeks' week and its day the weekday: `:yMMMd` for `Calendrical.ISOWeek`'s 2026-W25-2 is "Tue, week 25 of 2026", the locale's week of the year with the weekday appended, where the calendar's period and day number were written as a month and a day, "M06 2, 2026 AD", which read back as no date. It reads back with its skeleton or with none, alone, in a date and time and in an interval of two dates, two dates and times of one day are the date once beside their times, "Tue, week 25 of 2026, 10:30 – 12:30", and a weekday beside a week is that day of it in every calendar, where "Tue, week 25 of 2026" was the week's first day.
+* A weekday beside a week is that day of the week in every calendar, where "Tue, week 25 of 2026" was read as the week's first day.
 
 * An interval of two dates at a standard format is written in the numbering that format states, CLDR's `numbers` attribute, as the date alone is: `he`'s Hebrew medium interval is "א׳–ה׳ בתמוז ה׳תשפ״ו", where it was "1–5 בתמוז 5786" beside the date "א׳ בתמוז ה׳תשפ״ו", and `zh`'s Chinese "2026年五月初二至初六". It is read back in that numbering, and an interval at a skeleton, which states none, stays in digits.
 
@@ -270,7 +270,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * A year of an era that began before a calendar changed how it numbers its years is read. `Calendrical.Reform.Japan` counts its years from 645 until 1872 and as the Gregorian calendar does from 1873, so every date from the reform to the end of Meiji in 1912, "Jun 16, 6 Meiji", was an error.
 
-* A range of two dates is cut at every place its separator is found, where only the first was tried: `da`'s and `el`'s fallback patterns join two dates with a hyphen, so a calendar of weeks' "2026-W25-2-2026-W27-1" was no interval, and "October 5, 2026 to October 10, 2026" was cut inside "October". The text a fallback pattern writes before its first date is read as well (`fr-CH`'s "du {0} au {1}"), and a pattern that writes the later date first (`kek`'s "{1} – {0}").
+* A range of two dates is cut at every place its separator is found, where only the first was tried: `da`'s and `el`'s fallback patterns join two dates with a hyphen, so a range of two week dates, "2026-W25-2-2026-W27-1", was no interval, and "October 5, 2026 to October 10, 2026" was cut inside "October". The text a fallback pattern writes before its first date is read as well (`fr-CH`'s "du {0} au {1}"), and a pattern that writes the later date first (`kek`'s "{1} – {0}").
 
 * An interval is read by the pattern whose own separators are in the text before one that reads it through a lenient separator. `ha`'s `yMd` writes a year's difference with root's pattern, "26-06-16 – 27-08-20", which its own day-first pattern read as 26 June 2016 to 27 August 2020.
 
@@ -336,9 +336,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * A date and time with no zone is written at `:long` and `:full` with the time `Localize.Time.to_string/2` writes for it, a map without a zone as a `NaiveDateTime` is, so it reads back in every locale: `ja`'s full is "2024年4月3日水曜日 10:30:00", where the time was "10時30分00秒". `fa`, `es` and `zh-Hant` no longer leave "()" or "[]" where the zone would be.
 
-* A week read `as: :map` for a calendar of weeks is the year and the week, as it was written from: `Localize.Date.parse("week 25 of 2026", calendar: Calendrical.ISOWeek, as: :map)` is `%{year: 2026, month: 25}`, where it carried the first day of the week. Each end of an interval, and a week beside a time, read the same way.
-
-* A date interval compares its two dates in the fields its format writes, as TR35 does, so a week format writes both weeks (`format: :yw` is "week 25 of 2026 – week 30 of 2026", where only the first was written) and a quarter or a calendar of weeks' period is written once for two dates within it ("Q2 2026", where "Q2 2026 – Q2 2026" was written).
+* A date interval compares its two dates in the fields its format writes, as TR35 does, so a week format writes both weeks (`format: :yw` is "week 25 of 2026 – week 30 of 2026", where only the first was written) and a quarter is written once for two dates within it ("Q2 2026", where "Q2 2026 – Q2 2026" was written).
 
 * `Localize.Interval.parse/2` reads the year of a Chinese or Dangi interval as the related Gregorian year or as the calendar's own, whichever is nearer the reference year, so "11/8/2023 – 11/18/2023", which the formatter writes for two days of the Chinese year 4660, reads back, where it was the Chinese year 2023.
 
@@ -348,9 +346,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Interval.to_string/3` and `to_parts/3` take dates that hold only some of their fields, in CLDR's interval format for those fields: two months are "Jun – Aug", a month and a day each "Jun 15 – 20", a year and a month "Jun – Aug 2026", where a date with no year was a `:mixed_endpoints` error and one with no day an error for the day. A date and time with no year keeps its date, where it was written as a time alone.
 
-* A year and a week of a calendar of weeks, `%{year: 2026, month: 25, calendar: Calendrical.ISOWeek}`, is written as the locale writes a week of the year, CLDR's `yw` format, "week 25 of 2026", where it was the period of the calendar's pattern under a generic month name, "M06 2026 AD". `w` and `Y` take a date without its day when every day it could be is in one week.
-
-* A date of a calendar of weeks with a field that is not an integer, such as a `nil` day, is a `Localize.DateTimeInvalidInputError` naming the field, where `Localize.Date.to_string/2` raised from the calendar's `date_to_string/3`.
+* `w` and `Y` take a date without its day when every day it could be is in one week.
 
 * A specific time zone name takes standard or daylight time from TR35's `stdOffset` and `dstOffset` where a metazone period names them, as CLDR 49 does for `Europe/Dublin` and `America/Winnipeg`, rather than from the time zone database's flag: Dublin's summer is "Irish Standard Time" however `std_offset` is set.
 

@@ -59,14 +59,12 @@ defmodule Localize.Date do
     string. The default is `:medium`. For a partial date a
     standard format derives its skeleton from the fields present,
     with the month numeric at `:short`, abbreviated at `:medium`
-    and wide at `:long` and `:full`. A date in a calendar of weeks,
-    such as `Calendrical.ISOWeek`, is written at every standard
-    format in the calendar's own notation, as its `date_to_string/3`
-    writes it, `"2026-W25-2"`, which parses back as itself. Its
-    month field holds a week, so a year and a week of it is written
-    as the locale writes a week of the year, `"week 25 of 2026"`,
-    and a skeleton's month is its week and its day the weekday:
-    `:yMMMd` writes `"Tue, week 25 of 2026"`.
+    and wide at `:long` and `:full`. Every calendar's date is
+    written from its year, its month and its day: a calendar built
+    of weeks, such as `Calendrical.ISOWeek`, has the months of its
+    pattern of weeks, named as CLDR's generic calendar names them
+    (`"M06 16, 2026 AD"`), and its week is written by a format that
+    names one (`:yw`, `"week 25 of 2026"`).
 
   * `:locale` is a locale identifier. The default is `:en`.
 
@@ -397,7 +395,7 @@ defmodule Localize.Date do
     cond do
       # For standard formats on full dates, resolve via the standard format map
       format in @standard_formats and is_full_date(date) ->
-        standard_date_format(date, format, locale_id, cldr_calendar, options)
+        Localize.DateTime.Format.resolve_format(:date, format, locale_id, cldr_calendar, options)
 
       # A standard format names a format, not a skeleton: a date holding
       # fewer than the fields its pattern writes has no pattern of that
@@ -426,139 +424,12 @@ defmodule Localize.Date do
   @spec resolve_date_skeleton(map(), atom() | String.t(), Localize.locale(), Keyword.t()) ::
           {:ok, String.t()} | {:error, Exception.t()}
   def resolve_date_skeleton(date, skeleton, locale_id, options) do
-    {skeleton, calendar} = own_fields(date, skeleton)
-
     resolve_skeleton(
       skeleton: skeleton,
       locale_id: locale_id,
-      calendar: calendar,
+      calendar: cldr_calendar_for(date),
       options: options
     )
-  end
-
-  @doc false
-  # The skeleton a date's own fields are written with, and the CLDR calendar
-  # whose formats write it. A skeleton names fields, and a calendar of weeks
-  # holds other things in two of them: a week in its month field and the day
-  # of that week in its day field (user, 2026-10-04: "For week based
-  # calendars we need to interpret `:month` as `:week` and pick the correct
-  # skeleton accordingly"). So a skeleton's month is the date's week and its
-  # day the weekday: `yMMMd` is `ywE`, "Tue, week 25 of 2026" for
-  # "2026-W25-2" (user, 2026-10-06). A skeleton that names a week, its own
-  # or the month's, is written with the formats of the calendar the dates
-  # are read in (`parsing_calendar/0`), which are the ones that name a week.
-  # The calendar's period and day number, written as a month and a day of
-  # the month, "M06 2, 2026 AD", named no week and read back as no date; a
-  # pattern still writes them, and so does a skeleton that names a week
-  # beside its month (`MMMMW`), whose month is then the period.
-  @spec own_fields(map(), atom() | String.t()) :: {atom() | String.t(), atom()}
-  def own_fields(date, skeleton) do
-    case parsing_calendar_of(date) do
-      {:ok, parsing} -> week_skeleton_for(skeleton, parsing, date)
-      :none -> {skeleton, cldr_calendar_for(date)}
-    end
-  end
-
-  defp week_skeleton_for(skeleton, parsing, date) do
-    weeks = week_skeleton(skeleton)
-
-    if names_week?(weeks),
-      do: {weeks, Localize.Calendar.cldr_calendar_type(parsing)},
-      else: {weeks, cldr_calendar_for(date)}
-  end
-
-  @doc false
-  # The calendar module whose formats write a skeleton for a calendar's
-  # values: the calendar itself, or, for a calendar of weeks' skeleton that
-  # names a week, the calendar its dates are read in, as `own_fields/2`
-  # gives its CLDR type. A reader asks, to read the time of a date and time
-  # in the formats the formatter wrote it with.
-  @spec formats_calendar(module(), atom() | String.t()) :: module()
-  def formats_calendar(calendar, skeleton) do
-    case week_parsing_calendar(calendar, skeleton) do
-      {:ok, parsing} -> parsing
-      :none -> calendar
-    end
-  end
-
-  defp week_parsing_calendar(calendar, skeleton) do
-    with {:ok, parsing} <- parsing_calendar_of(%{calendar: calendar}),
-         :ok <- skeleton_names_week(skeleton) do
-      {:ok, parsing}
-    end
-  end
-
-  # The calendar that reads a value's dates, where it is not the value's own.
-  # A value with no calendar, one whose calendar Localize cannot question, and
-  # one that reads its own dates all answer `:none`.
-  defp parsing_calendar_of(%{calendar: calendar} = date) do
-    case Localize.Calendar.validate_calendar(date) do
-      :ok -> other_parsing_calendar(calendar)
-      {:error, _not_a_calendar} -> :none
-    end
-  end
-
-  defp parsing_calendar_of(_no_calendar), do: :none
-
-  defp other_parsing_calendar(calendar) do
-    case Localize.Calendar.parsing_calendar(calendar) do
-      {:ok, parsing} when parsing != calendar -> {:ok, parsing}
-      _its_own -> :none
-    end
-  end
-
-  defp skeleton_names_week(skeleton) do
-    if names_week?(week_skeleton(skeleton)), do: :ok, else: :none
-  end
-
-  # A skeleton with its month as a week, unless it names a week already, and
-  # its day as a weekday, unless it names one. No atom is made: a skeleton no
-  # format is named by is matched as a string.
-  defp week_skeleton(skeleton) do
-    letters = skeleton_letters(skeleton)
-    week? = names_week?(skeleton)
-    weekday? = Enum.any?(letters, &(&1 in ["E", "e", "c"]))
-
-    weeks =
-      letters
-      |> Enum.chunk_by(& &1)
-      |> Enum.map_join(fn
-        [letter | _rest] = run when letter in ["M", "L"] ->
-          if week?, do: Enum.join(run), else: "w"
-
-        ["d" | _rest] ->
-          if weekday?, do: "", else: "E"
-
-        run ->
-          Enum.join(run)
-      end)
-
-    cond do
-      weeks == Kernel.to_string(skeleton) -> skeleton
-      atom = Localize.Utils.Helpers.existing_atom(weeks) -> atom
-      true -> weeks
-    end
-  end
-
-  defp names_week?(skeleton), do: Enum.any?(skeleton_letters(skeleton), &(&1 in ["w", "W"]))
-
-  defp skeleton_letters(skeleton), do: skeleton |> Kernel.to_string() |> String.graphemes()
-
-  # A standard format is the locale's standard date format of that length,
-  # unless the date's calendar writes its dates in a notation of its own:
-  # then it is that notation at every length, "2026-W25-2" for a calendar of
-  # weeks, quoted so the formatter writes it as the calendar wrote it.
-  defp standard_date_format(date, format, locale_id, cldr_calendar, options) do
-    case Localize.Calendar.notation(date) do
-      {:ok, notation} ->
-        {:ok, "'" <> String.replace(notation, "'", "''") <> "'"}
-
-      :none ->
-        Localize.DateTime.Format.resolve_format(:date, format, locale_id, cldr_calendar, options)
-
-      {:error, _exception} = error ->
-        error
-    end
   end
 
   # Look up the per-field number-system overrides for the
@@ -764,28 +635,14 @@ defmodule Localize.Date do
   # The skeleton is built from fixed symbols, so only a handful of atoms
   # can result, whatever the value holds.
   def derive_format_id(date, format \\ @default_format) do
-    week? = week_in_month_field?(date)
-
     @date_fields_ordered
     |> Enum.filter(fn {field, _symbol} -> Map.has_key?(date, field) end)
     |> Enum.map_join(fn
-      {:month, _symbol} -> if week?, do: "w", else: month_symbol(format)
+      {:month, _symbol} -> month_symbol(format)
       {_field, symbol} -> symbol
     end)
     |> String.to_atom()
   end
-
-  # A calendar of weeks holds a week in its dates' month field, and a date
-  # of it without a day is that week: written as the locale writes a week
-  # of the year (`yw`, "week 25 of 2026"), where a month is written by its
-  # name. A calendar of weeks is one that writes its whole dates in a
-  # notation of its own (`Localize.Calendar.own_notation?/1`).
-  defp week_in_month_field?(%{calendar: calendar} = date) when not is_map_key(date, :day) do
-    Localize.Calendar.validate_calendar(date) == :ok and
-      match?({:ok, true}, Localize.Calendar.own_notation?(calendar))
-  end
-
-  defp week_in_month_field?(_date), do: false
 
   defp month_symbol(:short), do: "M"
   defp month_symbol(:medium), do: "MMM"
@@ -819,14 +676,16 @@ defmodule Localize.Date do
   * `:calendar` is a calendar module, such as `Calendar.ISO` (the
     default), `Calendrical.Gregorian` or `Calendrical.Hebrew`. The input is
     read with the locale's patterns for the calendar's CLDR type, and the
-    date is built and returned in this module. A calendar of weeks, such
-    as `Calendrical.ISOWeek`, reads its own notation as it writes it,
-    `"2024-W05-4"`, and in the other forms ISO 8601 writes a week date
-    in, `"2024W054"` and the week alone, `"2024-W05"`, and any other
-    input as a Gregorian date, as its
-    `parsing_calendar/0` says, since a written month and day name no
-    single week; the date is converted into it, so `"Feb 1, 2024"` is
-    2024-W05-4. A composite calendar, whose dates are written with the
+    date is built and returned in this module. A week date, in any
+    form ISO 8601 writes one in (`"2024-W05-4"`, `"2024W054"` and the
+    week alone, `"2024-W05"`), is the calendar's own: every calendar
+    answers `date_from_week_date/3`, so it is ISO 8601's week for
+    `Calendar.ISO` and the fifth week of its own year for a calendar
+    built of weeks. Text that none of the calendar's own formats reads
+    is read in the calendar its `parsing_calendar/0` names, and
+    converted: a calendar built of weeks, whose months are `"M02"` and
+    not `"Feb"`, names `Calendar.ISO`, so `"Feb 1, 2024"` is 1 February
+    2024 in it. A composite calendar, whose dates are written with the
     formats of whichever of its calendars was in effect, may name those
     calendars with an optional `parsing_calendars/0`, and a date is then
     read in each and converted, held to the calendar its day is written
@@ -851,12 +710,11 @@ defmodule Localize.Date do
     actually carried, rather than completing them. They must still be
     fields some date has, so `"June 31"` is an error in both forms while
     `"February 29"` is a partial date. A date read in another calendar and
-    converted, as a calendar of weeks reads one, comes back whole, as a
-    partial date has no fields in the other calendar. What names no day to
-    convert is the exception: a year is `%{year: 2026}`, a year and a
-    quarter are the two, and a week, which a calendar of weeks holds in its
-    month field, is `%{year: 2026, month: 25}` for `"week 25 of 2026"`, the
-    value `to_string/2` writes it from. The default is `:struct`.
+    converted, as a composite calendar reads one of an earlier calendar,
+    comes back whole, as a partial date has no fields in the other
+    calendar. What names no day to convert is the exception: a year is
+    `%{year: 2026}`, and a year and a quarter are the two. The default is
+    `:struct`.
 
   ### Returns
 

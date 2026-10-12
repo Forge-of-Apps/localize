@@ -427,33 +427,9 @@ defmodule Localize.Interval do
     end
   end
 
-  # A date whose calendar writes its dates in a notation of its own is
-  # written in it at a standard format, "2026-W25-2" for a calendar of weeks
-  # (`Localize.Date.to_string/2`), and no interval format shares a notation's
-  # fields, so whole dates are written in full around the fallback pattern,
-  # or once when they are the same day.
   defp resolve_date_fields(:date, format, language_tag, {from, to}, options)
        when format in [:short, :medium, :long, :full] do
-    case Localize.Calendar.own_notation?(calendar_of(from)) do
-      {:ok, true} -> {:ok, {:fallback_style, format}}
-      {:ok, false} -> resolve_standard_format(format, language_tag, {from, to}, options)
-      {:error, _exception} = error -> error
-    end
-  end
-
-  # A skeleton's month is such a calendar's week and its day the weekday
-  # (`Localize.Date.own_fields/2`), which no interval format is keyed by, so
-  # its dates are written in full with the skeleton too: "Tue, week 25 of
-  # 2026 – Mon, week 26 of 2026" for `yMMMd`, where CLDR's generic `yMMMd`
-  # interval wrote the calendar's period and day number as a month and a
-  # day of the month.
-  defp resolve_date_fields(:date, skeleton, locale_id, {from, _to}, _options)
-       when is_atom(skeleton) and not is_nil(skeleton) do
-    case Localize.Calendar.own_notation?(calendar_of(from)) do
-      {:ok, true} -> {:ok, {:fallback_style, skeleton}}
-      {:ok, false} -> resolve_fields(:date, skeleton, locale_id, cldr_calendar_for(from))
-      {:error, _exception} = error -> error
-    end
+    resolve_standard_format(format, language_tag, {from, to}, options)
   end
 
   defp resolve_date_fields(fields, format, locale_id, {from, _to}, _options),
@@ -697,9 +673,7 @@ defmodule Localize.Interval do
   end
 
   # A format with no interval of its own: both dates in full around the
-  # fallback pattern, or one where they differ in no field it writes. A
-  # calendar of weeks' skeleton, whose month is the week, is among them, no
-  # interval format being keyed by a week and a weekday.
+  # fallback pattern, or one where they differ in no field it writes.
   defp format_date_interval_fallback(from, to, format, locale, options, output) do
     with {:ok, %{cldr_locale_id: locale_id} = language_tag} <- resolve_locale(locale),
          {:ok, formats} <- interval_formats(language_tag, from) do
@@ -908,18 +882,9 @@ defmodule Localize.Interval do
 
   # The skeleton an interval of dates and times is written with, and the
   # CLDR calendar whose formats write it: the format given and the values'
-  # own calendar, or, for a calendar of weeks' skeleton, its month as the
-  # week and its day as the weekday in the formats of the calendar its
-  # dates are read in, as a date and time alone is written
-  # (`Localize.Date.own_fields/2`). The date written once beside two times
-  # of a day was the calendar's period and day number, "M06 2, 2026 AD,
-  # 10:30 – 12:30", which names no week.
+  # own calendar.
   defp datetime_fields(from, options) do
-    format = Keyword.get(options, :format, @default_format)
-
-    if is_atom(format) and not is_nil(format) and format not in [:short, :medium, :long, :full],
-      do: Localize.Date.own_fields(from, format),
-      else: {format, cldr_calendar_for(from)}
+    {Keyword.get(options, :format, @default_format), cldr_calendar_for(from)}
   end
 
   defp format_datetime_halves(from, to, lookup, halves, options, output) do
@@ -1017,8 +982,7 @@ defmodule Localize.Interval do
   defp with_given_halves({date_half, time_half, time_pattern}, {date_format, nil}, _format),
     do: {date_format || date_half, time_half, time_pattern}
 
-  # `skeleton` is the skeleton the fields of `format` are written with,
-  # which for a calendar of weeks names a week and a weekday
+  # `skeleton` is the skeleton the fields of `format` are written with
   # (`datetime_fields/2`).
   defp split_format(format, skeleton, locale_id, calendar, options)
        when is_atom(format) and not is_nil(format) and
@@ -1330,8 +1294,8 @@ defmodule Localize.Interval do
   # Whether two dates differ as `format` writes them. TR35's step 4 formats
   # one date where "there is no difference among any of the fields in the
   # pattern", so the fields are compared as the formatter writes them: a
-  # week (`w`, `W`), a quarter (`Q`) and a calendar of weeks' period (`M`)
-  # by their own values, not by the month and day fields that hold them.
+  # week (`w`, `W`) and a quarter (`Q`) by their own values, not by the
+  # month and day fields that hold them.
   # Two dates alike in every field written are one, whatever unit they
   # differ in: the same month and day of two years is one date to a format
   # of a month and a day. A standard format writes every unit of a date,
@@ -2171,8 +2135,7 @@ defmodule Localize.Interval do
 
   Same as `Localize.Date.parse/2` — `:locale`, `:calendar`, `:format`,
   `:reference_date`, `:as`. As there, `:calendar` is a calendar module and
-  the endpoints are returned in it, a calendar of weeks reading them as
-  Gregorian dates. `:format` is the interval's own format, as `to_string/3`
+  the endpoints are returned in it. `:format` is the interval's own format, as `to_string/3`
   takes it, and the text is read as two dates are written at it: with the
   patterns of the format's interval format, in which the two share the
   fields written once ("Jun 16 – 20, 2026" at `:medium`); as two dates each
@@ -2250,9 +2213,8 @@ defmodule Localize.Interval do
   # widths as the formatter adjusts it (`interval_split/6`): the patterns
   # it writes by default, and the variants an item has beside them, which
   # it writes only where it is asked to. A format with no item has none, a
-  # pattern among them and every format of a calendar that writes its
-  # dates in a notation of its own: its dates are written in full around
-  # the fallback pattern.
+  # pattern among them: its dates are written in full around the fallback
+  # pattern.
   @spec written_patterns(atom() | String.t(), Localize.locale(), module(), Keyword.t()) ::
           {:ok, {defaults :: [String.t()], variants :: [String.t()]}} | {:error, Exception.t()}
   def written_patterns(format, locale, calendar_module, options \\ [])
@@ -2261,7 +2223,7 @@ defmodule Localize.Interval do
       when is_atom(format) and not is_nil(format) do
     case Localize.validate_locale(locale) do
       {:ok, language_tag} ->
-        cldr_notation_patterns(format, language_tag, calendar_module, options)
+        interval_item_patterns(format, language_tag, calendar_module, options)
 
       {:error, _not_a_locale} = error ->
         error
@@ -2269,15 +2231,6 @@ defmodule Localize.Interval do
   end
 
   def written_patterns(_pattern, _locale, _calendar_module, _options), do: {:ok, {[], []}}
-
-  # A calendar with a notation of its own writes no interval patterns.
-  defp cldr_notation_patterns(format, language_tag, calendar_module, options) do
-    case Localize.Calendar.own_notation?(calendar_module) do
-      {:ok, false} -> interval_item_patterns(format, language_tag, calendar_module, options)
-      {:ok, true} -> {:ok, {[], []}}
-      {:error, _exception} = error -> error
-    end
-  end
 
   defp interval_item_patterns(format, language_tag, calendar_module, options) do
     calendar = Localize.Calendar.cldr_calendar_type(calendar_module)

@@ -28,26 +28,23 @@ defmodule Localize.Date.Parser do
   # different dates under different locales — by design.
   #
   # Where `:format` names the format the text was written with, the
-  # text is read with that format alone, after the calendar's own
-  # notation: neither ISO 8601 nor another of the locale's formats is
-  # tried, since a skeleton may write its fields in another order than
-  # the standard formats do (`mt`'s `yMd` is "M/d/y" beside a short
-  # date of "dd/MM/y"). A pattern is read before the notation, which
-  # it never writes.
+  # text is read with that format alone: neither ISO 8601 nor another
+  # of the locale's formats is tried, since a skeleton may write its
+  # fields in another order than the standard formats do (`mt`'s `yMd`
+  # is "M/d/y" beside a short date of "dd/MM/y").
   #
   # ### Calendars
   #
   # The `:calendar` option is a calendar module, `Calendar.ISO` by
   # default or one answering the Calendrical behaviour, and the date
   # comes back in it. The input is read with the patterns of the
-  # calendar's CLDR type, in the calendar its `parsing_calendar/0`
-  # names: itself, or `Calendar.ISO` for a calendar of weeks, whose
-  # dates are then converted. A calendar of weeks' own notation, as the
-  # formatter writes it ("2026-W25-2"), is read back by the calendar's
-  # `parse_date/1`. The calendar's answers place everything
-  # else: its months (`month_of_year/3`, `cardinal_month/1`), the
-  # years of its eras, and its own weeks and quarters (`week/2`,
-  # `quarter/2`), counted in the calendar asked for.
+  # calendar's CLDR type, in the calendar itself. A week date
+  # ("2026-W25-2") is the calendar's own to place, by its
+  # `date_from_week_date/3`, which every calendar answers. The
+  # calendar's answers place everything else: its months
+  # (`month_of_year/3`, `cardinal_month/1`), the years of its eras, and
+  # its own weeks and quarters (`week/2`, `quarter/2`), counted in the
+  # calendar asked for.
   #
   # ### Lenient matching
   #
@@ -133,6 +130,12 @@ defmodule Localize.Date.Parser do
 
   @ordinal_probe_digits [1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 31]
 
+  # The days of a month as text holds them: one or two digits. Which of them
+  # a month has is its calendar's to say, where the date is built
+  # (`build_date/4`): a month of a calendar of weeks has 28 days or 35, so
+  # "M12 33, 2023 AD" is a date, where a day above 31 was no day.
+  @written_days 1..99
+
   @related_year_steps 12
 
   # A week every week-based year has, far from both its ends.
@@ -149,11 +152,9 @@ defmodule Localize.Date.Parser do
   # format for any of them: the formatter appends the weekday to the
   # locale's `yw`, as TR35 appends a field no format carries ("Tue, week 25
   # of 2026"), and the week to the weekday where there is no year, with the
-  # name of its field ("Tue (week: 25)"). They are what a calendar of weeks'
-  # week and day are written as at the skeletons of a year, a month and a
-  # day, of a month and a day, and of those with an era. Without its pattern
-  # a weekday beside a week was read with the weekday taken off its front,
-  # as the week alone, and was that week's first day, whatever day it named.
+  # name of its field ("Tue (week: 25)"). Without its pattern a weekday
+  # beside a week was read with the weekday taken off its front, as the
+  # week alone, and was that week's first day, whatever day it named.
   # They are a function of the locale and the calendar, as every pattern
   # kept is, and are kept with the rest (`kept_patterns/3`).
   @weekday_of_week_skeletons [:ywE, :wE, :GywE]
@@ -299,51 +300,14 @@ defmodule Localize.Date.Parser do
   # no other, so a date a skeleton writes against the field order of the
   # standard formats reads back: `my`'s Japanese `GyMd` is "GGGGG y/M/d"
   # beside a short date of "GGGGG d/M/y", and "Kanpō 2/6/1" is either (user,
-  # 2026-10-04: "Let parse/2 take the format the text was written with"). A
-  # calendar's own notation, which every standard format writes for a
-  # calendar of weeks, is read before it.
-  #
-  # A pattern is not written as the notation is, so its own reading comes
-  # first: "Y-'W'ww-e" writes the Tuesday of a calendar of weeks' week 25 as
-  # "2026-W25-3" in `en`, whose weeks begin on Sunday, and the notation
-  # reads that text as the week's third day. The notation is read where the
-  # pattern reads nothing.
-  defp read_in_format(inputs, format, options, reading, as) when is_binary(format) do
-    with {:error, _exception} = unread <- try_format(inputs, format, options, reading, as) do
-      case notation_reading(inputs, reading, as) do
-        nil -> unread
-        read -> read
-      end
-    end
-  end
-
+  # 2026-10-04: "Let parse/2 take the format the text was written with").
   defp read_in_format(inputs, format, options, reading, as) do
-    notation_reading(inputs, reading, as) || try_format(inputs, format, options, reading, as)
-  end
-
-  defp notation_reading(inputs, {_locale, calendar_module, own_calendar, _reference}, as) do
-    case Enum.find_value(inputs, &notation_date(&1, calendar_module, own_calendar)) do
-      {:ok, date} -> {:ok, finalise_date(date, as)}
-      {:error, _exception} = error -> error
-      nil -> nil
-    end
-  end
-
-  defp notation_date(input, calendar_module, own_calendar) do
-    case Localize.Calendar.from_notation(input, own_calendar) do
-      {:ok, date} -> in_calendar(date, calendar_module)
-      :none -> nil
-      {:error, _exception} = error -> error
-    end
-  end
-
-  defp try_format(inputs, format, options, reading, as) do
     {locale, calendar_module, own_calendar, reference} = reading
 
     with {:ok, pattern} <- format_pattern(format, options, reading),
          {:ok, _patterns, ctx} <-
            locale_patterns(locale, calendar_module, own_calendar, reference) do
-      patterns = Enum.uniq(own_fields_pattern(format, options, reading) ++ [pattern])
+      patterns = [pattern]
 
       # One format reads the text, so an era's narrow name is read whatever
       # width the format states (`narrow_era_branches/2`).
@@ -401,35 +365,6 @@ defmodule Localize.Date.Parser do
     end
   end
 
-  # The pattern a skeleton resolves to for a date of the calendar asked for,
-  # where the text is read in another: a calendar of weeks writes a
-  # skeleton's month as its week and its day as the weekday
-  # (`Localize.Date.own_fields/2`), "Tue, week 25 of 2026" for `yMMMd`, and
-  # that text is the skeleton's before a Gregorian date is, "Jun 16, 2026",
-  # which is still read and converted. A standard format writes such a
-  # calendar's notation, which is read before any format, and a pattern is
-  # read as it stands.
-  defp own_fields_pattern(format, options, {locale, calendar_module, own_calendar, reference})
-       when is_atom(format) and own_calendar != calendar_module and
-              format not in [:short, :medium, :long, :full] do
-    first_day = %{calendar: own_calendar, year: reference.year, month: 1, day: 1}
-
-    case own_pattern(first_day, format, locale, options) do
-      {:read, pattern} -> [pattern]
-      _unresolved -> []
-    end
-  end
-
-  defp own_fields_pattern(_format, _options, _reading), do: []
-
-  defp own_pattern(first_day, format, locale, options) do
-    with {:ok, language_tag} <- Localize.validate_locale(locale),
-         {:ok, pattern, _numbers} <-
-           Localize.Date.resolve_pattern_and_numbers(first_day, format, language_tag, options) do
-      {:read, pattern}
-    end
-  end
-
   # A whole date of the calendar the text is read in, which a format is
   # resolved for: the reference date, or the first day of its year where it
   # holds no more than a year.
@@ -442,53 +377,39 @@ defmodule Localize.Date.Parser do
     }
   end
 
-  # A date written in the notation of the calendar asked for, as the
-  # formatter writes a calendar of weeks' date ("2026-W25-2") or in another
-  # of ISO 8601's forms of a week date (`week_date/2`), read back by that
-  # calendar and taken into the calendar the input is read in; else a date
-  # in one of the calendar's own formats (`own_format`), which come before
-  # ISO 8601; else an ISO 8601 date.
+  # A week date of the calendar asked for, in any of ISO 8601's forms of
+  # one (`week_date/2`), placed by that calendar and taken into the calendar
+  # the input is read in; else a date in one of the calendar's own formats
+  # (`own_format`), which come before ISO 8601; else an ISO 8601 date.
   defp written_date(input, calendar_module, own_calendar, own_format) do
     case week_date(input, own_calendar) do
       {:ok, date} -> in_calendar(date, calendar_module)
       {:week, _first_day, _year_and_week} = week -> week
       :no_date -> :no_date
-      :none -> written_otherwise(input, calendar_module, own_calendar, own_format)
-      {:error, _exception} = error -> error
-    end
-  end
-
-  # A notation that is no week date is the calendar's own to read too.
-  defp written_otherwise(input, calendar_module, own_calendar, own_format) do
-    case Localize.Calendar.from_notation(input, own_calendar) do
-      {:ok, date} -> in_calendar(date, calendar_module)
       :none -> own_format.(input) || iso_date(input, calendar_module)
       {:error, _exception} = error -> error
     end
   end
 
   @doc false
-  # A week date in any form ISO 8601 writes one in, for a calendar that
-  # writes its own dates in that notation, as a calendar of weeks does: the
-  # extended form the calendar writes ("2026-W25-2"), the basic form without
-  # its hyphens ("2026W252"), and the week alone at reduced precision
-  # ("2026-W25", "2026W25"). Each names the calendar's own week and day
-  # (user, 2026-10-06). The forms the calendar does not write were read as
-  # ISO 8601's weeks, so in a calendar whose year begins in February
-  # "2026W252" was a day five weeks from "2026-W25-2".
+  # A week date in any form ISO 8601 writes one in: the extended form
+  # ("2026-W25-2"), the basic form without its hyphens ("2026W252"), and the
+  # week alone at reduced precision ("2026-W25", "2026W25"). Each names the
+  # week and the day of the calendar it is read for (user, 2026-10-06 and
+  # 2026-10-13).
   #
-  # Localize reads the form, and the calendar its notation: the year, the
-  # week and the day are put to it as it writes them
-  # (`Localize.Calendar.from_notation/2`). A calendar writes its dates so
-  # where it reads, and writes back, the first day of the first week of the
-  # year named. A week or a day it does not have is then no date, never ISO
-  # 8601's week of that number: "2026-W53-1" was 28 December 2026 for a
+  # Localize reads the form, and the calendar the week date: the year, the
+  # week and the day are put to its `date_from_week_date/3`, which every
+  # calendar answers (`Localize.Calendar.date_from_week_date/4`), so no
+  # calendar is asked what kind it is. ISO 8601's weeks are `Calendar.ISO`'s
+  # own, and a calendar built of weeks counts in the weeks it is built of. A
+  # week or a day the calendar does not have is no date, never another
+  # calendar's week of that number: "2026-W53-1" was 28 December 2026 for a
   # calendar whose 2026 has 52 weeks.
   #
   # `{:ok, date}` for a day and `{:week, first_day, {year, week}}` for a
   # week alone, both in the calendar; `:no_date` for a week date the
-  # calendar does not have; `:none` for text that is no week date, or for a
-  # calendar with no such notation.
+  # calendar does not have; `:none` for text that is no week date.
   @spec week_date(String.t(), module()) ::
           {:ok, Date.t()}
           | {:week, Date.t(), {integer(), integer()}}
@@ -504,22 +425,19 @@ defmodule Localize.Date.Parser do
   end
 
   defp week_of_its_own({year, week, day}, calendar) do
-    with {:ok, _first_day} <- Localize.Calendar.from_notation("#{year}-W01-1", calendar) do
-      case Localize.Calendar.from_notation("#{year}-W#{week}-#{day || "1"}", calendar) do
-        {:ok, date} when is_nil(day) ->
-          {:week, date, {String.to_integer(year), String.to_integer(week)}}
+    {year, week} = {String.to_integer(year), String.to_integer(week)}
 
-        {:ok, date} ->
-          {:ok, date}
-
-        :none ->
-          :no_date
-
-        {:error, _exception} = error ->
-          error
-      end
+    case Localize.Calendar.date_from_week_date(year, week, day_of_week(day), calendar) do
+      {:ok, date} when is_nil(day) -> {:week, date, {year, week}}
+      {:ok, date} -> {:ok, date}
+      :none -> :no_date
+      {:error, _exception} = error -> error
     end
   end
+
+  # A week written without its day is read from its first day.
+  defp day_of_week(nil), do: 1
+  defp day_of_week(day), do: String.to_integer(day)
 
   defp iso_date(input, calendar_module) do
     case try_iso(input, calendar_module) do
@@ -537,8 +455,7 @@ defmodule Localize.Date.Parser do
   # parser reads them anywhere ("Use the broader rule"), so ISO 8601 reads
   # such text only when none of the calendar's formats makes a date of it,
   # and a date the formatter writes reads back as itself. `Calendar.ISO` is
-  # not asked: ISO 8601 is its own notation, as "2026-W25-2" is a calendar
-  # of weeks'.
+  # not asked: ISO 8601 is its own notation.
   defp own_format_reading(_input, _locale, Calendar.ISO, _own_calendar, _reference), do: nil
 
   defp own_format_reading(input, locale, calendar_module, own_calendar, reference) do
@@ -561,17 +478,9 @@ defmodule Localize.Date.Parser do
   # 8601.
   @spec own_format_date(String.t(), Keyword.t()) :: {:ok, Date.t()} | nil
   def own_format_date(input, options) do
-    case own_parsing_calendar(options) do
-      {:read, calendar_module} -> own_calendar_reading(input, options, calendar_module)
-      _read_in_another_calendar -> nil
-    end
-  end
-
-  # A calendar read in another calendar's notation has no notation of its own.
-  defp own_parsing_calendar(options) do
-    with {:ok, calendar_module} <- calendar_option(options),
-         {:ok, ^calendar_module} <- Localize.Calendar.parsing_calendar(calendar_module) do
-      {:read, calendar_module}
+    case calendar_option(options) do
+      {:ok, calendar_module} -> own_calendar_reading(input, options, calendar_module)
+      {:error, _unknown_calendar} -> nil
     end
   end
 
@@ -2301,7 +2210,7 @@ defmodule Localize.Date.Parser do
 
       raw ->
         case Integer.parse(raw) do
-          {day, ""} when day in 1..31 -> day
+          {day, ""} when day in @written_days -> day
           _other -> :invalid
         end
     end
@@ -2693,7 +2602,7 @@ defmodule Localize.Date.Parser do
   # write. The text is cut at each place a join's separator is found, and
   # the first cut whose two sides are dates is the range. The separator may
   # be in the dates themselves: `da`'s fallback pattern is "{0}-{1}", and a
-  # calendar of weeks' range "2026-W25-2-2026-W27-1". Where no cut gives two
+  # range of week dates is "2026-W25-2-2026-W27-1". Where no cut gives two
   # dates, the error is the first cut's.
   defp read_joined_range(input, locale, calendars, options) do
     case range_cuts(input, range_joins(locale, calendars)) do
@@ -2718,10 +2627,10 @@ defmodule Localize.Date.Parser do
   # The ways two dates are joined into a range, each the text before the
   # first date, the separator and which date is written first: as the
   # fallback pattern of each of the calendars joins them, then as people
-  # write them. The text's own calendar comes first: a calendar of weeks'
-  # dates are read as Gregorian ones but written with CLDR's generic
-  # calendar's patterns, `es-PA`'s "{0} a el {1}" and `fr-CH`'s
-  # "du {0} au {1}" where the Gregorian calendar's is "{0} – {1}". `kek`'s
+  # write them. The text's own calendar comes first: a calendar of CLDR's
+  # generic type joins with that type's patterns, `es-PA`'s "{0} a el {1}"
+  # and `fr-CH`'s "du {0} au {1}" where the Gregorian calendar's is
+  # "{0} – {1}". `kek`'s
   # Gregorian pattern is "{1} – {0}", the later date first, and a separator
   # a fallback pattern has is read in that pattern's order alone: an en
   # dash is not also the earlier date first there.
@@ -3221,8 +3130,8 @@ defmodule Localize.Date.Parser do
 
   # The calendar whose own weeks and quarters the input's week and quarter
   # fields count: the calendar asked for, which reading its dates in another
-  # (`parsing_calendar/0`) does not change. An unusable one leaves the
-  # calendar the input is read in.
+  # of the calendars it names (`Localize.Calendar.parsing_calendars/1`) does
+  # not change. An unusable one leaves the calendar the input is read in.
   defp own_calendar(options, calendar_module) do
     own_calendar = Keyword.get(options, :own_calendar, calendar_module)
 
@@ -3233,11 +3142,10 @@ defmodule Localize.Date.Parser do
   end
 
   @doc false
-  # A date written for a calendar is read in the calendar it names for
-  # parsing (its `parsing_calendar/0`) and converted into it: itself, or
-  # `Calendar.ISO` for a calendar of weeks, whose written month and day
-  # name no single week, so "Feb 1, 2024" is read as 1 February 2024. A
-  # date read in another calendar is read whole and comes back whole, as a
+  # A date written for a calendar is read in that calendar, and then in
+  # each further calendar it names for its dates to be read in
+  # (`Localize.Calendar.parsing_calendars/1`), converted into it. A date
+  # read in another calendar is read whole and comes back whole, as a
   # partial date of one calendar has no fields in the other. `parse` reads
   # the input in a calendar with the options given, and `finalise` gives a
   # converted value the shape `:as` asks for. `input` is the text read, for
@@ -3262,7 +3170,8 @@ defmodule Localize.Date.Parser do
            format: Keyword.get(options, :format)
          )}
 
-      read_in_each(read.(parsing), {parsing, others}, calendar_module, read, refused)
+      own_only? = Keyword.get(options, :own_formats_only, false)
+      read_in_each(read.(parsing), {parsing, others}, calendar_module, read, refused, own_only?)
     end
   end
 
@@ -3280,20 +3189,148 @@ defmodule Localize.Date.Parser do
   # value in the calendar asked for; the first reading stands where the
   # calendar names no other, and where none reads the text the error is the
   # first reading's, or `refused` where that read a date it is held from.
-  @spec read_in_each(term(), {module(), [module()]}, module(), (module() -> term()), term()) ::
-          term()
-  def read_in_each(first, {_parsing, []}, _calendar_module, _read, _refused), do: first
+  #
+  # Text none of the calendar's own formats reads is read in the calendar
+  # it names for parsing (`Localize.Calendar.parsing_calendar/1`) and
+  # converted: a calendar of weeks, whose months are "M02" and not "Feb",
+  # names `Calendar.ISO`, so "Feb 1, 2024" is 1 February 2024 in it (user,
+  # 2026-10-13). The calendar's own formats come first, so a date it writes
+  # reads back as itself. A calendar that names itself has no other reading,
+  # and none is asked what kind it is.
+  #
+  # The whole of a text is read in one calendar: an end of a range read in
+  # the calendar's own formats is not read in the calendar named for parsing
+  # (`own_only?`, which `read_in/5` asks of every reading inside one), or
+  # "Dec 28 – Jan 3" would be two Gregorian days set in the calendar's own
+  # years, where its year does not turn between them.
+  @spec read_in_each(
+          term(),
+          {module(), [module()]},
+          module(),
+          (module() -> term()),
+          term(),
+          boolean()
+        ) :: term()
+  def read_in_each(first, calendars, calendar_module, read, refused, own_only? \\ false)
 
-  def read_in_each(first, {parsing, others}, calendar_module, read, refused) do
+  def read_in_each(first, {parsing, others}, calendar_module, read, refused, true) do
+    {_read_held_or_unread, reading} =
+      own_reading(first, {parsing, others}, calendar_module, read, refused)
+
+    reading
+  end
+
+  def read_in_each(first, {parsing, others}, calendar_module, read, refused, false) do
+    case own_reading(first, {parsing, others}, calendar_module, read, refused) do
+      {:unread, unread} -> in_parsing_calendar(unread, calendar_module, [parsing | others], read)
+      {_read_or_held, reading} -> reading
+    end
+  end
+
+  # The reading of the calendar's own that stands, `:read`; else the error
+  # of the first, `:unread`, or `:held` where one of them read the text and
+  # is held from its date, which is then no text for another calendar.
+  defp own_reading({:ok, _value} = first, {_parsing, []}, _calendar_module, _read, _refused) do
+    {:read, first}
+  end
+
+  defp own_reading(first, {_parsing, []}, _calendar_module, _read, _refused) do
+    {:unread, first}
+  end
+
+  defp own_reading(first, {parsing, others}, calendar_module, read, refused) do
     readings = Stream.concat([{parsing, first}], Stream.map(others, &{&1, read.(&1)}))
-    unread = if match?({:ok, _value}, first), do: refused, else: first
 
-    Enum.find_value(readings, unread, fn
-      # A calendar read in another, as a calendar of weeks is, is not
-      # written in the formats of its own CLDR type at all.
-      {^parsing, reading} when parsing != calendar_module -> reading
-      {read_in, reading} -> if written_in?(reading, read_in, calendar_module), do: reading
+    Enum.reduce_while(readings, held_or_unread(first, refused), fn {read_in, reading}, unread ->
+      standing_or_held(reading, written_in?(reading, read_in, calendar_module), unread, refused)
     end)
+  end
+
+  defp held_or_unread({:ok, _value}, refused) do
+    {:held, refused}
+  end
+
+  defp held_or_unread(first, _refused) do
+    {:unread, first}
+  end
+
+  defp standing_or_held(reading, true, _unread, _refused) do
+    {:halt, {:read, reading}}
+  end
+
+  defp standing_or_held({:ok, _value}, false, {_state, unread}, _refused) do
+    {:cont, {:held, unread}}
+  end
+
+  defp standing_or_held(_no_reading, false, unread, _refused) do
+    {:cont, unread}
+  end
+
+  defp in_parsing_calendar({:error, exception} = unread, calendar_module, read_in, read) do
+    case named_for_parsing(exception, calendar_module, read_in) do
+      {:ok, named} -> named_reading(read.(named), unread)
+      :none -> unread
+    end
+  end
+
+  defp in_parsing_calendar(unread, _calendar_module, _read_in, _read) do
+    unread
+  end
+
+  # The calendar named for parsing, where it is another than those the text
+  # was put to and the error says that nothing of the calendar's own read
+  # it: two dates read and out of order, or a format that is no format, are
+  # errors of the caller's.
+  defp named_for_parsing(exception, calendar_module, read_in) do
+    if nothing_read?(exception) do
+      other_calendar(Localize.Calendar.parsing_calendar(calendar_module), read_in)
+    else
+      :none
+    end
+  end
+
+  defp other_calendar({:ok, named}, read_in) do
+    if named in read_in do
+      :none
+    else
+      {:ok, named}
+    end
+  end
+
+  defp other_calendar({:error, _exception}, _read_in) do
+    :none
+  end
+
+  defp nothing_read?(%DateParseError{}) do
+    true
+  end
+
+  defp nothing_read?(%DateRangeParseError{reason: reason}) do
+    reason in [:no_separator, :from_parse_failed, :to_parse_failed]
+  end
+
+  defp nothing_read?(%Localize.DateTimeParseError{}) do
+    true
+  end
+
+  defp nothing_read?(_exception) do
+    false
+  end
+
+  # The reading in the calendar named for parsing stands, and so does its
+  # error about a range: two dates it read and found out of order, or the
+  # end it could not read beside one it could. Where it read nothing, the
+  # error is the calendar's own.
+  defp named_reading({:ok, _value} = read, _unread) do
+    read
+  end
+
+  defp named_reading({:error, %DateRangeParseError{}} = error, _unread) do
+    error
+  end
+
+  defp named_reading(_no_reading, unread) do
+    unread
   end
 
   # Whether a reading is of a date the calendar asked for writes with the
@@ -3327,16 +3364,21 @@ defmodule Localize.Date.Parser do
   end
 
   defp read_in(calendar_module, calendar_module, options, parse, _finalise),
-    do: parse.(options, calendar_module)
+    do: parse.(Keyword.put(options, :own_formats_only, true), calendar_module)
 
   defp read_in(parsing, calendar_module, options, parse, finalise) do
     as = Keyword.get(options, :as, :struct)
-    options = Keyword.merge(options, calendar: parsing, own_calendar: calendar_module)
+
+    options =
+      Keyword.merge(options,
+        calendar: parsing,
+        own_calendar: calendar_module,
+        own_formats_only: true
+      )
 
     case converted_reading(as, options, parsing, parse, calendar_module) do
       {:read, converted} ->
-        weeks = weeks_without_days(as, converted, options, parsing, parse)
-        {:ok, converted |> finalise.(as) |> without_days(weeks)}
+        {:ok, finalise.(converted, as)}
 
       {:ok, _fields_of_its_own} = read ->
         read
@@ -3362,10 +3404,10 @@ defmodule Localize.Date.Parser do
   # dates are read in another. They name no day to convert, and are the
   # calendar's own fields as they are read: the reader takes them so where
   # it makes a date of a quarter (`build_from_quarter/2`), and the formatter
-  # writes them from the calendar's own year. So a calendar of weeks' "2023
-  # AD" is `%{year: 2023}`, as the Gregorian calendar's "2023" is, where it
-  # was an error, no whole date being read to convert; and "Q2 2023 AD" is
-  # the year and the quarter, where it was the quarter's whole first day.
+  # writes them from the calendar's own year. So "2023 AD" is
+  # `%{year: 2023}`, as the Gregorian calendar's "2023" is, where it was an
+  # error, no whole date being read to convert; and "Q2 2023 AD" is the
+  # year and the quarter, where it was the quarter's whole first day.
   # Each end of an interval is taken so where both are. The calendar must
   # have the year, and the quarter of it.
   defp years_and_quarters(:map, options, parsing, parse, calendar_module) do
@@ -3416,9 +3458,8 @@ defmodule Localize.Date.Parser do
   defp range?(answer), do: match?(%Date.Range{}, answer)
 
   # An inverted range names its two dates, and they are the caller's in the
-  # calendar asked for, as the range is where it is read: a calendar of
-  # weeks' "Tue (week: 25) – Mon (week: 25)" named 16 and 15 June 2026, the
-  # Gregorian dates it was read as. Any other error is as it was read.
+  # calendar asked for, as the range is where it is read. Any other error
+  # is as it was read.
   defp inverted_in_its_calendar(
          {:error, %DateRangeParseError{reason: :inverted, from: %Date{}, to: %Date{}} = error},
          calendar_module
@@ -3443,63 +3484,6 @@ defmodule Localize.Date.Parser do
 
     %{error | from: from, to: to, input: input}
   end
-
-  # A week written for the calendar names no day, so read as a map it is
-  # not the whole date of its first day but the fields its days share, as
-  # the formatter writes a date without its day: the year and the week a
-  # calendar of weeks holds in its month field, `%{year: 2026, month: 25}`
-  # for "week 25 of 2026". The input is read again for the fields it
-  # carries, and a year and a week alone are that week of the calendar's
-  # own, whose days it names itself (`Localize.Calendar.week/4`), where the
-  # whole reading is that week's first day: an ISO 8601 week ("2026-W25")
-  # that is not one of the calendar's own weeks stays the day it was read
-  # as. Each end of an interval is taken on its own.
-  defp weeks_without_days(:map, converted, options, parsing, parse) do
-    locale = Keyword.get(options, :locale) || Localize.get_locale()
-    week_data = Localize.DateTime.Week.config(locale)
-
-    case {parse.(Keyword.put(options, :as, :map), parsing), converted} do
-      {{:ok, {%{} = from, %{} = to}}, %Date.Range{first: first, last: last}} ->
-        {week_without_day(from, first, week_data), week_without_day(to, last, week_data)}
-
-      {{:ok, %{} = fields}, %Date{} = first_day} ->
-        week_without_day(fields, first_day, week_data)
-
-      _unread ->
-        nil
-    end
-  end
-
-  defp weeks_without_days(_as, _converted, _options, _parsing, _parse), do: nil
-
-  defp week_without_day(%{week_of_year: week} = fields, %Date{} = first_day, week_data) do
-    week_year = Map.get(fields, :week_based_year) || Map.get(fields, :year)
-    others = Map.keys(fields) -- [:calendar, :year, :week_based_year, :week_of_year]
-
-    case one_calendar_week(others, week_year, week, first_day, week_data) do
-      {:read, fields} -> fields
-      _not_one_week -> nil
-    end
-  end
-
-  defp week_without_day(_fields, _first_day, _week_data), do: nil
-
-  defp one_calendar_week(others, week_year, week, first_day, week_data) do
-    with [] <- others,
-         true <- is_integer(week_year),
-         {:ok, days} <- Localize.Calendar.week(first_day.calendar, week_year, week, week_data),
-         %Date{calendar: calendar, year: year, month: month} <- days.first,
-         %Date{year: ^year, month: ^month} <- days.last,
-         :eq <- Localize.Calendar.compare_days(days.first, first_day) do
-      {:read, %{calendar: calendar, year: year, month: month}}
-    end
-  end
-
-  defp without_days(value, nil), do: value
-  defp without_days(%{} = _whole, %{} = week), do: week
-
-  defp without_days({from, to}, {from_week, to_week}),
-    do: {from_week || from, to_week || to}
 
   @doc false
   # A value read in one calendar, in another: a date, a range of dates or
@@ -4164,7 +4148,7 @@ defmodule Localize.Date.Parser do
   # Chinese calendar: 初一, 十一, 廿一) is read as the formatter writes
   # it.
   defp field_regex({:d, _count}, _months, _eras, _lenient, ctx) do
-    case numeral_names(ctx, "d", 1..31) do
+    case numeral_names(ctx, "d", @written_days) do
       [] -> {:capture, :day, "(?P<day>#{digit_class(ctx, "d")}{1,2})"}
       numerals -> {:capture, :day, numeral_regex(numerals, "__h")}
     end

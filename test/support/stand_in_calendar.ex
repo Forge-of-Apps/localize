@@ -7,8 +7,8 @@ defmodule Localize.Test.StandInCalendar do
   # Localize asks, and every `Calendar` callback, passed to `Calendar.ISO`.
   # Localize does not depend on Calendrical, so a test calendar stands in
   # for one of Calendrical's: it uses this module and overrides the answers
-  # it is about. `without: [parsing_calendar: 0]` leaves answers out, for a
-  # calendar that cannot give them.
+  # it is about. `without: [date_from_week_date: 3]` leaves answers out, for
+  # a calendar that cannot give them.
   #
   # A year's days (`year/1`) and the arithmetic of months and years (`plus/6`
   # and `diff/3`) are answered from the calendar's own `Calendar` callbacks,
@@ -20,6 +20,7 @@ defmodule Localize.Test.StandInCalendar do
     cldr_calendar_type: 0,
     era_calendar_type: 0,
     parsing_calendar: 0,
+    date_from_week_date: 3,
     month_of_year: 3,
     cardinal_month: 1,
     calendar_year: 3,
@@ -56,6 +57,18 @@ defmodule Localize.Test.StandInCalendar do
     do: quote(do: def(era_calendar_type, do: cldr_calendar_type()))
 
   defp definition({:parsing_calendar, 0}), do: quote(do: def(parsing_calendar, do: __MODULE__))
+
+  # ISO 8601's week date, as a date of the calendar using this module.
+  defp definition({:date_from_week_date, 3}) do
+    quote do
+      def date_from_week_date(year, week, day) do
+        case Localize.Calendar.ISO.date_from_week_date(year, week, day) do
+          %Date{} = date -> Date.convert!(date, __MODULE__)
+          error -> error
+        end
+      end
+    end
+  end
 
   defp definition({:month_of_year, 3}),
     do: quote(do: def(month_of_year(_year, month, _day), do: month))

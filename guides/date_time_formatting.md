@@ -446,7 +446,7 @@ iex> Localize.Date.parse("2026-03-22", locale: :de)
 {:ok, ~D[2026-03-22]}
 ```
 
-Its other date forms are read too: without separators ("20260322"), by the day of the year ("2026-081", "2026081") and by the week, with its day ("2026-W12-7", "2026W127") or without one. A week without a day is the week's first day, and its weeks are ISO 8601's, from Monday, whatever the locale's are; for a calendar of weeks, which writes its own dates in that notation, they are the calendar's own (see [calendars](#calendars)). A year and a month, or a year alone, is no date and is read `as: :map`:
+Its other date forms are read too: without separators ("20260322"), by the day of the year ("2026-081", "2026081") and by the week, with its day ("2026-W12-7", "2026W127") or without one. A week without a day is the week's first day, and its weeks are ISO 8601's, from Monday, whatever the locale's are; for another calendar they are that calendar's own weeks, which it is asked for (see [calendars](#calendars)). A year and a month, or a year alone, is no date and is read `as: :map`:
 
 ```elixir
 iex> Localize.Date.parse("2026-W25", locale: :en)
@@ -723,72 +723,47 @@ Localize.Date.parse("2023-11-22", locale: :en, calendar: Calendrical.Hebrew)
 #=> {:ok, ~D[5784-03-09 Calendrical.Hebrew]}
 ```
 
-The first is the twenty-second day of the eleventh month of the Chinese year that began in 2023, its twelfth month after a leap month, the second is the Persian date as it is written, and the third is 22 November 2023 converted. A format reads the text in the order it writes its fields, so `kk-Arab`'s "y-d-M" reads "2023-10-11" as 10 November. A date of that shape with a time after a space is read the same way, an offset after the time with it. Text with ISO 8601's `T` is none of a calendar's formats, so it is ISO 8601's, as are its forms without separators, by the day of the year and by the week, and every ISO 8601 date in `Calendar.ISO`, whose own notation ISO 8601 is. Only a calendar of weeks' own notation is read before it (below).
+The first is the twenty-second day of the eleventh month of the Chinese year that began in 2023, its twelfth month after a leap month, the second is the Persian date as it is written, and the third is 22 November 2023 converted. A format reads the text in the order it writes its fields, so `kk-Arab`'s "y-d-M" reads "2023-10-11" as 10 November. A date of that shape with a time after a space is read the same way, an offset after the time with it. Text with ISO 8601's `T` is none of a calendar's formats, so it is ISO 8601's, as are its forms without separators and by the day of the year, and every ISO 8601 date in `Calendar.ISO`, whose own notation ISO 8601 is. A week date is the calendar's own week and day (below).
 
 A composite calendar writes each of its dates with the formats of the calendar in effect on it, its `cldr_calendar_type/3` answering for the date, so the formats of its own CLDR type do not read them all. A calendar may name the other calendars its dates are read in with an optional `parsing_calendars/0` callback, a list of calendar modules. The text is then read in the calendar itself and, where that gives no date, in each calendar it names, as that calendar is read alone, and the date converted. A reading stands only where the composite writes that day with the formats of the calendar it was read in, so text in the formats of one of its calendars that names a day of another is refused. A calendar without the callback is read as it always was.
 
-A calendar of weeks, such as `Calendrical.ISOWeek`, has no month or day of the month of its own, so a written month and day name no single one of its weeks. Its `parsing_calendar/0` callback answers `Calendar.ISO`, so input other than its own notation (below) is read as a Gregorian date and converted into it:
+A calendar of weeks, such as `Calendrical.ISOWeek`, holds a date as a year, a month of its pattern of weeks and a day of that month, so it is written as any calendar is: in the locale's formats of its CLDR type, the generic calendar's, whose months are named "M01" to "M12". A date it writes reads back as itself, a month of 35 days to its last day:
+
+```elixir
+# With calendrical installed
+Localize.Date.to_string(~D[2026-06-16 Calendrical.ISOWeek], format: :long, locale: :en)
+#=> {:ok, "M06 16, 2026 AD"}
+
+Localize.Date.parse("M06 16, 2026 AD", locale: :en, calendar: Calendrical.ISOWeek)
+#=> {:ok, ~D[2026-06-16 Calendrical.ISOWeek]}
+```
+
+Its months are not the Gregorian calendar's, so text that names one of those is none of its own formats'. Every calendar says which calendar such text is read in with its `parsing_calendar/0` callback: itself, or, for a calendar of weeks, `Calendar.ISO`. Text that none of the calendar's own formats reads is then read in the calendar it names, as a Gregorian date, and converted:
 
 ```elixir
 # With calendrical installed
 Localize.Date.parse("Feb 1, 2024", locale: :en, calendar: Calendrical.ISOWeek)
-#=> {:ok, ~D[2024-W05-4 Calendrical.ISOWeek]}
+#=> {:ok, ~D[2024-02-04 Calendrical.ISOWeek]}
 ```
 
-The formatter writes a week date in the calendar's own notation, as the calendar writes it with `date_to_string/3`, at every standard format and in every locale, and the parser reads that notation back as itself, through the calendar's `parse_date/1`:
+The calendar's own formats come first, so the digits of a date mean what the format that reads them writes. `en`'s generic short date writes the era, so "2/1/2024 AD" is the first day of the calendar's second month, Monday 29 January 2024, where "2/1/2024", which none of its formats writes, is 1 February 2024. The whole of a text is read in one calendar or the other: the two ends of a range are never read one in each. A calendar that names itself, as every calendar of months does, has no other reading, and text its formats do not read is an error.
+
+A week date is the calendar's own week and day, in every form ISO 8601 writes one in: "2026-W25-2", without its hyphens, "2026W252", and as a week alone, "2026-W25" or "2026W25", which is the first day of that week. Every calendar is asked for the date with its `date_from_week_date/3` callback, so a week date read for `Calendar.ISO` is ISO 8601's, and one read for a calendar of weeks counts that calendar's weeks, and its days from the day its weeks begin on. A week or a day the calendar does not have is an error, never ISO 8601's week of that number. It is the calendar's own before a time too, however the two are joined, by a space or ISO 8601's `T`:
 
 ```elixir
 # With calendrical installed
-Localize.Date.to_string(~D[2026-W25-2 Calendrical.ISOWeek], format: :long, locale: :en)
-#=> {:ok, "2026-W25-2"}
-
 Localize.Date.parse("2026-W25-2", locale: :en, calendar: Calendrical.ISOWeek)
-#=> {:ok, ~D[2026-W25-2 Calendrical.ISOWeek]}
+#=> {:ok, ~D[2026-06-16 Calendrical.ISOWeek]}
+
+Localize.Date.parse("2026-W25", locale: :en, calendar: Calendrical.ISOWeek)
+#=> {:ok, ~D[2026-06-15 Calendrical.ISOWeek]}
 ```
 
-A date and time joins the notation to the locale's time, "2026-W25-2, 10:30:00 AM", and an interval writes both dates around the locale's fallback pattern, "2026-W25-2 – 2026-W27-1". The notation is the calendar's own date before a time however the two are joined, by the locale's separator, a space or ISO 8601's `T`: "2026-W25-2T10:30:00" is day 2 of the calendar's own week 25, which is ISO 8601's only where the calendar's weeks are. It is the calendar's own in every form ISO 8601 writes a week date in: without its hyphens, "2026W252", and as a week alone, "2026-W25" or "2026W25", which is the first day of the calendar's week 25 or, read `as: :map`, its year and week. A week or a day the calendar does not have is an error, never ISO 8601's week of that number. A pattern takes the calendar's own answers: its weeks, quarters and days of the week, and its months, the ordinal periods of its pattern of weeks, named by CLDR's generic calendar, "M06"; see the [format pattern reference](#format-pattern-reference).
-
-A date of such a calendar without its day is a week, since the month field of its dates holds a week. It is written as the locale writes a week of the year, CLDR's `yw` format, at every standard format:
+A pattern takes the calendar's own answers: its month and its day of the month for `M` and `d`, and its weeks, quarters and days of the week; see the [format pattern reference](#format-pattern-reference). The fields of a week are `Y`, `w` and the day of the week, `E` by its name or `e` by its number from the locale's first day of the week, and a pattern of them reads back as the date it was written from:
 
 ```elixir
 # With calendrical installed
-Localize.Date.to_string(%{year: 2026, month: 25, calendar: Calendrical.ISOWeek}, locale: :en)
-#=> {:ok, "week 25 of 2026"}
-
-Localize.Date.to_string(%{year: 2026, month: 25, calendar: Calendrical.ISOWeek}, locale: :de)
-#=> {:ok, "Woche 25 des Jahres 2026"}
-```
-
-The text names no day, so read `as: :map` it is the year and the week it was written from, the fields the days of that week share, where the struct form gives the week's first day. A year alone and a year and a quarter name no day either, and are read as the fields written, `%{year: 2026}` and `%{year: 2026, quarter: 2}`:
-
-```elixir
-# With calendrical installed
-Localize.Date.parse("week 25 of 2026", locale: :en, calendar: Calendrical.ISOWeek, as: :map)
-#=> {:ok, %{calendar: Calendrical.ISOWeek, year: 2026, month: 25}}
-
-Localize.Date.parse("week 25 of 2026", locale: :en, calendar: Calendrical.ISOWeek)
-#=> {:ok, ~D[2026-W25-1 Calendrical.ISOWeek]}
-```
-
-A skeleton names fields, and for such a calendar its month is the week and its day the day of that week. So `:yMMMd` is the skeleton `:ywE`: the locale's week of the year with the weekday appended, as TR35 appends a field no format carries, and it reads back with the skeleton or with none. A skeleton without a year writes the week beside the name of its field, "Tue (week: 25)" for `:MMMd`, and that week is read as a week of the reference date's week-based year, which about the new year is not the year of its days: ISO 8601's 2020 ends on Sunday 3 January 2021, so "Sun (week: 53)" read on that day is that day. A skeleton of a year and a month is the week of the year, and an interval at a skeleton is both dates in full, since no interval format is keyed by a week. A skeleton of a date and a time is written the same way, its time in the formats of the calendar the dates are read in, and two dates and times of one day are the date once beside the interval of their times, "Tue, week 25 of 2026, 10:30 – 12:30":
-
-```elixir
-# With calendrical installed
-Localize.Date.to_string(~D[2026-W25-2 Calendrical.ISOWeek], format: :yMMMd, locale: :en)
-#=> {:ok, "Tue, week 25 of 2026"}
-
-Localize.Date.to_string(~D[2026-W25-2 Calendrical.ISOWeek], format: :yMMMd, locale: :de)
-#=> {:ok, "Di., Woche 25 des Jahres 2026"}
-
-Localize.Date.parse("Tue, week 25 of 2026", locale: :en, calendar: Calendrical.ISOWeek)
-#=> {:ok, ~D[2026-W25-2 Calendrical.ISOWeek]}
-```
-
-A pattern is written as it stands, with the calendar's own answers, so the period of its pattern of weeks is a pattern's `M` and the number of the day in its week a pattern's `d`: `"MMM y"` is "M06 2026" and `"y-M-d"` "2026-6-2". A period and a day number do not say which of the period's weeks the day is in, so that text holds no date of the calendar and does not read back: with the same pattern it is read as any month and day written for a calendar of weeks are, as the Gregorian 2 June 2026. The fields that hold a week date are the week's own, `Y`, `w` and the day of the week, `E` by its name or `e` by its number from the locale's first day of the week, and a pattern of them reads back as the date it was written from:
-
-```elixir
-# With calendrical installed
-Localize.Date.to_string(~D[2026-W25-2 Calendrical.ISOWeek], format: "y 'week' w, EEEE", locale: :en)
+Localize.Date.to_string(~D[2026-06-16 Calendrical.ISOWeek], format: "y 'week' w, EEEE", locale: :en)
 #=> {:ok, "2026 week 25, Tuesday"}
 
 Localize.Date.parse("2026 week 25, Tuesday",
@@ -796,10 +771,10 @@ Localize.Date.parse("2026 week 25, Tuesday",
   locale: :en,
   calendar: Calendrical.ISOWeek
 )
-#=> {:ok, ~D[2026-W25-2 Calendrical.ISOWeek]}
+#=> {:ok, ~D[2026-06-16 Calendrical.ISOWeek]}
 ```
 
-A pattern given as `:format` is read before the calendar's notation, which it does not write, so `"Y-'W'ww-e"`, which writes that Tuesday as "2026-W25-3" in `en`, whose weeks begin on Sunday, reads it back as the Tuesday and not as the notation's third day.
+A week written without its year, as the skeleton `:wE` writes it, "Tue (week: 25)", is a week of the reference date's week-based year, which about the new year is not the year of its days: ISO 8601's 2020 ends on Sunday 3 January 2021, so "Sun (week: 53)" read on that day is that day. A format given as `:format` reads its own text and no other, so a week date is not read with a format that does not write it.
 
 `Localize.Time.parse/2` takes the option too: a time is read in the time formats of the calendar given, and then in the Gregorian calendar's.
 
