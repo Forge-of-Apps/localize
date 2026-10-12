@@ -179,6 +179,60 @@ defmodule Localize.CalendarISOWeeksTest do
     end
   end
 
+  describe "date_from_week_date/3, week_date_from_date/3 and weeks_in_week_year/1" do
+    # ISO 8601's week dates, measured by Erlang's `:calendar.iso_week_number/1`
+    # and Elixir's `Date.day_of_week/1`.
+    test "a date's week date is ISO 8601's, and names the date" do
+      for date <- @days do
+        {iso_year, iso_week} = :calendar.iso_week_number(Date.to_erl(date))
+        week_date = {iso_year, iso_week, Date.day_of_week(date)}
+
+        assert {date, ISO.week_date_from_date(date.year, date.month, date.day)} ==
+                 {date, week_date}
+
+        assert %Date{calendar: ISO} =
+                 named = ISO.date_from_week_date(iso_year, iso_week, Date.day_of_week(date))
+
+        assert {date, {named.year, named.month, named.day}} ==
+                 {date, {date.year, date.month, date.day}}
+      end
+    end
+
+    test "a year has the weeks 28 December is in" do
+      for year <- 1990..2050 do
+        {^year, weeks} = :calendar.iso_week_number({year, 12, 28})
+        assert {year, ISO.weeks_in_week_year(year)} == {year, weeks}
+      end
+    end
+
+    test "are errors for what is no week, no day of one or no date, never raises" do
+      assert ISO.date_from_week_date(2026, 54, 1) == {:error, :invalid_date}
+
+      assert ISO.date_from_week_date(2026, 53, 1) == %Date{
+               year: 2026,
+               month: 12,
+               day: 28,
+               calendar: ISO
+             }
+
+      assert ISO.date_from_week_date(2025, 53, 1) == {:error, :invalid_date}
+
+      for no_day <- [0, 8, nil, "1", 1.0] do
+        assert {no_day, ISO.date_from_week_date(2026, 1, no_day)} ==
+                 {no_day, {:error, :invalid_date}}
+      end
+
+      for no_week <- [0, -1, nil, "1"] do
+        assert {no_week, ISO.date_from_week_date(2026, no_week, 1)} ==
+                 {no_week, {:error, :invalid_date}}
+      end
+
+      assert ISO.week_date_from_date(2026, 2, 30) == {:error, :invalid_date}
+      assert ISO.week_date_from_date(nil, 1, 1) == {:error, :invalid_date}
+      assert ISO.weeks_in_week_year(nil) == {:error, :invalid_date}
+    end
+  end
+
   describe "values that are no date" do
     test "are errors, never raises" do
       for {year, month, day} <- [

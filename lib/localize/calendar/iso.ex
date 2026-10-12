@@ -576,6 +576,48 @@ defmodule Localize.Calendar.ISO do
 
   def week(_year, _week, _week_data), do: {:error, :invalid_date}
 
+  # ISO 8601's week dates: a year, a week of it and a day of the week counted
+  # from Monday. Every calendar answers a week date by ISO 8601's rule over
+  # its own year (the Calendrical behaviour's `date_from_week_date/3`,
+  # `week_date_from_date/3` and `weeks_in_week_year/1`), and this calendar's
+  # are ISO 8601's own: "2026-W25-2" is 16 June 2026.
+  @doc false
+  @spec date_from_week_date(Calendar.year(), pos_integer(), 1..7) ::
+          Date.t() | {:error, :invalid_date}
+  def date_from_week_date(week_year, week, day) when is_integer(day) and day in 1..7 do
+    case week(week_year, week) do
+      %Date.Range{first: first} -> Date.add(first, day - 1)
+      {:error, _reason} -> {:error, :invalid_date}
+    end
+  end
+
+  def date_from_week_date(_week_year, _week, _day) do
+    {:error, :invalid_date}
+  end
+
+  @doc false
+  @spec week_date_from_date(Calendar.year(), Calendar.month(), Calendar.day()) ::
+          {Calendar.year(), pos_integer(), 1..7} | {:error, :invalid_date}
+  def week_date_from_date(year, month, day) do
+    case week_of_year(year, month, day) do
+      {week_year, week} when is_integer(week_year) and is_integer(week) ->
+        {day_of_week, _first, _last} = Calendar.ISO.day_of_week(year, month, day, :monday)
+        {week_year, week, day_of_week}
+
+      {:error, _reason} ->
+        {:error, :invalid_date}
+    end
+  end
+
+  @doc false
+  @spec weeks_in_week_year(Calendar.year()) :: 52 | 53 | {:error, :invalid_date}
+  def weeks_in_week_year(week_year) do
+    case weeks_in_year(week_year) do
+      {weeks, _days_in_the_last} when is_integer(weeks) -> weeks
+      {:error, _reason} -> {:error, :invalid_date}
+    end
+  end
+
   # The ISO 8601 week of a date, which is this calendar's own week of the
   # year without a locale.
   @doc false

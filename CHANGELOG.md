@@ -20,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * The module that answers the Calendrical behaviour for `Calendar.ISO` is a full calendar a value may name as its own: it declares the `Calendar` behaviour, answers with dates of itself, and reads a date written for it as one of its own. A date, a time or an interval held in it is read, written and its weeks numbered exactly as the `Calendar.ISO` value of the same fields is.
 
+* The module that answers the Calendrical behaviour for `Calendar.ISO` answers a week date as every calendar does: `date_from_week_date/3`, `week_date_from_date/3` and `weeks_in_week_year/1`, which are ISO 8601's own week dates ("2026-W25-2" is 16 June 2026).
+
 * `Localize.Number.Parser.parse/2` takes `:currency`, reading a string as an amount of that currency with the separators `Localize.Number.to_string/2` writes it with, so a currency amount reads back to the number it was written from. `de-AT` writes `€ 1.234,56` but `1 234,56` plain, so `"1.234,56"` is a number with the option and not one without it.
 
 * `Localize.Number.Parser.parse/2` takes `:separators`, naming the set of decimal and grouping separators to read with for a locale that has more than one: `en-ZA` writes `1 234,56` with its `:standard` set and `1,234.56` with its `:us` set. A locale without the named set reads with its standard one.
