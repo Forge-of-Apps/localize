@@ -26,50 +26,46 @@ defmodule Localize.Number.DecimalConformanceTest do
   #   * `scientific` in `gu`, `hi`, `hi-Latn`, `lo`, `mr`, `pa`, `si` — CLDR
   #     gives these locales the scientific pattern `[#E0]`, brackets and all,
   #     so we render "[1.2E0]". `NumberFormatter.notation(scientific())`
-  #     ignores the locale pattern and builds the notation itself.
-  #   * `ur` percent — CLDR's `symbols-numberSystem-latn` for `ur` sets
-  #     `percentSign` to `٪` (U+066A). The generator formats percent as a
-  #     measure unit instead, and `ur`'s unit pattern is `{0}%`.
-  #   * `gl` grouping — CLDR's `gl` group separator is U+00A0; ICU emits ".".
+  #     ignores the locale pattern and builds the notation itself. An ICU API
+  #     behaviour rather than a data disagreement, which is why it outlived
+  #     the others.
   #   * `bn` compact long — the pattern is `00000 কোটি`, which carries no
   #     grouping; ICU applies the locale's standard grouping to the mantissa.
-  #   * `af` compact short — the pattern is `0 m'.'`, whose quoted literal is
-  #     a full stop, so "1,2 m."; ICU drops it.
-  #   * `en-IN` and `hi-Latn` compact long — CLDR gives both `0 million`;
-  #     ICU renders "12 lakh".
-  #   * `ig`, `ps`, `ta` compact — CLDR ships localised patterns (`0 nde`,
-  #     `0 میلیونه`, `0M`) that ICU does not use, falling back to the root
-  #     forms or to no compact form at all.
+  #     Only the extended-numbers fixture reaches the magnitudes that show it.
   #
-  # The count is asserted, not just the membership: if a divergence is
-  # resolved upstream, or a new one appears inside one of these dimensions,
-  # the number moves and the test says so.
+  # CLDR 49 beta4 regenerated this suite against ICU4J 79.1 (CLDR-19820),
+  # and ICU came to CLDR's reading on eight dimensions recorded here: `af`
+  # compact short (the quoted full stop in `0 m'.'`), `gl` grouping and
+  # percent (U+00A0, not "."), `ig`, `ps` and `ta` compact (the localised
+  # patterns `0 nde`, `0 میلیونه`, `0M`) and `ur` percent (`٪`, U+066A).
+  # Two more — `en-IN` and `hi-Latn` compact long, where CLDR gives both
+  # `0 million` and ICU rendered "12 lakh" — had resolved before beta4 and
+  # were still recorded here unnoticed, which is what prompted the key-set
+  # assertion below.
+  #
+  # Both the key set and each count are asserted, per file. Membership alone
+  # would miss a divergence that changes size; counts alone would miss one
+  # that disappears, because the old assertion iterated the divergences it
+  # observed and so never looked at a recorded key that stopped appearing.
+  # Keying by file matters for the same reason: `bn` diverges only in the
+  # fixture that carries it, and a single flat map cannot say that.
   @divergences %{
-    {"af", "decimal", "short"} => 1,
-    {"bn", "decimal", "long"} => 6,
-    {"en_IN", "decimal", "long"} => 1,
-    {"gl", "decimal", ""} => 2,
-    {"gl", "percent", ""} => 2,
-    {"gu", "scientific", ""} => 5,
-    {"hi", "scientific", ""} => 5,
-    {"hi_Latn", "decimal", "long"} => 1,
-    {"hi_Latn", "scientific", ""} => 5,
-    {"ig", "decimal", "long"} => 2,
-    {"lo", "scientific", ""} => 5,
-    {"mr", "scientific", ""} => 5,
-    {"pa", "scientific", ""} => 5,
-    {"ps", "decimal", "long"} => 2,
-    {"ps", "decimal", "short"} => 2,
-    {"si", "scientific", ""} => 5,
-    {"ta", "decimal", "short"} => 2,
-    {"ur", "percent", ""} => 5
+    "decimal_test_data.tsv" => %{},
+    "decimal_modern_locales_test_data.tsv" => %{
+      {"gu", "scientific", ""} => 5,
+      {"hi", "scientific", ""} => 5,
+      {"hi_Latn", "scientific", ""} => 5,
+      {"lo", "scientific", ""} => 5,
+      {"mr", "scientific", ""} => 5,
+      {"pa", "scientific", ""} => 5,
+      {"si", "scientific", ""} => 5
+    },
+    "decimal_extended_numbers_test_data.tsv" => %{
+      {"bn", "decimal", "long"} => 6
+    }
   }
 
-  @files [
-    "decimal_test_data.tsv",
-    "decimal_modern_locales_test_data.tsv",
-    "decimal_extended_numbers_test_data.tsv"
-  ]
+  @files Map.keys(@divergences)
 
   defp options("decimal", ""), do: [max_fractional_digits: 6]
   defp options("percent", ""), do: [format: :percent, max_fractional_digits: 6]
@@ -111,7 +107,7 @@ defmodule Localize.Number.DecimalConformanceTest do
                 other ->
                   key = {locale, format, length}
 
-                  if Map.has_key?(@divergences, key) do
+                  if Map.has_key?(@divergences[@file_name], key) do
                     {failures, Map.update(diverged, key, 1, &(&1 + 1))}
                   else
                     {[{locale, format, length, input, expected, other} | failures], diverged}
@@ -122,10 +118,20 @@ defmodule Localize.Number.DecimalConformanceTest do
 
       assert failures == [], format_failures(failures)
 
+      recorded = @divergences[@file_name]
+
+      assert Enum.sort(Map.keys(diverged)) == Enum.sort(Map.keys(recorded)),
+             "the divergences in #{@file_name} are not the ones recorded.\n" <>
+               "  appeared: #{inspect(Map.keys(diverged) -- Map.keys(recorded))}\n" <>
+               "  resolved: #{inspect(Map.keys(recorded) -- Map.keys(diverged))}\n" <>
+               "A divergence that resolves upstream is good news, and its entry and note " <>
+               "come out; one that appears needs checking against what CLDR ships — see " <>
+               "the notes on @divergences."
+
       for {key, count} <- diverged do
-        assert count == @divergences[key],
+        assert count == recorded[key],
                "#{inspect(key)} diverges from ICU in #{count} cases, expected " <>
-                 "#{@divergences[key]}. A divergence that changes size needs re-checking " <>
+                 "#{recorded[key]}. A divergence that changes size needs re-checking " <>
                  "against what CLDR ships — see the notes on @divergences."
       end
     end
