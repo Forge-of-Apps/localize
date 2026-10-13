@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+* The module that answers the Calendrical behaviour for `Calendar.ISO` answers its five newest callbacks too, so it keeps every required callback of the behaviour: `weeks_of_month/2`, `traditional_month/2`, `month_from_traditional/2`, `months_in_year_bounds/0` and `days_in_month_bounds/1`, each the Gregorian calendar's fact (a month is its own traditional month, a year has twelve months, February has 28 or 29 days) and the weeks of a month those `month_week/3` gives.
+
 * The module that answers the Calendrical behaviour for `Calendar.ISO` is a full calendar a value may name as its own: it declares the `Calendar` behaviour, answers with dates of itself, and reads a date written for it as one of its own. A date, a time or an interval held in it is read, written and its weeks numbered exactly as the `Calendar.ISO` value of the same fields is.
 
 * A week date in any form ISO 8601 writes one in ("2026-W25-2", "2026W252", "2026-W25") is the week and the day of the calendar it is read for, which every calendar answers with `date_from_week_date/3`, so `Calendar.ISO`'s is ISO 8601's and a calendar of weeks' its own. The module that answers the Calendrical behaviour for `Calendar.ISO` answers `date_from_week_date/3`, `week_date_from_date/3` and `weeks_in_week_year/1`.

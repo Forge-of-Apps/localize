@@ -98,6 +98,20 @@ defmodule Localize.Calendar.ISO do
 
   def ordinal_month_from_traditional(_year, _month), do: {:error, :invalid_month}
 
+  # The Gregorian calendar names its months as it numbers them, so a month
+  # is its own traditional month and has no leap month.
+  @doc false
+  @spec traditional_month(Calendar.year(), Calendar.month()) ::
+          Calendar.month() | {:error, Localize.InvalidValueError.t()}
+  def traditional_month(year, month) when is_integer(year) and month in 1..12, do: month
+  def traditional_month(year, month), do: {:error, invalid_month(year, month)}
+
+  @doc false
+  @spec month_from_traditional(Calendar.year(), Calendar.month() | {Calendar.month(), :leap}) ::
+          Calendar.month() | {:error, Localize.InvalidValueError.t()}
+  def month_from_traditional(year, month) when is_integer(year) and month in 1..12, do: month
+  def month_from_traditional(year, month), do: {:error, invalid_month(year, month)}
+
   @doc false
   @spec leap_month(Calendar.year()) :: nil
   def leap_month(_year), do: nil
@@ -225,6 +239,11 @@ defmodule Localize.Calendar.ISO do
   @spec months_in_year() :: 12
   def months_in_year, do: 12
 
+  # Every Gregorian year has twelve months.
+  @doc false
+  @spec months_in_year_bounds() :: {12, 12}
+  def months_in_year_bounds, do: {12, 12}
+
   @doc false
   @spec days_in_year(Calendar.year()) :: 365 | 366 | {:error, :invalid_date}
   def days_in_year(year) when is_integer(year),
@@ -240,6 +259,15 @@ defmodule Localize.Calendar.ISO do
   def days_in_month(month) when month in [4, 6, 9, 11], do: 30
   def days_in_month(month) when month in 1..12, do: 31
   def days_in_month(_month), do: {:error, :undefined}
+
+  # The fewest and the most days a month has in any year: February's two.
+  @doc false
+  @spec days_in_month_bounds(Calendar.month()) ::
+          {Calendar.day(), Calendar.day()} | {:error, Localize.InvalidValueError.t()}
+  def days_in_month_bounds(2), do: {28, 29}
+  def days_in_month_bounds(month) when month in [4, 6, 9, 11], do: {30, 30}
+  def days_in_month_bounds(month) when month in 1..12, do: {31, 31}
+  def days_in_month_bounds(month), do: {:error, invalid_month(nil, month)}
 
   # ISO 8601's weeks of a year and the days of the last, always seven: 52
   # weeks, or 53 in a year that begins on a Thursday, or on a Wednesday in a
@@ -514,15 +542,34 @@ defmodule Localize.Calendar.ISO do
   @spec weeks_in_month(Calendar.year(), Calendar.month()) ::
           pos_integer() | {:error, :invalid_date}
   def weeks_in_month(year, month) do
-    with {:ok, first_week, next_first_week} <- weeks_of_month(year, month),
+    with {:ok, first_week, next_first_week} <- month_week_bounds(year, month),
          do: div(next_first_week - first_week, 7)
+  end
+
+  # The weeks of a month in order, each the seven days of a week that begins
+  # on Monday: the first may begin in the month before and the last run into
+  # the month after, as TR35 numbers a month's weeks.
+  @doc false
+  @spec weeks_of_month(Calendar.year(), Calendar.month()) ::
+          [Date.Range.t()] | {:error, Localize.InvalidValueError.t()}
+  def weeks_of_month(year, month) do
+    case month_week_bounds(year, month) do
+      {:ok, first_week, next_first_week} ->
+        first_week
+        |> Stream.iterate(&(&1 + 7))
+        |> Enum.take_while(&(&1 < next_first_week))
+        |> Enum.map(&week_from_day/1)
+
+      {:error, :invalid_date} ->
+        {:error, invalid_month(year, month)}
+    end
   end
 
   @doc false
   @spec month_week(Calendar.year(), Calendar.month(), pos_integer()) ::
           Date.Range.t() | {:error, :invalid_date}
   def month_week(year, month, week) when is_integer(week) and week >= 1 do
-    with {:ok, first_week, next_first_week} <- weeks_of_month(year, month) do
+    with {:ok, first_week, next_first_week} <- month_week_bounds(year, month) do
       week_of_month(first_week + (week - 1) * 7, next_first_week)
     end
   end
@@ -535,7 +582,7 @@ defmodule Localize.Calendar.ISO do
   defp week_of_month(_first, _next_first), do: {:error, :invalid_date}
 
   # The first day of a month's week 1 and of the next month's.
-  defp weeks_of_month(year, month) when is_integer(year) and is_integer(month) do
+  defp month_week_bounds(year, month) when is_integer(year) and is_integer(month) do
     case Date.new(year, month, 1) do
       {:ok, date} ->
         first = Date.to_gregorian_days(date)
@@ -547,7 +594,7 @@ defmodule Localize.Calendar.ISO do
     end
   end
 
-  defp weeks_of_month(_year, _month), do: {:error, :invalid_date}
+  defp month_week_bounds(_year, _month), do: {:error, :invalid_date}
 
   defp week_of_month_before(first, year, month, days, week_data) do
     {year_before, month_before} = if month == 1, do: {year - 1, 12}, else: {year, month - 1}
@@ -635,6 +682,17 @@ defmodule Localize.Calendar.ISO do
   end
 
   defp week_from(week_one, days), do: div(days - week_one, 7) + 1
+
+  # A month no year of this calendar has, as the exception the Calendrical
+  # behaviour's callbacks answer with.
+  defp invalid_month(year, month) do
+    Localize.InvalidValueError.exception(
+      value: month,
+      expected: :month,
+      allowed_values: Enum.to_list(1..12),
+      context: year
+    )
+  end
 
   # The seven days of the week that begins on day `first`, as dates of this
   # calendar: each the `Calendar.ISO` date of that day under this module's
