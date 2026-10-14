@@ -4,6 +4,10 @@ Outstanding work on Localize. The design detail behind these items lives under [
 
 ## Open
 
+* [ ] **A date of the month a year turns in is read back a year early** — in `Calendrical.Julian.March25`, whose year begins on 25 March and whose month 13 is 1 to 24 March of the Julian year after, `Localize.Date.to_string(Date.new!(1700, 13, 20, Calendrical.Julian.March25), format: :long)` is "March 20, 1700" and `Localize.Date.parse("March 20, 1700", calendar: Calendrical.Julian.March25, format: :long)` is `{:ok, ~D[1699-13-20 Calendrical.Julian.March25]}`, a year before the date written. 25 March to 31 March (month 1) and the months after read back as written. Found from Tempo, which reaches it: `Tempo.parse("March 20, 1700", calendar: Calendrical.Julian.March25)` is `1699Y13M20D`. Confirmed on `9ac3e95`, 2026-10-14.
+
+* [ ] **A month that begins after its first day is not written from its year and month** — `Localize.Date.to_string(%{year: 1751, month: 3, calendar: Calendrical.Reform.England}, format: :yMMM)` is an `InvalidValueError` ("a date its calendar has"): England's 1751 began on 25 March, so its March has no 1st, and a year and a month alone are taken as the month's first day. A month written to its year and month wants no day of it. Found from Tempo, which no longer reaches it (it writes a month by its days, "Mar 25 – 31, 1751"). Confirmed on `9ac3e95`, 2026-10-14.
+
 ## In progress
 
 * [ ] **CLDR 49 upgrade** — the plan's items are closed bar item 11; the data is built from `release-49-beta4` (below), pending the final release. [plans/cldr-49.md](plans/cldr-49.md).
