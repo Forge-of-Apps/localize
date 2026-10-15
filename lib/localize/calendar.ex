@@ -2124,6 +2124,7 @@ defmodule Localize.Calendar do
 
     case date_to_check({Map.get(value, :year), Map.get(value, :month), Map.get(value, :day)}) do
       {:check, arguments} -> possible(calendar, :valid_date?, arguments, value)
+      {:check_month, year, month} -> possible_month(calendar, year, month, value)
       :impossible -> impossible(:valid_date?, value, calendar)
       :unchecked -> :ok
     end
@@ -2131,15 +2132,59 @@ defmodule Localize.Calendar do
 
   defp validate_date(_value), do: :ok
 
-  # The date a value's fields ask its calendar about: the whole date, or a
-  # year and a month as the month's first day. Without them only a month or
-  # a day below 1 is known to be no calendar's.
+  # A year and a month name no day, so what the calendar is asked is whether
+  # it holds that month of that year. Nearly every month opens on its 1st, so
+  # that day is asked about first and answers for the month; a month that does
+  # not hold it is asked for its days instead.
+  #
+  # A month need not open on the 1st: `Calendrical.Reform.England`'s 1751
+  # began on 25 March, so that March holds the 25th to the 31st and no 1st,
+  # and taking the first day for the check made "Mar 1751" a value its
+  # calendar does not have. Its February holds no day at all — the year ran
+  # from March to December, England having moved the year's start to January —
+  # and a month with no days is still no month of that year.
+  #
+  # `month/2` is not among the callbacks a calendar must answer, so one that
+  # does not answer it keeps the first day's verdict.
+  defp possible_month(calendar, year, month, value) do
+    case ask(calendar, :valid_date?, [year, month, 1], "true or false", &is_boolean/1) do
+      {:ok, true} -> :ok
+      {:ok, false} -> month_holding_days(calendar, year, month, value)
+      {:error, _not_an_answer} = error -> error
+    end
+  end
+
+  defp month_holding_days(calendar, year, month, value) do
+    if answers_days_of_a_month?(calendar) do
+      days_of_a_month(calendar, year, month, value)
+    else
+      impossible(:valid_date?, value, calendar)
+    end
+  end
+
+  defp answers_days_of_a_month?(calendar) do
+    answers = answering(calendar)
+
+    Code.ensure_loaded?(answers) and function_exported?(answers, :month, 2)
+  end
+
+  defp days_of_a_month(calendar, year, month, value) do
+    case ask(calendar, :month, [year, month], "the days of a month", &match?(%Date.Range{}, &1)) do
+      {:ok, _days} -> :ok
+      {:error, _no_such_month} -> impossible(:valid_date?, value, calendar)
+    end
+  end
+
+  # The date a value's fields ask its calendar about: the whole date, or the
+  # month of a year where no day was given (`possible_month/4`). Without a
+  # year and a month, only a month or a day below 1 is known to be no
+  # calendar's.
   defp date_to_check({year, month, day})
        when is_integer(year) and is_integer(month) and is_integer(day),
        do: {:check, [year, month, day]}
 
   defp date_to_check({year, month, _day}) when is_integer(year) and is_integer(month),
-    do: {:check, [year, month, 1]}
+    do: {:check_month, year, month}
 
   defp date_to_check({_year, month, _day}) when is_integer(month) and month < 1, do: :impossible
   defp date_to_check({_year, _month, day}) when is_integer(day) and day < 1, do: :impossible

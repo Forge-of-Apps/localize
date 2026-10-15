@@ -43,18 +43,21 @@ defmodule Localize.Test.CountedMonthCalendar do
   def cardinal_day(_year, 1, day), do: day + 24
   def cardinal_day(_year, _month, day), do: day
 
-  # The inverse of `cardinal_month/1` and `cardinal_day/3` together: the date
-  # named by a month and day of the Julian calendar in a year of this one.
+  # The date named by a date of the Julian calendar, as Calendrical's
+  # `date_from_julian_date/3` answers it: its argument is a Julian date, so a
+  # named month that falls after this calendar's year has turned — January,
+  # February and 1 to 24 March, the counted months 11, 12 and 13 — is a month
+  # of the counted year before. 1 January 1700 Julian is month 11 of the
+  # counted year 1699, which began in March 1700 by Old Style numbering.
   #
-  # The year is this calendar's own and is not shifted. A date is written with
-  # the year it belongs to here — 5 January of the year that began in March
-  # 1750 is written "January 5, 1750", as Old Style numbering has it — so the
-  # year reaches this callback as the calendar's own while the month and day
-  # reach it as the names `cardinal_month/1` and `cardinal_day/3` gave.
+  # The year this answers is therefore not the year a date is written with,
+  # and the parser does not read it: it takes the month and the day from here
+  # and the year as written. The fixture shifts the year because Calendrical
+  # does, so that a parser reading the year from here would be caught.
   def date_from_julian_date(year, 3, day) when day >= 25, do: {year, 1, day - 24}
-  def date_from_julian_date(year, 3, day), do: {year, 13, day}
+  def date_from_julian_date(year, 3, day), do: {year - 1, 13, day}
   def date_from_julian_date(year, month, day) when month >= 4, do: {year, month - 2, day}
-  def date_from_julian_date(year, month, day), do: {year, month + 10, day}
+  def date_from_julian_date(year, month, day), do: {year - 1, month + 10, day}
 
   def days_in_month(_year, 1), do: 7
   def days_in_month(_year, 13), do: 24

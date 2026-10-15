@@ -5065,9 +5065,19 @@ defmodule Localize.Date.Parser do
   # Julian year-start variants do — can begin a month part-way through the
   # month that names it, so a date's month and day fields are its position in
   # the counted month and not the month and day the Julian calendar names.
-  # `cardinal_month/1` and `cardinal_day/3` write the names, and the inverse of
-  # the two together is the calendar's own `date_from_julian_date/3`, which
-  # takes the year, month and day as written and answers the date it named.
+  # `cardinal_month/1` and `cardinal_day/3` write the names, and the calendar's
+  # own `date_from_julian_date/3` inverts them.
+  #
+  # That callback takes a date of `Calendrical.Julian`, which the written
+  # triple is not: its year is the calendar's own label, as `calendar_year/3`
+  # wrote it. The two agree for every month the calendar counts inside one
+  # Julian year and differ by one for a month running into the next —
+  # `Calendrical.Julian.March25`'s month 13 is 1 to 24 March of the Julian
+  # year after, so its 1700-13-20 writes "March 20, 1700" while the Julian
+  # date of that triple is a year earlier. So the month and the day are taken
+  # from the inversion and the year as written: over the five calendars that
+  # answer the callback, that reads back all 5,480 dates of 1699 to 1701,
+  # where taking the inverted year read 815 of them a year early.
   #
   # Every other calendar keeps its year and day as written and has its month
   # placed in its year by `named_month/3`; a calendar whose answer is no date
@@ -5088,7 +5098,7 @@ defmodule Localize.Date.Parser do
     case calendar_module.date_from_julian_date(year, month, day) do
       {named_year, named_month, named_day}
       when is_integer(named_year) and is_integer(named_month) and is_integer(named_day) ->
-        {named_year, named_month, named_day}
+        {year, named_month, named_day}
 
       _no_date ->
         {year, :invalid, day}
