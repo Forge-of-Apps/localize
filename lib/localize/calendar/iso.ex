@@ -117,6 +117,23 @@ defmodule Localize.Calendar.ISO do
   def info, do: @info
 
   @doc false
+  # A date is written as its own fields.
+  @spec written_date(Calendar.year(), Calendar.month(), Calendar.day()) ::
+          {Calendar.year(), Calendar.month(), Calendar.day()}
+  def written_date(year, month, day), do: {year, month, day}
+
+  @doc false
+  # The date written figures name: the fields themselves, where they are a
+  # date.
+  @spec date_from_written_date(Calendar.year(), Calendar.month(), Calendar.day()) ::
+          {:ok, {Calendar.year(), Calendar.month(), Calendar.day()}} | {:error, :invalid_date}
+  def date_from_written_date(year, month, day) do
+    if Calendar.ISO.valid_date?(year, month, day),
+      do: {:ok, {year, month, day}},
+      else: {:error, :invalid_date}
+  end
+
+  @doc false
   @spec cldr_calendar_type() :: :gregorian
   def cldr_calendar_type, do: :gregorian
 
