@@ -45,6 +45,77 @@ defmodule Localize.Calendar.ISO do
   # year: the weeks this module answers where a question carries no locale.
   @iso_8601_weeks {1, 4}
 
+  # The static facts about this calendar, with the fields of Calendrical's
+  # `Calendrical.Info` struct, which Localize does not depend on: a plain
+  # map with the same keys, which every reader of the facts takes.
+  @info %{
+    calendar: __MODULE__,
+    cldr_calendar_type: :gregorian,
+    era_calendar_type: :gregorian,
+    epoch: Calendar.ISO.date_to_iso_days(1, 1, 1),
+    year_zero?: true,
+    structure: :months,
+    months_in_year: {12, 12},
+    weeks: %{first_day: 1, min_days_in_first_week: 4},
+    years_in_cycle: 400,
+    year_cycle: nil,
+    location: nil,
+    month_lengths: %{
+      1 => 31,
+      2 => 28..29//1,
+      3 => 31,
+      4 => 30,
+      5 => 31,
+      6 => 30,
+      7 => 31,
+      8 => 31,
+      9 => 30,
+      10 => 31,
+      11 => 30,
+      12 => 31
+    },
+    parsing_calendar: __MODULE__,
+    members: nil
+  }
+
+  @typedoc false
+  @type info :: %{
+          calendar: __MODULE__,
+          cldr_calendar_type: :gregorian,
+          era_calendar_type: :gregorian,
+          epoch: 366,
+          year_zero?: true,
+          structure: :months,
+          months_in_year: {12, 12},
+          weeks: %{first_day: 1, min_days_in_first_week: 4},
+          years_in_cycle: 400,
+          year_cycle: nil,
+          location: nil,
+          month_lengths: %{
+            1 => 31,
+            2 => %Range{first: 28, last: 29, step: 1},
+            3 => 31,
+            4 => 30,
+            5 => 31,
+            6 => 30,
+            7 => 31,
+            8 => 31,
+            9 => 30,
+            10 => 31,
+            11 => 30,
+            12 => 31
+          },
+          parsing_calendar: __MODULE__,
+          members: nil
+        }
+
+  @doc false
+  # The static facts about the ISO calendar: the Gregorian calendar's names
+  # and eras, a year 0, twelve months of the Gregorian lengths, ISO 8601's
+  # weeks, a 400-year cycle, and itself for parsing.
+  @spec info() :: info()
+  def info, do: @info
+
   @doc false
   @spec cldr_calendar_type() :: :gregorian
   def cldr_calendar_type, do: :gregorian
