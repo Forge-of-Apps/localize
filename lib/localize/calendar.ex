@@ -1653,12 +1653,31 @@ defmodule Localize.Calendar do
   # as it is, 0 or -5. TR35 counts those back from the era, so a year
   # below 1 is the year of era, from the `year_of_era/3` that names the
   # date's era.
+  # The year a date is written with, which a calendar whose dates are
+  # written by other fields than its own answers through `cardinal_year/3`:
+  # a fiscal calendar's months are named as the Gregorian months they are,
+  # so its dates are written with the Gregorian year. Every other calendar
+  # writes its calendar year.
   defp displayed_year_on(calendar, {year, month, day} = date) do
-    case ask(calendar, :calendar_year, [year, month, day], "a year", &is_integer/1) do
+    case ask(
+           calendar,
+           written_year_question(calendar),
+           [year, month, day],
+           "a year",
+           &is_integer/1
+         ) do
       {:ok, shown} when shown >= 1 -> {:ok, shown}
       {:ok, _before_the_first_era} -> year_of_era_shown(calendar, date)
       {:error, _exception} = error -> error
     end
+  end
+
+  defp written_year_question(calendar) do
+    module = answering(calendar)
+
+    if Code.ensure_loaded?(module) and function_exported?(module, :cardinal_year, 3),
+      do: :cardinal_year,
+      else: :calendar_year
   end
 
   defp year_of_era_shown(calendar, date) do

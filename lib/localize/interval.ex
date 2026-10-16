@@ -1289,6 +1289,9 @@ defmodule Localize.Interval do
     end
   end
 
+  defp differs?(from, to, :year),
+    do: Map.get(from, :year) != Map.get(to, :year) or written_years_differ?(from, to)
+
   defp differs?(from, to, unit), do: Map.get(from, unit) != Map.get(to, unit)
 
   # Whether two dates differ as `format` writes them. TR35's step 4 formats
@@ -1821,7 +1824,7 @@ defmodule Localize.Interval do
           {:ok, :y | :M | :d | :H | :m} | {:error, Exception.t()}
   def greatest_difference(from, to) when is_map(from) and is_map(to) do
     cond do
-      Map.get(from, :year) != Map.get(to, :year) ->
+      Map.get(from, :year) != Map.get(to, :year) or written_years_differ?(from, to) ->
         {:ok, :y}
 
       Map.get(from, :month) != Map.get(to, :month) ->
@@ -1846,6 +1849,20 @@ defmodule Localize.Interval do
 
   def greatest_difference(_from, to),
     do: {:error, Localize.Utils.Helpers.invalid_value(to, "a date, time or datetime")}
+
+  # Two dates of one year field can be written with two years: a fiscal
+  # year begun in July holds August of one Gregorian year and February of
+  # the next, and each is written with its own (its calendar's
+  # `cardinal_year/3`), so the interval writes both.
+  defp written_years_differ?(%{year: from_year} = from, %{year: to_year} = to)
+       when is_integer(from_year) and is_integer(to_year) do
+    case {Localize.Calendar.displayed_year(from), Localize.Calendar.displayed_year(to)} do
+      {{:ok, from_written}, {:ok, to_written}} -> from_written != to_written
+      _not_both_written -> false
+    end
+  end
+
+  defp written_years_differ?(_from, _to), do: false
 
   @doc """
   Returns the locale-independent skeletons for the `:fields` option of `to_string/3`.

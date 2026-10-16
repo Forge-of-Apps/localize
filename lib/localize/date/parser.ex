@@ -3696,9 +3696,13 @@ defmodule Localize.Date.Parser do
 
   defp implied_era(_reference, _calendar_module), do: nil
 
+  # The year shown is the year of an era where it is the calendar's own
+  # `year_of_era/3`, as a Japanese year is: a fiscal calendar also shows
+  # another year than its number, the Gregorian year its date falls in,
+  # which is no year of an era.
   defp era_of_displayed_year(reference) do
     with {:ok, shown} when shown != reference.year <- LCalendar.displayed_year(reference),
-         {:ok, {_year_of_era, era}} <- LCalendar.year_of_era(reference) do
+         {:ok, {^shown, era}} <- LCalendar.year_of_era(reference) do
       {:read, era}
     end
   end
@@ -5079,18 +5083,40 @@ defmodule Localize.Date.Parser do
   # answer the callback, that reads back all 5,480 dates of 1699 to 1701,
   # where taking the inverted year read 815 of them a year early.
   #
+  # A calendar whose dates are written by other fields than its own answers
+  # `date_from_cardinal_date/3`, which inverts the whole written date, its
+  # year too: a fiscal calendar's 10 August 2026 is its year 2027, month 2,
+  # day 10, where its year is begun in July. It is preferred to
+  # `date_from_julian_date/3`, which only a Julian year-start variant has.
+  #
   # Every other calendar keeps its year and day as written and has its month
   # placed in its year by `named_month/3`; a calendar whose answer is no date
   # of three integers leaves the month `:invalid`, which `reject_invalid/1`
   # and the interval paths report rather than build a date from.
   defp calendar_date(year, month, day, calendar_module) do
     named = named_month_number(month)
+    written? = is_integer(year) and is_integer(named) and is_integer(day)
 
-    if is_integer(year) and is_integer(named) and is_integer(day) and
-         names_julian_dates?(calendar_module) do
-      julian_date(calendar_module, year, named, day)
-    else
-      {year, named_month(month, year, calendar_module), day}
+    cond do
+      written? and exports?(calendar_module, :date_from_cardinal_date, 3) ->
+        cardinal_date(calendar_module, year, named, day)
+
+      written? and exports?(calendar_module, :date_from_julian_date, 3) ->
+        julian_date(calendar_module, year, named, day)
+
+      true ->
+        {year, named_month(month, year, calendar_module), day}
+    end
+  end
+
+  defp cardinal_date(calendar_module, year, month, day) do
+    case calendar_module.date_from_cardinal_date(year, month, day) do
+      {date_year, date_month, date_day}
+      when is_integer(date_year) and is_integer(date_month) and is_integer(date_day) ->
+        {date_year, date_month, date_day}
+
+      _no_date ->
+        {year, :invalid, day}
     end
   end
 
@@ -5105,9 +5131,8 @@ defmodule Localize.Date.Parser do
     end
   end
 
-  defp names_julian_dates?(calendar_module) do
-    Code.ensure_loaded?(calendar_module) and
-      function_exported?(calendar_module, :date_from_julian_date, 3)
+  defp exports?(calendar_module, function, arity) do
+    Code.ensure_loaded?(calendar_module) and function_exported?(calendar_module, function, arity)
   end
 
   defp named_month_number({:named, month}), do: cldr_month_number(month)
@@ -5341,14 +5366,44 @@ defmodule Localize.Date.Parser do
   # twelve months and its Elul is written 13, a month the calendar would say
   # the year has not. Where the year has no such month, or the input gave
   # none, the year alone is asked about.
+  #
+  # A calendar that inverts its written dates (`date_from_cardinal_date/3`)
+  # is asked about the date the written year, month and day name, as
+  # `calendar_date/4` reads it, so the candidate is the year as written: a
+  # fiscal year begun in July writes its July with the Gregorian year it
+  # falls in, which is not the fiscal year it is a month of.
   defp era_probe(calendar_module, year, month, day) do
     probe = %{calendar: calendar_module, year: year}
 
+    case cardinal_probe(calendar_module, year, month, day) do
+      {:ok, cardinal} -> Map.merge(probe, cardinal)
+      :none -> placed_probe(probe, month, day, year, calendar_module)
+    end
+  end
+
+  defp placed_probe(probe, month, day, year, calendar_module) do
     case placed_month(probe, month, year, calendar_module) do
       {:read, placed} -> probe |> Map.put(:month, placed) |> maybe_put(:day, era_day(day))
       _no_month_to_ask_about -> probe
     end
   end
+
+  defp cardinal_probe(calendar_module, year, {:named, _month} = month, day) do
+    named = named_month_number(month)
+
+    if is_integer(named) and exports?(calendar_module, :date_from_cardinal_date, 3),
+      do:
+        cardinal_fields(calendar_module.date_from_cardinal_date(year, named, era_day(day) || 1)),
+      else: :none
+  end
+
+  defp cardinal_probe(_calendar_module, _year, _month, _day), do: :none
+
+  defp cardinal_fields({year, month, day})
+       when is_integer(year) and is_integer(month) and is_integer(day),
+       do: {:ok, %{year: year, month: month, day: day}}
+
+  defp cardinal_fields(_no_date), do: :none
 
   defp placed_month(probe, month, year, calendar_module) do
     with true <- calendar_holds?(probe),

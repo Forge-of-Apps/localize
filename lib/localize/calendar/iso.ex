@@ -206,6 +206,12 @@ defmodule Localize.Calendar.ISO do
   @spec calendar_year(Calendar.year(), Calendar.month(), Calendar.day()) :: Calendar.year()
   def calendar_year(year, _month, _day), do: year
 
+  # The year a date is written with: its own year, since a Gregorian
+  # date is written as itself.
+  @doc false
+  @spec cardinal_year(Calendar.year(), Calendar.month(), Calendar.day()) :: Calendar.year()
+  def cardinal_year(year, _month, _day), do: year
+
   @doc false
   @spec related_gregorian_year(Calendar.year(), Calendar.month(), Calendar.day()) ::
           Calendar.year()
