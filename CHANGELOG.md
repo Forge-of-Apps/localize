@@ -186,6 +186,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+* Relative months know a month by its name, `cldr_month/1`, again: a Julian year reckoned from 25 March counts its March as two months, and 21 February to 25 March is "next month", where it was "in 2 months".
+
 * A fiscal calendar's date is written as the Gregorian date it is, through the calendar's `cardinal_year/3`: 10 August 2026 in a year begun in July is "Aug 10, 2026", where it was "Aug 10, 2027". It reads back through `date_from_cardinal_date/3`, and an interval across 1 January writes both years.
 
 * A locale's `-u-mu-fahrenhe` overrides the unit to Fahrenheit. BCP-47 caps a key's value at eight characters, so CLDR spells the override `fahrenhe`; read as a unit identifier it named no unit, so the override was dropped as not convertible and the locale's own preference stood. `celsius` and `kelvin` were unaffected, their BCP-47 value and unit name being spelled alike.

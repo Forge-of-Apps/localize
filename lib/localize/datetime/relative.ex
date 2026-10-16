@@ -554,14 +554,19 @@ defmodule Localize.DateTime.Relative do
 
   # Months from one date to another in their calendar: how many months on
   # from `from`'s the month `to` is in lies, so a Hebrew leap year has
-  # thirteen. A calendar's month is its year and month fields, which count
-  # its months in the order of time — a Julian year reckoned from 25 March
-  # splits March into its months 1 and 13, which `month_of_year/3` names
-  # March alike.
+  # thirteen. A month is known by the month that names it (`cldr_month/1`,
+  # the calendar's `month_of_year/3` named by its `cardinal_month/1`): a
+  # Julian year reckoned from 25 March counts its March as two months, its
+  # 1 and its 13, and both are March, one month of the year that turns in
+  # it. `periods_between/4` compares the month reached with the month of
+  # `to`, less than a month apart, so the name is enough.
   defp months_between(from, to), do: periods_between(from, to, :months, &month_identity/2)
 
-  defp month_identity(_calendar, {year, month, _day}) do
-    {:ok, {year, month}}
+  defp month_identity(calendar, {year, month, day}) do
+    case Localize.Calendar.cldr_month(%{year: year, month: month, day: day, calendar: calendar}) do
+      {:error, _exception} = error -> error
+      named -> {:ok, named}
+    end
   end
 
   # The periods from one date to another as their calendar counts them. Its
