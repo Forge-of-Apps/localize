@@ -62,6 +62,21 @@ defmodule Localize.Calendar.ISO do
   @spec parsing_calendar() :: __MODULE__
   def parsing_calendar, do: __MODULE__
 
+  # The calendars a date of `Calendar.ISO` may be written in: that
+  # calendar alone, which `Localize.Calendar.parsing_calendars/1` already
+  # names first.
+  @doc false
+  @spec parsing_calendars() :: [Calendar.ISO, ...]
+  def parsing_calendars, do: [Calendar.ISO]
+
+  # Localize resolves no CLDR calendar type to a module itself: that is
+  # the calendar provider's to answer, which is asked when this is not.
+  @doc false
+  @spec calendar_from_cldr_calendar_type(atom() | String.t()) ::
+          {:error, Localize.UnknownCalendarError.t()}
+  def calendar_from_cldr_calendar_type(calendar_type),
+    do: {:error, Localize.UnknownCalendarError.exception(calendar: calendar_type)}
+
   @doc false
   @spec month_of_year(Calendar.year(), Calendar.month(), Calendar.day()) :: Calendar.month()
   def month_of_year(_year, month, _day), do: month
@@ -249,6 +264,25 @@ defmodule Localize.Calendar.ISO do
   @doc false
   @spec months_in_year_bounds() :: {12, 12}
   def months_in_year_bounds, do: {12, 12}
+
+  # A leap year has the twelve months every year has.
+  @doc false
+  @spec months_in_leap_year() :: 12
+  def months_in_leap_year, do: 12
+
+  # A Gregorian date is written as its own fields, so a written date is
+  # the date itself, where it is one.
+  @doc false
+  @spec date_from_cardinal_date(Calendar.year(), Calendar.month(), Calendar.day()) ::
+          {Calendar.year(), Calendar.month(), Calendar.day()} | {:error, :invalid_date}
+  def date_from_cardinal_date(year, month, day)
+      when is_integer(year) and is_integer(month) and is_integer(day) do
+    if Calendar.ISO.valid_date?(year, month, day),
+      do: {year, month, day},
+      else: {:error, :invalid_date}
+  end
+
+  def date_from_cardinal_date(_year, _month, _day), do: {:error, :invalid_date}
 
   @doc false
   @spec days_in_year(Calendar.year()) :: 365 | 366 | {:error, :invalid_date}

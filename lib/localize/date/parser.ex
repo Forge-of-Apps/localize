@@ -5093,12 +5093,16 @@ defmodule Localize.Date.Parser do
   # placed in its year by `named_month/3`; a calendar whose answer is no date
   # of three integers leaves the month `:invalid`, which `reject_invalid/1`
   # and the interval paths report rather than build a date from.
+  #
+  # A leap month is written by its own name (`{month, :leap}`), which no
+  # number the inversion takes holds, so it is placed by `named_month/3`.
   defp calendar_date(year, month, day, calendar_module) do
     named = named_month_number(month)
     written? = is_integer(year) and is_integer(named) and is_integer(day)
 
     cond do
-      written? and exports?(calendar_module, :date_from_cardinal_date, 3) ->
+      written? and not leap_month?(month) and
+          exports?(calendar_module, :date_from_cardinal_date, 3) ->
         cardinal_date(calendar_module, year, named, day)
 
       written? and exports?(calendar_module, :date_from_julian_date, 3) ->
@@ -5137,6 +5141,9 @@ defmodule Localize.Date.Parser do
 
   defp named_month_number({:named, month}), do: cldr_month_number(month)
   defp named_month_number(month), do: month
+
+  defp leap_month?({:named, {_month, :leap}}), do: true
+  defp leap_month?(_month), do: false
 
   # The month of the year whose CLDR month, as its calendar answers, is
   # the one written.
@@ -5391,10 +5398,11 @@ defmodule Localize.Date.Parser do
   defp cardinal_probe(calendar_module, year, {:named, _month} = month, day) do
     named = named_month_number(month)
 
-    if is_integer(named) and exports?(calendar_module, :date_from_cardinal_date, 3),
-      do:
-        cardinal_fields(calendar_module.date_from_cardinal_date(year, named, era_day(day) || 1)),
-      else: :none
+    if is_integer(named) and not leap_month?(month) and
+         exports?(calendar_module, :date_from_cardinal_date, 3),
+       do:
+         cardinal_fields(calendar_module.date_from_cardinal_date(year, named, era_day(day) || 1)),
+       else: :none
   end
 
   defp cardinal_probe(_calendar_module, _year, _month, _day), do: :none
