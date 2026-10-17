@@ -40,6 +40,30 @@ defmodule Localize.DateTime.Timezone do
   @default_hour_format "+HH:mm;-HH:mm"
   @default_gmt_unknown_format "GMT+?"
 
+  # CLDR 49's `alt="utc"` patterns, which spell the unambiguous designation
+  # for Coordinated Universal Time where `gmtFormat` may spell the London
+  # zone's "GMT". These are root's; a locale's own are often identical,
+  # English being the family where the two genuinely differ.
+  @default_gmt_format_alt_utc ["UTC", 0]
+  @default_gmt_unknown_format_alt_utc "UTC+?"
+
+  # CLDR 49's `dualOffsetFormat`, which joins a zone's standard and daylight
+  # offsets so the localized GMT format can carry both: "GMT-8/-7" for Los
+  # Angeles against "GMT-7" for Phoenix, which keeps one.
+  @default_dual_offset_format [0, "/", 1]
+
+  # The designations the localized GMT format may be written with, and the
+  # pair of patterns each reads: the offset's and the unknown offset's.
+  @gmt_designations %{
+    gmt: {:gmt_format, :gmt_unknown_format},
+    utc: {:gmt_format_alt_utc, :gmt_unknown_format_alt_utc}
+  }
+
+  @designations Map.keys(@gmt_designations)
+
+  # How many of a zone's offsets the localized GMT format writes.
+  @offset_counts [:single, :dual]
+
   # The ASCII spellings TR35 allows for the localized GMT format,
   # longest first so `UTC` is not read as `UT` followed by a stray `C`.
   @gmt_literals ["GMT", "UTC", "UT"]
@@ -716,13 +740,18 @@ defmodule Localize.DateTime.Timezone do
     offset where the name falls back to `gmt_format/3`. The default is
     the locale's default numbering system.
 
+  * `:designation` is `:gmt` or `:utc`, choosing the designation the
+    fallback to `gmt_format/3` spells its offset with. The default is
+    `:gmt`. It has no effect where the locale names the zone.
+
   ### Returns
 
   * `{:ok, timezone_name}` with the localized non-location name, or
     `{:ok, gmt_offset_string}` when falling back to the GMT format.
 
   * `{:error, exception}` if the locale's timezone data cannot be
-    loaded or `:type` is not one of the values above.
+    loaded, or `:type` or `:designation` is not one of the values
+    above.
 
   ### Examples
 
@@ -814,8 +843,13 @@ defmodule Localize.DateTime.Timezone do
     end
   end
 
+  # `:designation` travels with the fallback because it only chooses how the
+  # localized GMT format spells its designation, which reads back either
+  # way. `:offsets` does not: it would answer a name for one time with the
+  # pair of offsets the zone keeps, which is no longer that time's offset.
   defp gmt_options(options) do
-    [format: Keyword.get(options, :format, :long)] ++ Keyword.take(options, [:number_system])
+    [format: Keyword.get(options, :format, :long)] ++
+      Keyword.take(options, [:number_system, :designation])
   end
 
   defp zone_name(time_zone, tz_data, format, type, datetime) when is_binary(time_zone) do
@@ -1066,6 +1100,26 @@ defmodule Localize.DateTime.Timezone do
     `ne`). The default is the locale's default numbering system. A system
     without digits of its own writes 0 to 9.
 
+  * `:designation` is `:gmt`, the locale's `gmtFormat`, or `:utc`, CLDR
+    49's `alt="utc"` form. The default is `:gmt`. "GMT" names a zone
+    connected with London as well as Coordinated Universal Time, so
+    `:utc` asks for the locale's unambiguous designation for the latter:
+    `"UTC+01:00"` in `en`, `"التوقيت العالمي+١:٠٠"` in `ar` against its
+    `"غرينتش+١:٠٠"`. Many locales spell the two alike. Both spellings
+    read back through `parse_offset/2`.
+
+  * `:offsets` is `:single`, the offset the value carries, or `:dual`,
+    the pair the zone keeps joined by CLDR 49's `dualOffsetFormat`. The
+    default is `:single`. A zone that moves between standard and
+    daylight time is poorly described by whichever offset it happens to
+    keep at one time, so `:dual` writes both — Los Angeles is
+    `"GMT-8/-7"` where Phoenix, which keeps one offset, stays
+    `"GMT-7"`. The pair comes from the time zone database the
+    application configures, read across the year around the value's
+    time, so a value with no `:time_zone`, or a zone the database
+    cannot place, writes the single offset. The result names a zone
+    rather than a time and does not read back through `parse_offset/2`.
+
   ### Returns
 
   * `{:ok, formatted_string}` (e.g., `"GMT+01:00"`). A zero offset is
@@ -1073,11 +1127,13 @@ defmodule Localize.DateTime.Timezone do
     only style TR35 defines for a known offset.
 
   * `{:ok, unknown}` using the locale's `gmtUnknownFormat` (e.g.
-    `"GMT+?"`) when `datetime` carries no offset at all. TR35 makes this
-    the second of the two localized GMT styles.
+    `"GMT+?"`), or its `alt="utc"` form for `designation: :utc`, when
+    `datetime` carries no offset at all. TR35 makes this the second of
+    the two localized GMT styles.
 
   * `{:error, exception}` if the locale's timezone data cannot be
-    loaded.
+    loaded, or if `:designation` or `:offsets` is not one of the values
+    above.
 
   ### Examples
 
@@ -1090,16 +1146,35 @@ defmodule Localize.DateTime.Timezone do
       iex> Localize.DateTime.Timezone.gmt_format(%{utc_offset: -14400, std_offset: 0}, :ne, format: :short)
       {:ok, "GMT-४"}
 
+      iex> Localize.DateTime.Timezone.gmt_format(%{utc_offset: 3600, std_offset: 0}, :en, designation: :utc)
+      {:ok, "UTC+01:00"}
+
+      iex> datetime = DateTime.new!(~D[2026-01-15], ~T[12:00:00], "America/Los_Angeles")
+      iex> Localize.DateTime.Timezone.gmt_format(datetime, :en, format: :short, offsets: :dual)
+      {:ok, "GMT-8/-7"}
+
+      iex> datetime = DateTime.new!(~D[2026-01-15], ~T[12:00:00], "America/Phoenix")
+      iex> Localize.DateTime.Timezone.gmt_format(datetime, :en, format: :short, offsets: :dual)
+      {:ok, "GMT-7"}
+
   """
   @spec gmt_format(map(), atom(), Keyword.t()) ::
           {:ok, String.t()} | {:error, Exception.t()}
   def gmt_format(datetime, locale_id, options \\ [])
 
   def gmt_format(datetime, locale_id, options) when is_keyword_list(options) do
-    with {:ok, tz_data} <- Localize.Locale.get(locale_id, [:dates, :time_zone_names]) do
-      case total_offset(datetime) do
-        nil -> {:ok, tz_data[:gmt_unknown_format] || @default_gmt_unknown_format}
-        offset -> {:ok, offset_format(offset, tz_data, locale_id, options)}
+    with {:ok, designation} <- validate_designation(options),
+         {:ok, offsets} <- validate_offset_count(options),
+         {:ok, tz_data} <- Localize.Locale.get(locale_id, [:dates, :time_zone_names]) do
+      {gmt_key, unknown_key} = Map.fetch!(@gmt_designations, designation)
+
+      case zone_offsets(datetime, offsets) do
+        [] ->
+          {:ok, tz_data[unknown_key] || unknown_default(designation)}
+
+        found ->
+          pattern = tz_data[gmt_key] || gmt_default(designation)
+          {:ok, offset_format(found, tz_data, locale_id, pattern, options)}
       end
     end
   end
@@ -1107,16 +1182,112 @@ defmodule Localize.DateTime.Timezone do
   def gmt_format(_datetime, _locale_id, options),
     do: {:error, Localize.Utils.Helpers.invalid_options(options)}
 
-  defp offset_format(offset, tz_data, locale_id, options) do
-    gmt_pattern = tz_data[:gmt_format] || @default_gmt_format
+  defp validate_designation(options) do
+    case Keyword.get(options, :designation, :gmt) do
+      designation when designation in @designations ->
+        {:ok, designation}
+
+      other ->
+        {:error,
+         Localize.InvalidValueError.exception(
+           value: other,
+           expected: :designation,
+           allowed_values: @designations
+         )}
+    end
+  end
+
+  defp validate_offset_count(options) do
+    case Keyword.get(options, :offsets, :single) do
+      offsets when offsets in @offset_counts ->
+        {:ok, offsets}
+
+      other ->
+        {:error,
+         Localize.InvalidValueError.exception(
+           value: other,
+           expected: :offsets,
+           allowed_values: @offset_counts
+         )}
+    end
+  end
+
+  defp unknown_default(:utc), do: @default_gmt_unknown_format_alt_utc
+  defp unknown_default(_gmt), do: @default_gmt_unknown_format
+
+  defp gmt_default(:utc), do: @default_gmt_format_alt_utc
+  defp gmt_default(_gmt), do: @default_gmt_format
+
+  # The offsets the format writes: the one the value carries, or, asked for
+  # a zone's pair, the distinct offsets it keeps around that time. A zone
+  # that keeps one, or that the time zone database cannot say for, writes
+  # the single offset it carries, so the dual form never loses information.
+  defp zone_offsets(datetime, :dual) do
+    case total_offset(datetime) do
+      nil -> []
+      offset -> dual_offsets(datetime) || [offset]
+    end
+  end
+
+  defp zone_offsets(datetime, _single) do
+    case total_offset(datetime) do
+      nil -> []
+      offset -> [offset]
+    end
+  end
+
+  # The lowest and highest offset the zone keeps across the sampled year,
+  # which for a zone observing daylight time are its standard and daylight
+  # offsets. `nil` where the zone keeps one offset or cannot be sampled.
+  defp dual_offsets(%{time_zone: time_zone} = datetime) when is_binary(time_zone) do
+    datetime |> metazone_instant() |> sampled_totals(time_zone)
+  end
+
+  defp dual_offsets(_datetime), do: nil
+
+  defp sampled_totals(%NaiveDateTime{} = instant, time_zone) do
+    case sampled_offsets(instant, time_zone, Calendar.get_time_zone_database()) do
+      {:ok, sampled} -> distinct_totals(sampled)
+      _unknown_zone -> nil
+    end
+  end
+
+  defp sampled_totals(_no_instant, _time_zone), do: nil
+
+  defp distinct_totals(sampled) do
+    totals = sampled |> Enum.map(fn {utc, std} -> utc + std end) |> Enum.uniq()
+
+    case Enum.min_max(totals) do
+      {lowest, highest} when lowest != highest -> [lowest, highest]
+      _one_offset -> nil
+    end
+  end
+
+  defp offset_format(offsets, tz_data, locale_id, gmt_pattern, options) do
     hour_format = tz_data[:hour_format] || @default_hour_format
     format = Keyword.get(options, :format, :long)
+    number_system = Keyword.get(options, :number_system)
 
-    offset
-    |> format_hour_offset(hour_format, format)
-    |> offset_digits(locale_id, Keyword.get(options, :number_system))
+    offsets
+    |> Enum.map(
+      &(&1
+        |> format_hour_offset(hour_format, format)
+        |> offset_digits(locale_id, number_system))
+    )
+    |> join_offsets(tz_data)
     |> Localize.Substitution.substitute(gmt_pattern)
     |> Enum.join()
+  end
+
+  # One offset goes into the GMT pattern as it is; a pair goes through the
+  # locale's `dualOffsetFormat` first, so the pattern's own literal is
+  # written once around both: "GMT-8/-7" and not "GMT-8/GMT-7".
+  defp join_offsets([offset], _tz_data), do: offset
+
+  defp join_offsets(offsets, tz_data) do
+    template = tz_data[:dual_offset_format] || @default_dual_offset_format
+
+    offsets |> Localize.Substitution.substitute(template) |> IO.iodata_to_binary()
   end
 
   # The offset in the digits of the numbering system asked for, or of the
@@ -1360,12 +1531,27 @@ defmodule Localize.DateTime.Timezone do
     end
   end
 
+  # Both spellings the locale writes a localized GMT format in are read: its
+  # `gmtFormat` and CLDR 49's `alt="utc"` form, so an offset written with
+  # `designation: :utc` reads back where the two differ — `ar` writes
+  # "غرينتش+٣" and "التوقيت العالمي+٣" for the same offset. The ASCII
+  # spellings are read ahead of these, so `en`'s "UTC+3" needs neither.
   defp gmt_offset_after(zone, tz_data, sign) do
-    case strip_gmt_pattern(zone, tz_data[:gmt_format] || @default_gmt_format) do
-      {:ok, place, remainder} -> gmt_offset(zone, place, remainder, sign)
-      _no_gmt_literal -> :error
+    [tz_data[:gmt_format] || @default_gmt_format, tz_data[:gmt_format_alt_utc]]
+    |> Enum.find_value(:error, &gmt_offset_with_pattern(zone, &1, sign))
+  end
+
+  # `nil` rather than `:error` for a pattern that does not read the text, so
+  # the next spelling is tried: `:error` would end the search as a result.
+  defp gmt_offset_with_pattern(zone, pattern, sign) do
+    case strip_gmt_pattern(zone, pattern) do
+      {:ok, place, remainder} -> found_offset(gmt_offset(zone, place, remainder, sign))
+      _no_gmt_literal -> nil
     end
   end
+
+  defp found_offset({:ok, offset}), do: {:ok, offset}
+  defp found_offset(_no_offset), do: nil
 
   # TR35's parsing: "the absence of a numeric offset should be interpreted
   # as offset 0, whether in localized or global formats. For example, "GMT"

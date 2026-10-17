@@ -57,7 +57,12 @@ defmodule Localize.Data.Normalize.DateTime do
       )
       |> LMap.deep_map(&compile_items/1,
         filter: "time_zone_names",
-        only: ["gmt_format", "fallback_format"]
+        only: [
+          "gmt_format",
+          "gmt_format_alt_utc",
+          "dual_offset_format",
+          "fallback_format"
+        ]
       )
       |> LMap.atomize_values(
         filter: "time_zone_names",

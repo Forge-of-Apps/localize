@@ -372,6 +372,158 @@ defmodule Localize.DateTime.TimezoneFormatTest do
     end
   end
 
+  # CLDR 49 adds `gmtFormat alt="utc"` and `gmtUnknownFormat alt="utc"`
+  # because "GMT" names a zone connected with London as well as Coordinated
+  # Universal Time. The `alt` form carries the locale's unambiguous
+  # designation for the latter.
+  describe "gmt_format/3 with designation: :utc" do
+    test "the UTC designation is written where the locale spells it apart" do
+      one_east = %{utc_offset: 3600, std_offset: 0}
+
+      assert {:ok, "GMT+01:00"} = Timezone.gmt_format(one_east, :en)
+      assert {:ok, "UTC+01:00"} = Timezone.gmt_format(one_east, :en, designation: :utc)
+
+      assert {:ok, "UTC+1"} =
+               Timezone.gmt_format(one_east, :en, designation: :utc, format: :short)
+    end
+
+    test ":gmt is the default" do
+      one_east = %{utc_offset: 3600, std_offset: 0}
+
+      assert Timezone.gmt_format(one_east, :en) ==
+               Timezone.gmt_format(one_east, :en, designation: :gmt)
+    end
+
+    # The unknown offset has its own `alt` pattern, so asking for the UTC
+    # designation must not fall back to the "GMT" spelling of it.
+    test "an unknown offset takes the alt unknown pattern" do
+      assert {:ok, "GMT+?"} = Timezone.gmt_format(%{}, :en)
+      assert {:ok, "UTC+?"} = Timezone.gmt_format(%{}, :en, designation: :utc)
+    end
+
+    # `pt` puts the literal after the offset in both patterns, so the
+    # designation is substituted into the locale's own shape, not prepended.
+    test "the locale's own pattern shape is kept" do
+      one_east = %{utc_offset: 3600, std_offset: 0}
+
+      assert {:ok, "+01:00 GMT"} = Timezone.gmt_format(one_east, :pt)
+      assert {:ok, "+01:00 UTC"} = Timezone.gmt_format(one_east, :pt, designation: :utc)
+    end
+
+    # Both spellings a locale writes read back, which matters for `ar`,
+    # where neither is the ASCII "GMT" or "UTC" that parsing knows already.
+    test "both designations read back" do
+      for locale <- [:en, :pt, :ar, :fr], offset <- [3600, -18_000, 19_800] do
+        datetime = %{utc_offset: offset, std_offset: 0}
+
+        for designation <- [:gmt, :utc] do
+          assert {:ok, written} =
+                   Timezone.gmt_format(datetime, locale, designation: designation)
+
+          assert Timezone.parse_offset(written, locale: locale) == {:ok, offset},
+                 "#{locale} #{designation} #{offset}: #{written}"
+        end
+      end
+    end
+
+    test "the designation reaches the non-location format's GMT fallback" do
+      # `Etc/GMT+5` has no name in any locale, so the name falls back.
+      unnamed = %{time_zone: "Etc/GMT+5", utc_offset: -18_000, std_offset: 0}
+
+      assert {:ok, gmt} = Timezone.non_location_format(unnamed, :en, format: :long)
+
+      assert {:ok, utc} =
+               Timezone.non_location_format(unnamed, :en, format: :long, designation: :utc)
+
+      assert String.starts_with?(gmt, "GMT")
+      assert String.starts_with?(utc, "UTC")
+    end
+
+    test "an unknown designation is an error" do
+      assert {:error, %Localize.InvalidValueError{expected: :designation, value: :bst}} =
+               Timezone.gmt_format(%{utc_offset: 0, std_offset: 0}, :en, designation: :bst)
+    end
+  end
+
+  # CLDR 49 adds `dualOffsetFormat` so the localized GMT format can carry
+  # both offsets a zone keeps: whichever one it happens to keep at a given
+  # time describes a zone that moves between them poorly.
+  describe "gmt_format/3 with offsets: :dual" do
+    @los_angeles DateTime.new!(~D[2026-01-15], ~T[12:00:00], "America/Los_Angeles")
+    @phoenix DateTime.new!(~D[2026-01-15], ~T[12:00:00], "America/Phoenix")
+    @denver DateTime.new!(~D[2026-01-15], ~T[12:00:00], "America/Denver")
+
+    # The three zones TR35's own example list names.
+    test "a zone with two offsets writes both, and one with a single offset writes it" do
+      assert {:ok, "GMT-8/-7"} =
+               Timezone.gmt_format(@los_angeles, :en, format: :short, offsets: :dual)
+
+      assert {:ok, "GMT-7"} = Timezone.gmt_format(@phoenix, :en, format: :short, offsets: :dual)
+      assert {:ok, "GMT-7/-6"} = Timezone.gmt_format(@denver, :en, format: :short, offsets: :dual)
+    end
+
+    # The pair is the zone's, not the time's, so the same string comes back
+    # from a summer time as from a winter one.
+    test "the pair does not follow the time of year" do
+      summer = DateTime.new!(~D[2026-07-15], ~T[12:00:00], "America/Los_Angeles")
+
+      assert Timezone.gmt_format(summer, :en, format: :short, offsets: :dual) ==
+               Timezone.gmt_format(@los_angeles, :en, format: :short, offsets: :dual)
+    end
+
+    test "the long format writes both offsets whole" do
+      assert {:ok, "GMT-08:00/-07:00"} =
+               Timezone.gmt_format(@los_angeles, :en, offsets: :dual)
+    end
+
+    test ":single is the default" do
+      assert {:ok, "GMT-8"} = Timezone.gmt_format(@los_angeles, :en, format: :short)
+
+      assert Timezone.gmt_format(@los_angeles, :en, format: :short) ==
+               Timezone.gmt_format(@los_angeles, :en, format: :short, offsets: :single)
+    end
+
+    # The dual form needs a zone to sample. A value carrying an offset alone
+    # writes that offset rather than erroring, so the option is always safe.
+    test "a value with no zone writes its single offset" do
+      assert {:ok, "GMT-8"} =
+               Timezone.gmt_format(%{utc_offset: -28_800, std_offset: 0}, :en,
+                 format: :short,
+                 offsets: :dual
+               )
+    end
+
+    test "an unknown offset is still the unknown format" do
+      assert {:ok, "GMT+?"} = Timezone.gmt_format(%{}, :en, offsets: :dual)
+    end
+
+    # The pattern's own literal is written once around both offsets, which
+    # is what routing the pair through `dualOffsetFormat` first achieves.
+    test "the designation is written once around the pair" do
+      assert {:ok, "UTC-8/-7"} =
+               Timezone.gmt_format(@los_angeles, :en,
+                 format: :short,
+                 offsets: :dual,
+                 designation: :utc
+               )
+
+      assert {:ok, "-08:00/-07:00 GMT"} = Timezone.gmt_format(@los_angeles, :pt, offsets: :dual)
+    end
+
+    test "both offsets are written in the locale's digits" do
+      assert {:ok, written} =
+               Timezone.gmt_format(@los_angeles, :ne, format: :short, offsets: :dual)
+
+      refute written =~ ~r/[0-9]/
+      assert written =~ "/"
+    end
+
+    test "an unknown offsets value is an error" do
+      assert {:error, %Localize.InvalidValueError{expected: :offsets, value: :both}} =
+               Timezone.gmt_format(@los_angeles, :en, offsets: :both)
+    end
+  end
+
   describe "iso_format/2" do
     test "zero offset renders Z by default" do
       assert {:ok, "Z"} = Timezone.iso_format(%{utc_offset: 0, std_offset: 0})

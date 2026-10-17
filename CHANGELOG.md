@@ -74,6 +74,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * CLDR 49's `placeholderBoundarySpacing` separates a text field from a neighbour its output would run digits into, as TR35 now specifies, so zh's "vHH:mm:ss" renders a nameless zone as "GMT+8 14:30:45" rather than "GMT+814:30:45". Numeric fields written together are left alone.
 
+* CLDR 49's `gmtFormat` and `gmtUnknownFormat` `alt="utc"` forms, which spell the unambiguous designation for Coordinated Universal Time where `gmtFormat` may spell the London zone's "GMT": `designation: :utc` on `Localize.DateTime.Timezone.gmt_format/3` writes "UTC+01:00" and "UTC+?" in `en`, and `non_location_format/3` passes it to its GMT fallback. Both spellings read back through `parse_offset/2`.
+
+* CLDR 49's `dualOffsetFormat` joins the two offsets a zone keeps, so the localized GMT format describes a zone that moves between them: `offsets: :dual` writes Los Angeles as "GMT-8/-7" and Denver as "GMT-7/-6", where Phoenix keeps one offset and stays "GMT-7". A value with no zone writes its single offset.
+
 * A skeleton whose time half is only a zone joins its date through CLDR 49's `Date-Timezone` item, and one whose date half is only a weekday joins its time through `Time-Day-Of-Week`, as TR35 now specifies. `en` `:yMMMdz` renders "Jul 6, 2024 EDT", where it errored.
 
 * `Localize.DateTime.SemanticSkeleton` implements TR35 semantic skeletons, asking for a date by meaning (`"YMDE"`) rather than by field and rejecting the field sets and option pairings TR35 does not define, and `:format` accepts one throughout. The year, month and day take the locale's own widths, so `YMD` renders its length's standard date format; `:time_precision`, `:zone_length` and `:hour_cycle` shape the time, and `alignment: :column` pads a numeric month, day and hour to two digits.
