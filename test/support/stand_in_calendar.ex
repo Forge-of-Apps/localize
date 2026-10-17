@@ -23,7 +23,6 @@ defmodule Localize.Test.StandInCalendar do
     date_from_week_date: 3,
     month_of_year: 3,
     cardinal_month: 1,
-    calendar_year: 3,
     extended_year: 3,
     related_gregorian_year: 3,
     cyclic_year: 3,
@@ -32,8 +31,16 @@ defmodule Localize.Test.StandInCalendar do
     week: 2,
     quarter: 2,
     year: 1,
-    plus: 6,
-    diff: 3
+    shift: 6,
+    diff: 3,
+    cldr_calendar_type: 3,
+    parsing_calendars: 0,
+    info: 0,
+    leap_month: 1,
+    cldr_month: 2,
+    written_month_from_cldr_month: 2,
+    written_date: 3,
+    date_from_written_date: 3
   ]
 
   @calendar_callbacks Calendar.behaviour_info(:callbacks) --
@@ -50,6 +57,63 @@ defmodule Localize.Test.StandInCalendar do
     end
   end
 
+  @doc false
+  # A stand-in's answer to a question it may not have, or `default`.
+  def answer(calendar, function, arguments, default \\ nil) do
+    if function_exported?(calendar, function, length(arguments)),
+      do: apply(calendar, function, arguments),
+      else: default
+  end
+
+  @doc false
+  # The module that names the calendars of a stand-in's family: the stand-in
+  # itself where it answers `calendar_from_cldr_calendar_type/1`, as a
+  # Calendrical calendar's `info/0` names `Calendrical`.
+  def family(calendar) do
+    if function_exported?(calendar, :calendar_from_cldr_calendar_type, 1), do: calendar
+  end
+
+  @doc false
+  def written_year(calendar, year, month, day) do
+    if function_exported?(calendar, :cardinal_year, 3),
+      do: calendar.cardinal_year(year, month, day),
+      else: answer(calendar, :calendar_year, [year, month, day], year)
+  end
+
+  @doc false
+  def date_from_written_date(calendar, year, month, day) do
+    if function_exported?(calendar, :date_from_cardinal_date, 3) do
+      case calendar.date_from_cardinal_date(year, month, day) do
+        {date_year, date_month, date_day} -> {:ok, {date_year, date_month, date_day}}
+        _no_date -> {:error, :invalid_date}
+      end
+    else
+      date_of_cldr_month(calendar, year, month, day)
+    end
+  end
+
+  # A month the CLDR month names, or the leap month of that name where the
+  # year has no other, as the parser read a numbered month before the kernel.
+  defp date_of_cldr_month(calendar, year, cldr_month, day) do
+    if calendar.valid_date?(year, 1, 1) do
+      months = 1..calendar.months_in_year(year)//1
+      names = Map.new(months, &{calendar.cldr_month(year, &1), &1})
+
+      case Map.get(names, cldr_month) || Map.get(names, {cldr_month, :leap}) do
+        nil -> {:error, :invalid_date}
+        month -> own_date(calendar, year, month, day)
+      end
+    else
+      {:error, :invalid_date}
+    end
+  end
+
+  defp own_date(calendar, year, month, day) do
+    if calendar.valid_date?(year, month, day),
+      do: {:ok, {year, month, day}},
+      else: {:error, :invalid_date}
+  end
+
   defp definition({:cldr_calendar_type, 0}),
     do: quote(do: def(cldr_calendar_type, do: :gregorian))
 
@@ -57,6 +121,84 @@ defmodule Localize.Test.StandInCalendar do
     do: quote(do: def(era_calendar_type, do: cldr_calendar_type()))
 
   defp definition({:parsing_calendar, 0}), do: quote(do: def(parsing_calendar, do: __MODULE__))
+
+  defp definition({:cldr_calendar_type, 3}),
+    do: quote(do: def(cldr_calendar_type(_year, _month, _day), do: cldr_calendar_type()))
+
+  defp definition({:parsing_calendars, 0}),
+    do: quote(do: def(parsing_calendars, do: [__MODULE__]))
+
+  # The facts about the calendar, with the keys of Calendrical's
+  # `Calendrical.Info`, read from the answers the stand-in gives so that a
+  # calendar's own overrides are reflected.
+  defp definition({:info, 0}) do
+    quote do
+      def info do
+        %{
+          calendar: __MODULE__,
+          cldr_calendar_type: cldr_calendar_type(),
+          era_calendar_type: era_calendar_type(),
+          epoch: nil,
+          year_zero?: true,
+          structure: :months,
+          months_in_year: {12, 12},
+          weeks: %{first_day: 1, min_days_in_first_week: 4},
+          years_in_cycle: nil,
+          year_cycle: nil,
+          location: nil,
+          month_lengths: nil,
+          parsing_calendar:
+            Localize.Test.StandInCalendar.answer(__MODULE__, :parsing_calendar, []),
+          family: Localize.Test.StandInCalendar.family(__MODULE__),
+          members: nil
+        }
+      end
+    end
+  end
+
+  defp definition({:leap_month, 1}), do: quote(do: def(leap_month(_year), do: nil))
+
+  # The CLDR month of a month of a year: `month_of_year/3` named through
+  # `cardinal_month/1`, as Calendrical derives it.
+  defp definition({:cldr_month, 2}) do
+    quote do
+      def cldr_month(year, month) do
+        case month_of_year(year, month, 1) do
+          {named, :leap} when is_integer(named) -> {cardinal_month(named), :leap}
+          named when is_integer(named) -> cardinal_month(named)
+          other -> other
+        end
+      end
+    end
+  end
+
+  # A stand-in writes a month by its CLDR month, as Localize read every
+  # calendar before the kernel, so the written month is the CLDR month.
+  defp definition({:written_month_from_cldr_month, 2}),
+    do: quote(do: def(written_month_from_cldr_month(_year, cldr_month), do: cldr_month))
+
+  # The written date as Localize read a stand-in before the kernel: the year
+  # its `cardinal_year/3` gives, or its `calendar_year/3`; the CLDR month;
+  # and the day its `cardinal_day/3` gives, or the day.
+  defp definition({:written_date, 3}) do
+    quote do
+      def written_date(year, month, day) do
+        {Localize.Test.StandInCalendar.written_year(__MODULE__, year, month, day),
+         cldr_month(year, month),
+         Localize.Test.StandInCalendar.answer(__MODULE__, :cardinal_day, [year, month, day], day)}
+      end
+    end
+  end
+
+  # The date written figures name: the stand-in's `date_from_cardinal_date/3`
+  # where it has one, else the year and the day with the month the CLDR
+  # month is.
+  defp definition({:date_from_written_date, 3}) do
+    quote do
+      def date_from_written_date(year, month, day),
+        do: Localize.Test.StandInCalendar.date_from_written_date(__MODULE__, year, month, day)
+    end
+  end
 
   # ISO 8601's week date, as a date of the calendar using this module.
   defp definition({:date_from_week_date, 3}) do
@@ -150,9 +292,9 @@ defmodule Localize.Test.StandInCalendar do
   # The date a number of years, quarters, months, weeks or days on, as the
   # calendar using this module shifts a date (its `shift_date/4`), which
   # brings the day into a shorter month.
-  defp definition({:plus, 6}) do
+  defp definition({:shift, 6}) do
     quote do
-      def plus(year, month, day, date_part, increment, _options) do
+      def shift(year, month, day, date_part, increment, _options) do
         duration =
           case date_part do
             :years -> Duration.new!(year: increment)
@@ -202,7 +344,7 @@ defmodule Localize.Test.StandInCalendar do
 
     past =
       Enum.find(Stream.iterate(1, &(&1 + 1)), fn count ->
-        days(calendar, calendar.plus(year, month, day, date_part, count, coerce: true)) > limit
+        days(calendar, calendar.shift(year, month, day, date_part, count, clamp: true)) > limit
       end)
 
     past - 1

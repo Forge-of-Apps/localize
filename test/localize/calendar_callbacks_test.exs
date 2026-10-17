@@ -255,7 +255,7 @@ defmodule Localize.CalendarCallbacksTest do
     use Localize.Test.StandInCalendar
 
     def diff(_from, _to, _date_part), do: 1
-    def plus(_year, _month, _day, _date_part, _increment, _options), do: :no_date
+    def shift(_year, _month, _day, _date_part, _increment, _options), do: :no_date
   end
 
   # A calendar that counts the days and periods between two dates but cannot
@@ -287,42 +287,11 @@ defmodule Localize.CalendarCallbacksTest do
     def month_of_year(_year, _month, _day), do: :no_month
   end
 
-  # A calendar answering every question but `parsing_calendar/0`, as a
-  # Calendrical calendar before 1.4 does.
-  defmodule Unparsing do
+  # A calendar answering every question but `info/0`, the one answer a
+  # calendar is checked for where a value enters.
+  defmodule Uninformed do
     @moduledoc false
-    use Localize.Test.StandInCalendar, without: [parsing_calendar: 0]
-  end
-
-  # A calendar answering every question but `date_from_week_date/3`, as a
-  # Calendrical calendar before 1.4 does.
-  defmodule Weekless do
-    @moduledoc false
-    use Localize.Test.StandInCalendar, without: [date_from_week_date: 3]
-  end
-
-  # A calendar answering every question but its extended year, which `u`
-  # writes.
-  defmodule Unextended do
-    @moduledoc false
-    use Localize.Test.StandInCalendar, without: [extended_year: 3]
-  end
-
-  # Calendars answering every question but one of those Localize puts for a
-  # year's days and for the months between two dates.
-  defmodule Yearless do
-    @moduledoc false
-    use Localize.Test.StandInCalendar, without: [year: 1]
-  end
-
-  defmodule Uncounting do
-    @moduledoc false
-    use Localize.Test.StandInCalendar, without: [diff: 3]
-  end
-
-  defmodule Unadding do
-    @moduledoc false
-    use Localize.Test.StandInCalendar, without: [plus: 6]
+    use Localize.Test.StandInCalendar, without: [info: 0]
   end
 
   # A calendar answering the questions Localize puts to a Calendrical
@@ -345,8 +314,8 @@ defmodule Localize.CalendarCallbacksTest do
     def year(year), do: Localize.Calendar.ISO.year(year)
     def diff(from, to, date_part), do: Localize.Calendar.ISO.diff(from, to, date_part)
 
-    def plus(year, month, day, date_part, increment, options),
-      do: Localize.Calendar.ISO.plus(year, month, day, date_part, increment, options)
+    def shift(year, month, day, date_part, increment, options),
+      do: Localize.Calendar.ISO.shift(year, month, day, date_part, increment, options)
   end
 
   # A complete calendar of Elixir's `Calendar` behaviour alone, every
@@ -983,42 +952,17 @@ defmodule Localize.CalendarCallbacksTest do
       assert Localize.DateTime.Relative.to_string(value, relative_to: ~D[2026-02-01]) == unknown
     end
 
-    # Formatting asks no parsing calendar, but a calendar is checked for
-    # every answer wherever it enters, so one Calendrical release is a
-    # calendar's or not.
-    test "a calendar without parsing_calendar/0 is refused, in formatting too" do
-      unknown = {:error, Localize.UnknownCalendarError.exception(calendar: Unparsing)}
-      value = %Date{year: 2026, month: 1, day: 1, calendar: Unparsing}
+    # A calendar is known by its `info/0` alone where a value enters. That
+    # it answers every other question is not checked at runtime: Calendrical's
+    # test suite holds its calendars, and Localize's ISO module, to the
+    # kernel and the questions Localize asks (user, 2026-10-17).
+    test "a calendar without info/0 is refused, in formatting and parsing alike" do
+      unknown = {:error, Localize.UnknownCalendarError.exception(calendar: Uninformed)}
+      value = %Date{year: 2026, month: 1, day: 1, calendar: Uninformed}
 
       assert Localize.Date.to_string(value, locale: :en) == unknown
-      assert Localize.Date.parse("Jan 1, 2026", locale: :en, calendar: Unparsing) == unknown
-    end
-
-    # Formatting asks for no week date, but a calendar is checked for every
-    # answer wherever it enters, so one Calendrical release is a calendar's
-    # or not, and a week date is never put to a calendar that cannot answer.
-    test "a calendar without date_from_week_date/3 is refused, in formatting too" do
-      unknown = {:error, Localize.UnknownCalendarError.exception(calendar: Weekless)}
-      value = %Date{year: 2026, month: 1, day: 1, calendar: Weekless}
-
-      assert Localize.Date.to_string(value, locale: :en) == unknown
-      assert Localize.Date.parse("Jan 1, 2026", locale: :en, calendar: Weekless) == unknown
-      assert Localize.Date.parse("2026-W25-2", locale: :en, calendar: Weekless) == unknown
-    end
-
-    # A year's days and the months between two dates are the calendar's to
-    # give, its `year/1`, `diff/3` and `plus/6`, and so is the extended year
-    # `u` writes, its `extended_year/3`, so a calendar without one of them is
-    # refused as one without any other answer is.
-    test "a calendar that cannot give a year's days, count its months or extend its year is refused" do
-      for calendar <- [Yearless, Uncounting, Unadding, Unextended] do
-        unknown = {:error, Localize.UnknownCalendarError.exception(calendar: calendar)}
-        value = %Date{year: 2026, month: 1, day: 1, calendar: calendar}
-
-        assert Localize.Date.to_string(value, locale: :en) == unknown
-        assert Localize.Date.parse("Jan 1, 2026", locale: :en, calendar: calendar) == unknown
-        assert Localize.DateTime.Relative.to_string(value, relative_to: value) == unknown
-      end
+      assert Localize.Date.parse("Jan 1, 2026", locale: :en, calendar: Uninformed) == unknown
+      assert Localize.DateTime.Relative.to_string(value, relative_to: value) == unknown
     end
 
     test "a calendar that is not a module is refused too" do
@@ -1130,7 +1074,6 @@ defmodule Localize.CalendarCallbacksTest do
       assert iso.era_calendar_type() == :gregorian
       assert iso.month_of_year(2026, 10, 1) == 10
       assert iso.cardinal_month(10) == 10
-      assert iso.calendar_year(-44, 3, 15) == -44
       assert iso.related_gregorian_year(2026, 10, 1) == 2026
       assert iso.week_of_year(2027, 1, 1) == {2026, 53}
       assert iso.year_of_era(-44, 3, 15) == Calendar.ISO.year_of_era(-44, 3, 15)

@@ -54,6 +54,21 @@ defmodule Localize.Test.CountedMonthCalendar do
   # and the parser does not read it: it takes the month and the day from here
   # and the year as written. The fixture shifts the year because Calendrical
   # does, so that a parser reading the year from here would be caught.
+  # The written date, as Calendrical's kernel writes a year-start variant:
+  # the counted year, and the Julian month and day that name the date.
+  def written_date(year, month, day),
+    do: {year, cardinal_month(month), cardinal_day(year, month, day)}
+
+  # The date written figures name: the month and day that
+  # `date_from_julian_date/3` counts, with the year as written.
+  def date_from_written_date(year, month, day) do
+    {_julian_year, counted_month, counted_day} = date_from_julian_date(year, month, day)
+
+    if valid_date?(year, counted_month, counted_day),
+      do: {:ok, {year, counted_month, counted_day}},
+      else: {:error, :invalid_date}
+  end
+
   def date_from_julian_date(year, 3, day) when day >= 25, do: {year, 1, day - 24}
   def date_from_julian_date(year, 3, day), do: {year - 1, 13, day}
   def date_from_julian_date(year, month, day) when month >= 4, do: {year, month - 2, day}

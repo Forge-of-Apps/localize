@@ -1337,7 +1337,7 @@ defmodule Localize.DateTime.Formatter do
   # A leap month is written in CLDR's numeric leap pattern where the calendar
   # has one, so the leap second month is "2bis" in `en` and "闰2" in `zh`.
   defp numeric_month(date, count, locale_id, options, field) do
-    case Localize.Calendar.cldr_month(date) do
+    case Localize.Calendar.written_month(date) do
       {:error, _reason} = error ->
         error
 
@@ -1441,19 +1441,19 @@ defmodule Localize.DateTime.Formatter do
 
   def day_of_month(_date, _count, _locale_id, _options), do: ""
 
-  # The day of the month that names a date's day, where its calendar
-  # renumbers them: a calendar whose months are counted from the year's
-  # first day, as Calendrical's Julian year-start variants are, can begin
-  # a month within the month that names it, and its `cardinal_day/3`
-  # answers the named day. Any other calendar's day is its own name.
+  # The day a date is written with, as its calendar's `written_date/3`
+  # writes it: a calendar whose months are counted from the year's first
+  # day, as Calendrical's Julian year-start variants are, can begin a
+  # month within the month that names it, so its day 1 is written 25.
+  # Any other calendar's day is its own.
   defp cardinal_day(%{day: day} = date) do
-    calendar = Map.get(date, :calendar, Calendar.ISO)
+    answers = date |> Map.get(:calendar, Calendar.ISO) |> Localize.Calendar.answering()
     year = Map.get(date, :year)
     month = Map.get(date, :month)
 
-    if is_integer(year) and is_integer(month) and is_integer(day) and
-         Code.ensure_loaded?(calendar) and function_exported?(calendar, :cardinal_day, 3) do
-      calendar.cardinal_day(year, month, day)
+    if is_integer(year) and is_integer(month) and is_integer(day) do
+      {_written_year, _written_month, written_day} = answers.written_date(year, month, day)
+      written_day
     else
       day
     end

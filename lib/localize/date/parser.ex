@@ -3712,7 +3712,7 @@ defmodule Localize.Date.Parser do
   # calendar of cyclic years (`Localize.Calendar.cycle_place/2`): ICU4C
   # writes the Chinese year that began in 2023 as 40. It does where the
   # locale's data names the calendar's years by a cycle, and where the
-  # calendar itself displays the place, its `calendar_year/3` answering the
+  # calendar itself displays the place, its displayed year being the
   # reference year's place in the cycle and not its number.
   defp cyclic_year_written?(
          %{calendar: calendar_module, year: year} = reference,
@@ -5073,7 +5073,7 @@ defmodule Localize.Date.Parser do
   # own `date_from_julian_date/3` inverts them.
   #
   # That callback takes a date of `Calendrical.Julian`, which the written
-  # triple is not: its year is the calendar's own label, as `calendar_year/3`
+  # triple is not: its year is the calendar's own label, as `written_date/3`
   # wrote it. The two agree for every month the calendar counts inside one
   # Julian year and differ by one for a month running into the next —
   # `Calendrical.Julian.March25`'s month 13 is 1 to 24 March of the Julian
@@ -5096,47 +5096,46 @@ defmodule Localize.Date.Parser do
   #
   # A leap month is written by its own name (`{month, :leap}`), which no
   # number the inversion takes holds, so it is placed by `named_month/3`.
+  # A month written as a number is the figure the calendar's
+  # `written_date/3` writes, read back by its `date_from_written_date/3`; a
+  # month written by name is the CLDR month the name is, read back through
+  # the month it is written with.
   defp calendar_date(year, month, day, calendar_module) do
     named = named_month_number(month)
     written? = is_integer(year) and is_integer(named) and is_integer(day)
 
     cond do
-      written? and not leap_month?(month) and
-          exports?(calendar_module, :date_from_cardinal_date, 3) ->
-        cardinal_date(calendar_module, year, named, day)
+      written? and not match?({:named, _month}, month) ->
+        read_written_date(Localize.Calendar.answering(calendar_module), year, month, day)
 
-      written? and exports?(calendar_module, :date_from_julian_date, 3) ->
-        julian_date(calendar_module, year, named, day)
+      written? and not leap_month?(month) ->
+        date_of_cldr_month(calendar_module, year, named, day)
 
       true ->
         {year, named_month(month, year, calendar_module), day}
     end
   end
 
-  defp cardinal_date(calendar_module, year, month, day) do
-    case calendar_module.date_from_cardinal_date(year, month, day) do
-      {date_year, date_month, date_day}
-      when is_integer(date_year) and is_integer(date_month) and is_integer(date_day) ->
-        {date_year, date_month, date_day}
+  # The date written figures name. A month comes as the CLDR month its
+  # name or number is, which is the month a date is written with in every
+  # calendar but the Hebrew (`written_month_from_cldr_month/2`), and the
+  # calendar reads the written date back (`date_from_written_date/3`): a
+  # fiscal calendar reads the Gregorian date, a Julian year-start variant
+  # its label year with the Julian month and day.
+  defp date_of_cldr_month(calendar_module, year, cldr_month, day) do
+    answers = Localize.Calendar.answering(calendar_module)
 
-      _no_date ->
-        {year, :invalid, day}
+    case answers.written_month_from_cldr_month(year, cldr_month) do
+      {:error, :invalid_month} -> {year, :invalid, day}
+      written_month -> read_written_date(answers, year, written_month, day)
     end
   end
 
-  defp julian_date(calendar_module, year, month, day) do
-    case calendar_module.date_from_julian_date(year, month, day) do
-      {named_year, named_month, named_day}
-      when is_integer(named_year) and is_integer(named_month) and is_integer(named_day) ->
-        {year, named_month, named_day}
-
-      _no_date ->
-        {year, :invalid, day}
+  defp read_written_date(answers, year, written_month, day) do
+    case answers.date_from_written_date(year, written_month, day) do
+      {:ok, {date_year, date_month, date_day}} -> {date_year, date_month, date_day}
+      {:error, :invalid_date} -> {year, :invalid, day}
     end
-  end
-
-  defp exports?(calendar_module, function, arity) do
-    Code.ensure_loaded?(calendar_module) and function_exported?(calendar_module, function, arity)
   end
 
   defp named_month_number({:named, month}), do: cldr_month_number(month)
@@ -5398,11 +5397,9 @@ defmodule Localize.Date.Parser do
   defp cardinal_probe(calendar_module, year, {:named, _month} = month, day) do
     named = named_month_number(month)
 
-    if is_integer(named) and not leap_month?(month) and
-         exports?(calendar_module, :date_from_cardinal_date, 3),
-       do:
-         cardinal_fields(calendar_module.date_from_cardinal_date(year, named, era_day(day) || 1)),
-       else: :none
+    if is_integer(named) and not leap_month?(month),
+      do: cardinal_fields(date_of_cldr_month(calendar_module, year, named, era_day(day) || 1)),
+      else: :none
   end
 
   defp cardinal_probe(_calendar_module, _year, _month, _day), do: :none

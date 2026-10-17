@@ -581,7 +581,7 @@ defmodule Localize.DateTime.Relative do
     finish = {to.year, to.month, to.day}
 
     with {:ok, whole} <- Localize.Calendar.diff(calendar, start, finish, part),
-         {:ok, reached} <- Localize.Calendar.plus(calendar, start, part, whole),
+         {:ok, reached} <- Localize.Calendar.shift_by(calendar, start, part, whole),
          {:ok, reached_period} <- period.(calendar, reached),
          {:ok, finish_period} <- period.(calendar, finish) do
       cond do

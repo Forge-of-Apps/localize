@@ -52,7 +52,6 @@ defmodule Localize.CalendarISOTest do
     months_in_year: 0,
     era_calendar_type: 0,
     parsing_calendar: 0,
-    calendar_year: 3,
     extended_year: 3,
     related_gregorian_year: 3,
     cyclic_year: 3,
@@ -62,7 +61,7 @@ defmodule Localize.CalendarISOTest do
     semester: 2,
     month: 2,
     week: 2,
-    plus: 6,
+    shift: 6,
     diff: 3
   ]
 
@@ -90,7 +89,7 @@ defmodule Localize.CalendarISOTest do
             not function_exported?(ISO, name, arity),
             do: {name, arity}
 
-      assert Enum.count(@calendrical_callbacks) == 42
+      assert Enum.count(@calendrical_callbacks) == 41
       assert missing == []
     end
 
@@ -284,14 +283,14 @@ defmodule Localize.CalendarISOTest do
 
     # 28 December is always in a year's last ISO 8601 week, so its week
     # number is the year's count of weeks, each of seven days.
-    test "its weeks are ISO 8601's, 52 or 53 of seven days" do
+    test "its weeks are ISO 8601's, 52 or 53" do
       for year <- 1995..2035 do
         {^year, weeks} = :calendar.iso_week_number({year, 12, 28})
-        assert ISO.weeks_in_year(year) == {weeks, 7}
+        assert ISO.weeks_in_year(year) == weeks
       end
 
-      assert ISO.weeks_in_year(2026) == {53, 7}
-      assert ISO.weeks_in_year(2025) == {52, 7}
+      assert ISO.weeks_in_year(2026) == 53
+      assert ISO.weeks_in_year(2025) == 52
     end
   end
 
@@ -327,23 +326,23 @@ defmodule Localize.CalendarISOTest do
             ] do
           expected = date |> Date.shift(duration) |> Date.to_erl()
 
-          assert ISO.plus(year, month, day, date_part, count, []) == expected,
+          assert ISO.shift(year, month, day, date_part, count, []) == expected,
                  "#{date} #{date_part} #{count}"
 
-          assert ISO.plus(year, month, day, date_part, count, coerce: true) == expected
+          assert ISO.shift(year, month, day, date_part, count, clamp: true) == expected
         end
       end
     end
 
     test "leaves the day as it stands when asked not to coerce it" do
-      assert ISO.plus(2024, 1, 31, :months, 1, coerce: true) == {2024, 2, 29}
-      assert ISO.plus(2024, 1, 31, :months, 1, coerce: false) == {2024, 2, 31}
-      assert ISO.plus(2024, 2, 29, :years, 1, coerce: true) == {2025, 2, 28}
-      assert ISO.plus(2024, 2, 29, :years, 1, coerce: false) == {2025, 2, 29}
+      assert ISO.shift(2024, 1, 31, :months, 1, clamp: true) == {2024, 2, 29}
+      assert ISO.shift(2024, 1, 31, :months, 1, clamp: false) == {2024, 2, 31}
+      assert ISO.shift(2024, 2, 29, :years, 1, clamp: true) == {2025, 2, 28}
+      assert ISO.shift(2024, 2, 29, :years, 1, clamp: false) == {2025, 2, 29}
     end
 
     test "has five arguments too, coercing the day" do
-      assert ISO.plus(2024, 1, 31, :months, 1) == {2024, 2, 29}
+      assert ISO.shift(2024, 1, 31, :months, 1) == {2024, 2, 29}
     end
   end
 
@@ -425,11 +424,11 @@ defmodule Localize.CalendarISOTest do
       assert iso(ISO.dates_in_gregorian_year(nil, 1, 1)) == []
       assert ISO.iso_week_of_year(2026, 2, 30) == {:error, :invalid_date}
 
-      assert ISO.plus(nil, 1, 1, :months, 1, []) == {:error, :invalid_date}
-      assert ISO.plus(2026, 13, 1, :months, 1, []) == {:error, :invalid_date}
-      assert ISO.plus(2026, 1, 1, :months, "1", []) == {:error, :invalid_date}
-      assert ISO.plus(2026, 1, 1, :fortnights, 1, []) == {:error, :invalid_date}
-      assert ISO.plus(2026, 2, 30, :days, 1, []) == {:error, :invalid_date}
+      assert ISO.shift(nil, 1, 1, :months, 1, []) == {:error, :invalid_date}
+      assert ISO.shift(2026, 13, 1, :months, 1, []) == {:error, :invalid_date}
+      assert ISO.shift(2026, 1, 1, :months, "1", []) == {:error, :invalid_date}
+      assert ISO.shift(2026, 1, 1, :fortnights, 1, []) == {:error, :invalid_date}
+      assert ISO.shift(2026, 2, 30, :days, 1, []) == {:error, :invalid_date}
 
       assert ISO.diff({2026, 2, 30}, {2026, 3, 1}, :months) == {:error, :invalid_date}
       assert ISO.diff({2026, 1, 1}, {2026, 13, 1}, :days) == {:error, :invalid_date}

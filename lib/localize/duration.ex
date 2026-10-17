@@ -847,7 +847,7 @@ defmodule Localize.Duration do
   defp day_reached(%{calendar: calendar} = from, from_wall, to_date, to_clock, days_back) do
     from_date = date_fields(from_wall)
 
-    with {:ok, date} <- Localize.Calendar.plus(calendar, to_date, :days, -days_back),
+    with {:ok, date} <- Localize.Calendar.shift_by(calendar, to_date, :days, -days_back),
          {:ok, days_on} <- Localize.Calendar.diff(calendar, from_date, date, :days),
          {:ok, {date, moment}} <- moment_on(date, days_on, from, from_wall) do
       case NaiveDateTime.diff(to_clock, moment, :microsecond) do
@@ -903,7 +903,7 @@ defmodule Localize.Duration do
   # are counted to the day before it, as its calendar reaches that day, and
   # the time runs on through midnight.
   defp datetime_duration(%{calendar: calendar} = from, to, time_diff) when time_diff < 0 do
-    with {:ok, day_before} <- Localize.Calendar.plus(calendar, date_fields(to), :days, -1),
+    with {:ok, day_before} <- Localize.Calendar.shift_by(calendar, date_fields(to), :days, -1),
          {:ok, duration} <- date_duration(calendar, date_fields(from), day_before) do
       {:ok, merge(duration, @microseconds_in_day + time_diff)}
     end

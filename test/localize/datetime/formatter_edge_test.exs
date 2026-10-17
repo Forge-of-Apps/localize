@@ -337,16 +337,15 @@ defmodule Localize.DateTime.FormatterEdgeTest do
 
     # The era is the calendar's `year_of_era/3`, never guessed from the sign
     # of the year, so an answer that is not a year of era and an era is an
-    # error wherever the era is written or settles the year.
+    # error wherever the era is written, and wherever the year is, since a
+    # calendar that writes its own year writes the year of its era.
     test "a calendar answering year_of_era with something else is an error" do
       date = %{year: 2024, month: 7, day: 6, calendar: BadYearOfEraCalendar}
 
-      for format <- ["G", "y G", "GGGG"] do
+      for format <- ["G", "y G", "GGGG", "y"] do
         assert {:error, %Localize.InvalidValueError{value: :not_a_tuple}} =
                  Localize.Date.to_string(date, format: format, locale: :en)
       end
-
-      assert date_format(date, "y") == "2024"
     end
 
     # TR35 counts a year before the first era back from it, so year 0 is 1 BC

@@ -75,6 +75,7 @@ defmodule Localize.Calendar.ISO do
       12 => 31
     },
     parsing_calendar: __MODULE__,
+    family: __MODULE__,
     members: nil
   }
 
@@ -106,6 +107,7 @@ defmodule Localize.Calendar.ISO do
             12 => 31
           },
           parsing_calendar: __MODULE__,
+          family: __MODULE__,
           members: nil
         }
 
@@ -115,6 +117,17 @@ defmodule Localize.Calendar.ISO do
   # weeks, a 400-year cycle, and itself for parsing.
   @spec info() :: info()
   def info, do: @info
+
+  @doc false
+  # The CLDR month of a month of a year: the month itself, in the one
+  # calendar whose months are their own numbering.
+  @spec cldr_month(Calendar.year(), Calendar.month()) :: Calendar.month()
+  def cldr_month(_year, month), do: month
+
+  @doc false
+  # The month a CLDR month is written with: the month itself.
+  @spec written_month_from_cldr_month(Calendar.year(), Calendar.month()) :: Calendar.month()
+  def written_month_from_cldr_month(_year, cldr_month), do: cldr_month
 
   @doc false
   # A date is written as its own fields.
@@ -303,12 +316,6 @@ defmodule Localize.Calendar.ISO do
     {year, month, day}
   end
 
-  # The year as the calendar shows it: the proleptic year, which
-  # `Localize.Calendar.displayed_year/1` counts back from the era below 1.
-  @doc false
-  @spec calendar_year(Calendar.year(), Calendar.month(), Calendar.day()) :: Calendar.year()
-  def calendar_year(year, _month, _day), do: year
-
   # The year a date is written with: its own year, since a Gregorian
   # date is written as itself.
   @doc false
@@ -397,17 +404,16 @@ defmodule Localize.Calendar.ISO do
   def days_in_month_bounds(month) when month in 1..12, do: {31, 31}
   def days_in_month_bounds(month), do: {:error, invalid_month(nil, month)}
 
-  # ISO 8601's weeks of a year and the days of the last, always seven: 52
-  # weeks, or 53 in a year that begins on a Thursday, or on a Wednesday in a
-  # leap year.
+  # ISO 8601's weeks of a year: 52, or 53 in a year that begins on a
+  # Thursday, or on a Wednesday in a leap year.
   @doc false
-  @spec weeks_in_year(Calendar.year()) :: {52 | 53, 7} | {:error, :invalid_date}
+  @spec weeks_in_year(Calendar.year()) :: 52 | 53 | {:error, :invalid_date}
   def weeks_in_year(year) when is_integer(year) do
     case Date.new(year, 1, 1) do
       {:ok, january_1} ->
         january_1 = Date.to_gregorian_days(january_1)
         next_year = week_one(january_1 + days_in_year(year), @iso_8601_weeks)
-        {div(next_year - week_one(january_1, @iso_8601_weeks), 7), 7}
+        div(next_year - week_one(january_1, @iso_8601_weeks), 7)
 
       {:error, _reason} ->
         {:error, :invalid_date}
@@ -473,7 +479,7 @@ defmodule Localize.Calendar.ISO do
   # unless `coerce: false` asks for it as it stands: 31 January and a month
   # is 29 February 2024, and 29 February and a year 28 February 2025.
   @doc false
-  @spec plus(
+  @spec shift(
           Calendar.year(),
           Calendar.month(),
           Calendar.day(),
@@ -481,14 +487,14 @@ defmodule Localize.Calendar.ISO do
           integer(),
           Keyword.t()
         ) :: {Calendar.year(), Calendar.month(), Calendar.day()} | {:error, :invalid_date}
-  def plus(year, month, day, date_part, increment, options \\ [])
+  def shift(year, month, day, date_part, increment, options \\ [])
 
-  def plus(year, month, day, date_part, increment, options)
+  def shift(year, month, day, date_part, increment, options)
       when is_integer(year) and month in 1..12 and is_integer(day) and is_integer(increment) do
     part_on(date_part, {year, month, day}, increment, options)
   end
 
-  def plus(_year, _month, _day, _date_part, _increment, _options), do: {:error, :invalid_date}
+  def shift(_year, _month, _day, _date_part, _increment, _options), do: {:error, :invalid_date}
 
   defp part_on(:years, {year, month, day}, years, options),
     do: in_month(year + years, month, day, options)
@@ -511,7 +517,7 @@ defmodule Localize.Calendar.ISO do
   end
 
   defp in_month(year, month, day, options) do
-    if Keyword.get(options, :coerce, true),
+    if Keyword.get(options, :clamp, true),
       do: {year, month, min(day, Calendar.ISO.days_in_month(year, month))},
       else: {year, month, day}
   end
@@ -788,7 +794,7 @@ defmodule Localize.Calendar.ISO do
   @spec weeks_in_week_year(Calendar.year()) :: 52 | 53 | {:error, :invalid_date}
   def weeks_in_week_year(week_year) do
     case weeks_in_year(week_year) do
-      {weeks, _days_in_the_last} when is_integer(weeks) -> weeks
+      weeks when is_integer(weeks) -> weeks
       {:error, _reason} -> {:error, :invalid_date}
     end
   end

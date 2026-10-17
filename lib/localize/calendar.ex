@@ -122,27 +122,6 @@ defmodule Localize.Calendar do
   # behaviour's own, and every callback of the `Calendar` behaviour it
   # extends, which Localize reaches directly and through `Date.convert/2`,
   # `Date.shift/2` and their kin.
-  @answers [
-             cldr_calendar_type: 0,
-             era_calendar_type: 0,
-             parsing_calendar: 0,
-             date_from_week_date: 3,
-             month_of_year: 3,
-             cardinal_month: 1,
-             calendar_year: 3,
-             extended_year: 3,
-             related_gregorian_year: 3,
-             cyclic_year: 3,
-             week_of_year: 3,
-             week_of_month: 3,
-             week: 2,
-             quarter: 2,
-             year: 1,
-             plus: 6,
-             diff: 3
-           ] ++
-             (Calendar.behaviour_info(:callbacks) -- Calendar.behaviour_info(:optional_callbacks))
-
   # CLDR's leap-year name of a month (`7_yeartype_leap`, the Hebrew "Adar II")
   # is keyed by an atom. The keys are built here from the closed set of month
   # numbers, so no atom is made at runtime.
@@ -1418,10 +1397,10 @@ defmodule Localize.Calendar do
   def year_of_era(date), do: settle(date, &year_of_era_on/2)
 
   @doc false
-  # The year a date shows: its calendar's `calendar_year/3` when that is
-  # at least 1, and otherwise the year of era, so a year before a
-  # calendar's first era counts back as TR35 counts it — year 0 is 1 BC in
-  # `Calendar.ISO` and in Calendrical's calendars alike.
+  # The year a date shows: the year its `written_date/3` writes where that
+  # is another calendar's year, and otherwise the year of its era, so a
+  # year before a calendar's first era counts back as TR35 counts it: year
+  # 0 is 1 BC in `Calendar.ISO` and in Calendrical's calendars alike.
   @spec displayed_year(term()) :: {:ok, Calendar.year()} | {:error, [atom()] | Exception.t()}
   def displayed_year(date), do: settle(date, &displayed_year_on/2)
 
@@ -1647,37 +1626,41 @@ defmodule Localize.Calendar do
     end)
   end
 
-  # A calendar's `calendar_year/3` numbers a year as it is displayed — the
-  # year of its era in the Japanese calendar, the year as a Julian calendar
-  # beginning in March counts it — but gives a year before the first era
-  # as it is, 0 or -5. TR35 counts those back from the era, so a year
-  # below 1 is the year of era, from the `year_of_era/3` that names the
-  # date's era.
-  # The year a date is written with, which a calendar whose dates are
-  # written by other fields than its own answers through `cardinal_year/3`:
-  # a fiscal calendar's months are named as the Gregorian months they are,
-  # so its dates are written with the Gregorian year. Every other calendar
-  # writes its calendar year.
-  defp displayed_year_on(calendar, {year, month, day} = date) do
-    case ask(
-           calendar,
-           written_year_question(calendar),
-           [year, month, day],
-           "a year",
-           &is_integer/1
-         ) do
-      {:ok, shown} when shown >= 1 -> {:ok, shown}
-      {:ok, _before_the_first_era} -> year_of_era_shown(calendar, date)
-      {:error, _exception} = error -> error
+  # A calendar whose dates are written as another calendar's writes that
+  # calendar's year, which its `written_date/3` gives and which differs from
+  # the date's own: a fiscal year's months are the Gregorian months they
+  # are, so its dates are written with the Gregorian year. Every other
+  # calendar writes the year of its era, from the `year_of_era/3` that names
+  # the date's era: the Japanese calendar writes 7 for 2025, and a Gregorian
+  # year before 1 is counted back from the era.
+  defp displayed_year_on(calendar, {year, month, day} = date)
+       when is_integer(month) and is_integer(day) do
+    with {:ok, {written_year, _month, _day}} <-
+           ask(calendar, :written_date, [year, month, day], "a written date", &written_date?/1) do
+      shown_year(calendar, date, written_year)
     end
   end
 
-  defp written_year_question(calendar) do
-    module = answering(calendar)
+  # A date without its month or day is written on the days it could be
+  # (`settle_over_span/5`), never asked of the calendar as it stands.
+  defp displayed_year_on(_calendar, _partial_date), do: {:error, [:month, :day]}
 
-    if Code.ensure_loaded?(module) and function_exported?(module, :cardinal_year, 3),
-      do: :cardinal_year,
-      else: :calendar_year
+  defp written_date?(answer), do: match?({_year, _month, _day}, answer)
+
+  defp shown_year(_calendar, {year, _month, _day}, written_year)
+       when is_integer(written_year) and written_year != year and written_year >= 1,
+       do: {:ok, written_year}
+
+  defp shown_year(calendar, date, written_year) when is_integer(written_year),
+    do: year_of_era_shown(calendar, date)
+
+  defp shown_year(calendar, _date, written_year) do
+    {:error,
+     Localize.InvalidValueError.exception(
+       value: written_year,
+       expected: "a year",
+       context: inspect(calendar)
+     )}
   end
 
   defp year_of_era_shown(calendar, date) do
@@ -1699,7 +1682,7 @@ defmodule Localize.Calendar do
   @doc false
   # The CLDR calendar whose data names a calendar's months and days.
   @spec cldr_calendar_type(module()) :: atom()
-  def cldr_calendar_type(calendar), do: answering(calendar).cldr_calendar_type()
+  def cldr_calendar_type(calendar), do: answering(calendar).info().cldr_calendar_type
 
   @doc false
   # The CLDR calendar whose data names a date's months and days: the
@@ -1712,19 +1695,14 @@ defmodule Localize.Calendar do
   @spec date_calendar_type(term()) :: atom()
   def date_calendar_type(%{year: year} = date) when is_integer(year) do
     answers = date |> Map.get(:calendar, Calendar.ISO) |> answering()
+    month = Map.get(date, :month)
+    day = Map.get(date, :day)
+    month = if is_integer(month), do: month, else: 1
+    day = if is_integer(day), do: day, else: 1
 
-    if Code.ensure_loaded?(answers) and function_exported?(answers, :cldr_calendar_type, 3) do
-      month = Map.get(date, :month)
-      day = Map.get(date, :day)
-      month = if is_integer(month), do: month, else: 1
-      day = if is_integer(day), do: day, else: 1
-
-      case answers.cldr_calendar_type(year, month, day) do
-        type when is_atom(type) and type not in [nil, true, false] -> type
-        _not_a_calendar_type -> answers.cldr_calendar_type()
-      end
-    else
-      answers.cldr_calendar_type()
+    case answers.cldr_calendar_type(year, month, day) do
+      type when is_atom(type) and type not in [nil, true, false] -> type
+      _not_a_calendar_type -> answers.info().cldr_calendar_type
     end
   end
 
@@ -1734,7 +1712,7 @@ defmodule Localize.Calendar do
   @doc false
   # The CLDR calendar whose data names a calendar's eras.
   @spec era_calendar_type(module()) :: atom()
-  def era_calendar_type(calendar), do: answering(calendar).era_calendar_type()
+  def era_calendar_type(calendar), do: answering(calendar).info().era_calendar_type
 
   @doc false
   # The calendar that text none of `calendar`'s own formats reads is read
@@ -1746,7 +1724,7 @@ defmodule Localize.Calendar do
   # Localize in turn.
   @spec parsing_calendar(module()) :: {:ok, module()} | {:error, Exception.t()}
   def parsing_calendar(calendar) do
-    parsing = parsed_in(calendar, answering(calendar).parsing_calendar())
+    parsing = parsed_in(calendar, answering(calendar).info().parsing_calendar)
 
     with :ok <- validate_calendar(%{calendar: parsing}) do
       {:ok, parsing}
@@ -1790,15 +1768,11 @@ defmodule Localize.Calendar do
     end
   end
 
-  defp further_parsing_calendars(answers, calendar) do
-    if Code.ensure_loaded?(answers) and function_exported?(answers, :parsing_calendars, 0) do
-      with {:ok, others} <-
-             ask(calendar, :parsing_calendars, [], "a list of calendars", &is_list/1),
-           nil <- Enum.find_value(others, &calendar_error/1) do
-        {:ok, others}
-      end
-    else
-      {:ok, []}
+  defp further_parsing_calendars(_answers, calendar) do
+    with {:ok, others} <-
+           ask(calendar, :parsing_calendars, [], "a list of calendars", &is_list/1),
+         nil <- Enum.find_value(others, &calendar_error/1) do
+      {:ok, others}
     end
   end
 
@@ -1929,10 +1903,18 @@ defmodule Localize.Calendar do
   # `Calendar.ISO` has none: Localize supplies that calendar itself and no
   # others, so the calendars of a registered provider answer for it.
   defp calendar_of_type(calendar, calendar_type) do
-    case ask_for_calendar(answering(calendar), calendar_type) do
+    case ask_for_calendar(family_of(calendar), calendar_type) do
       {:ok, target} -> {:ok, target}
       :error -> ask_provider_for_calendar(calendar_type)
     end
+  end
+
+  # The module that names the calendars of a calendar's family, as its
+  # `info/0` names it (`Calendrical` for a Calendrical calendar, Localize's
+  # own ISO module for the ISO calendar), and the registered provider where
+  # it names none. A calendar module is not asked for its family itself.
+  defp family_of(calendar) do
+    Map.get(answering(calendar).info(), :family) || calendar_provider()
   end
 
   defp ask_provider_for_calendar(calendar_type) do
@@ -2049,13 +2031,13 @@ defmodule Localize.Calendar do
   # date, as its calendar reaches it (its `plus/6`), the day brought into a
   # month that is too short for it. An error when the calendar answers with
   # something that is not a year, a month and a day.
-  @spec plus(module(), date_fields(), date_part(), integer()) ::
+  @spec shift_by(module(), date_fields(), date_part(), integer()) ::
           {:ok, date_fields()} | {:error, Exception.t()}
-  def plus(calendar, {year, month, day}, date_part, count) do
+  def shift_by(calendar, {year, month, day}, date_part, count) do
     ask(
       calendar,
-      :plus,
-      [year, month, day, date_part, count, [coerce: true]],
+      :shift,
+      [year, month, day, date_part, count, [clamp: true]],
       "a year, a month and a day",
       &date_fields?/1
     )
@@ -2109,13 +2091,16 @@ defmodule Localize.Calendar do
 
   @doc false
   # A value's calendar must answer Localize's questions: `Calendar.ISO`,
-  # answered for by Localize, or a calendar implementing the Calendrical
-  # behaviour. Any other calendar is refused where the value enters, rather
-  # than failing in a format.
+  # answered for by Localize, or a calendar of Calendrical's, which every
+  # calendar module declares with `info/0`. Any other calendar is refused
+  # where the value enters, rather than failing in a format. That a
+  # calendar answers every question is not checked here: it is checked in
+  # Calendrical's own test suite, for its calendars and for
+  # `Localize.Calendar.ISO` alike (user, 2026-10-17).
   @spec validate_calendar(term()) :: :ok | {:error, Exception.t()}
   def validate_calendar(%{calendar: calendar}) when calendar != Calendar.ISO do
     if is_atom(calendar) and Code.ensure_loaded?(calendar) and
-         Enum.all?(@answers, fn {name, arity} -> function_exported?(calendar, name, arity) end),
+         function_exported?(calendar, :info, 0),
        do: :ok,
        else: {:error, Localize.UnknownCalendarError.exception(calendar: calendar)}
   end
@@ -2174,20 +2159,6 @@ defmodule Localize.Calendar do
   end
 
   defp month_holding_days(calendar, year, month, value) do
-    if answers_days_of_a_month?(calendar) do
-      days_of_a_month(calendar, year, month, value)
-    else
-      impossible(:valid_date?, value, calendar)
-    end
-  end
-
-  defp answers_days_of_a_month?(calendar) do
-    answers = answering(calendar)
-
-    Code.ensure_loaded?(answers) and function_exported?(answers, :month, 2)
-  end
-
-  defp days_of_a_month(calendar, year, month, value) do
     case ask(calendar, :month, [year, month], "the days of a month", &match?(%Date.Range{}, &1)) do
       {:ok, _days} -> :ok
       {:error, _no_such_month} -> impossible(:valid_date?, value, calendar)
@@ -2265,11 +2236,10 @@ defmodule Localize.Calendar do
 
   @doc false
   # The CLDR month a date's month names, the index of its localized name,
-  # as its calendar answers: `month_of_year/3` then `cardinal_month/1`, and
-  # `{month, :leap}` for a leap month. A date without its day is taken on
-  # the first; one without its year has its month named by
-  # `cardinal_month/1` alone. `nil` when the date has no month, and an
-  # error when its calendar answers with something that is not a month.
+  # as its calendar answers (`cldr_month/2`), `{month, :leap}` for a leap
+  # month. A date without its year has its month named without one
+  # (`cardinal_month/1`). `nil` when the date has no month, and an error
+  # when its calendar answers with something that is not a month.
   @spec cldr_month(map()) ::
           Calendar.month() | {Calendar.month(), :leap} | nil | {:error, Exception.t()}
   def cldr_month(%{month: month} = date) when is_integer(month) do
@@ -2277,32 +2247,45 @@ defmodule Localize.Calendar do
     answers = answering(calendar)
 
     case date do
-      %{year: year} when is_integer(year) ->
-        day = Map.get(date, :day)
-        day = if is_integer(day), do: day, else: 1
-        cardinal(answers.month_of_year(year, month, day), answers, calendar)
-
-      _no_year ->
-        cardinal(month, answers, calendar)
+      %{year: year} when is_integer(year) -> a_month(answers.cldr_month(year, month), calendar)
+      _no_year -> a_month(answers.cardinal_month(month), calendar)
     end
   end
 
   def cldr_month(_date), do: nil
 
-  defp cardinal({month, :leap}, answers, calendar) when is_integer(month) do
-    with month when is_integer(month) <- cardinal(month, answers, calendar) do
-      {month, :leap}
+  @doc false
+  # The figure a date's month is written with, as its calendar's
+  # `written_date/3` writes it: its place in the year in the Hebrew calendar,
+  # as ICU writes it, the Gregorian month in a fiscal year, the traditional
+  # month in a lunisolar calendar, `{month, :leap}` for a leap month. A date
+  # without its day is written on the first; one without its year has its
+  # month named without one (`cardinal_month/1`). `nil` when the date has no
+  # month, and an error when its calendar answers with something that is not
+  # a month.
+  @spec written_month(map()) ::
+          Calendar.month() | {Calendar.month(), :leap} | nil | {:error, Exception.t()}
+  def written_month(%{month: month} = date) when is_integer(month) do
+    calendar = Map.get(date, :calendar, Calendar.ISO)
+    answers = answering(calendar)
+
+    case date do
+      %{year: year} when is_integer(year) ->
+        day = Map.get(date, :day)
+        day = if is_integer(day), do: day, else: 1
+        {_written_year, written_month, _written_day} = answers.written_date(year, month, day)
+        a_month(written_month, calendar)
+
+      _no_year ->
+        a_month(answers.cardinal_month(month), calendar)
     end
   end
 
-  defp cardinal(month, answers, calendar) when is_integer(month) do
-    case answers.cardinal_month(month) do
-      cardinal when is_integer(cardinal) -> cardinal
-      other -> not_a_month(other, calendar)
-    end
-  end
+  def written_month(_date), do: nil
 
-  defp cardinal(other, _answers, calendar), do: not_a_month(other, calendar)
+  defp a_month({month, :leap} = leap_month, _calendar) when is_integer(month), do: leap_month
+  defp a_month(month, _calendar) when is_integer(month), do: month
+  defp a_month(other, calendar), do: not_a_month(other, calendar)
 
   defp not_a_month(answer, calendar) do
     {:error,
