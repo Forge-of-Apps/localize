@@ -10,6 +10,7 @@ defmodule Localize.InflectionTest do
   doctest Localize.Inflection.Provider
   doctest Localize.Inflection.Quantify
   doctest Localize.Inflection.ConceptList
+  doctest Mix.Tasks.Localize.DownloadInflection
 
   # A locale is a well-formed identifier, never a path. "../" in one once
   # reached files outside the inflection data directory, loaded them, and

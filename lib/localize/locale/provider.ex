@@ -213,6 +213,13 @@ defmodule Localize.Locale.Provider do
   * `{:error, exception}` for the requested locale if the `:en`
     fallback fails too.
 
+  ### Examples
+
+      iex> {:ok, _data, locale_id} =
+      ...>   Localize.Locale.Provider.load_with_fallback(Localize.Locale.Provider.PersistentTerm, :en)
+      iex> locale_id
+      :en
+
   """
   @spec load_with_fallback(module(), locale()) ::
           {:ok, map(), locale_id()} | {:error, Exception.t()}
@@ -540,8 +547,16 @@ defmodule Localize.Locale.Provider do
   `Localize.Supervisor.start_link/1` at app start so misconfiguration
   surfaces immediately rather than at the first locale lookup.
 
-  Returns `:ok` for any valid configuration (including both keys
-  unset).
+  ### Returns
+
+  * `:ok` for any valid configuration, including both keys unset.
+
+  Raises `Localize.LocaleCacheDirError` for a malformed one.
+
+  ### Examples
+
+      iex> Localize.Locale.Provider.validate_locale_cache_dir!()
+      :ok
 
   """
   @spec validate_locale_cache_dir!() :: :ok
@@ -687,7 +702,16 @@ defmodule Localize.Locale.Provider do
 
   * `{:ok, binary}` with the raw downloaded file contents on success.
 
-  * `{:error, exception}` if the locale could not be downloaded.
+  * `{:error, exception}` if the locale could not be downloaded, or
+    `locale_id` is not an atom.
+
+  ### Examples
+
+  An atom is downloaded, so the example shows the one answer that needs
+  no network, for an identifier that is not an atom:
+
+      iex> Localize.Locale.Provider.download_locale("en") |> elem(0)
+      :error
 
   """
   @spec download_locale(locale_id()) ::
@@ -721,6 +745,9 @@ defmodule Localize.Locale.Provider do
          )}
     end
   end
+
+  def download_locale(locale_id),
+    do: {:error, Localize.Utils.Helpers.invalid_value(locale_id, "a locale identifier atom")}
 
   # ── Download integrity ───────────────────────────────────────────
   #

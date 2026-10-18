@@ -7,6 +7,8 @@ defmodule Localize.DateTime.AppendItemsTest do
 
   use ExUnit.Case, async: true
 
+  doctest Localize.DateTime.Format.AppendItems
+
   alias Localize.DateTime.Format.AppendItems
   alias Localize.DateTime.Format.Match
 

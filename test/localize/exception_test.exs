@@ -61,18 +61,5 @@ defmodule Localize.ExceptionTest do
                )
              ) =~ ":few"
     end
-
-    test "a missing dependency names the package and the operation" do
-      message =
-        Exception.message(
-          Localize.DependencyRequiredError.exception(
-            package: "calendrical",
-            operation: "parsing a date in the :japanese calendar"
-          )
-        )
-
-      assert message =~ "calendrical"
-      assert message =~ "parsing a date in the :japanese calendar"
-    end
   end
 end

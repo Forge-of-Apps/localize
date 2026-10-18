@@ -43,6 +43,12 @@ defmodule Localize.Locale.Provider.PersistentTerm do
 
   * `{:error, exception}` if the locale data cannot be obtained.
 
+  ### Examples
+
+      iex> {:ok, data} = Localize.Locale.Provider.PersistentTerm.load(:en)
+      iex> is_map(data.delimiters)
+      true
+
   """
   @impl Localize.Locale.Provider
   @dialyzer {:nowarn_function, load: 1}
@@ -128,6 +134,12 @@ defmodule Localize.Locale.Provider.PersistentTerm do
     room for the locale: keeping it would stop the VM. A VM started with a
     larger literal area, `+MIscs` and its size in megabytes, holds more.
 
+  ### Examples
+
+      iex> {:ok, data} = Localize.Locale.Provider.PersistentTerm.load(:en)
+      iex> Localize.Locale.Provider.PersistentTerm.store(:en, data)
+      :ok
+
   """
   @impl Localize.Locale.Provider
   @spec store(atom(), map()) :: :ok | {:error, Exception.t()}
@@ -164,6 +176,13 @@ defmodule Localize.Locale.Provider.PersistentTerm do
   * `true` if the locale data is stored in `:persistent_term`.
 
   * `false` otherwise.
+
+  ### Examples
+
+      iex> {:ok, data} = Localize.Locale.Provider.PersistentTerm.load(:en)
+      iex> :ok = Localize.Locale.Provider.PersistentTerm.store(:en, data)
+      iex> Localize.Locale.Provider.PersistentTerm.loaded?(:en)
+      true
 
   """
   @impl Localize.Locale.Provider
@@ -207,6 +226,13 @@ defmodule Localize.Locale.Provider.PersistentTerm do
   * `{:ok, value}` if the key path resolves to a value.
 
   * `{:error, reason}` if the key path cannot be resolved.
+
+  ### Examples
+
+      iex> {:ok, data} = Localize.Locale.Provider.PersistentTerm.load(:en)
+      iex> :ok = Localize.Locale.Provider.PersistentTerm.store(:en, data)
+      iex> Localize.Locale.Provider.PersistentTerm.get(:en, [:delimiters, :quotation_start])
+      {:ok, %{default: "“", variant: "‘"}}
 
   """
   @impl Localize.Locale.Provider

@@ -28,6 +28,14 @@ defmodule Localize.Unit.Conversion.Beaufort do
   Values are clamped to the range [0, 17]. Fractional Beaufort numbers
   are interpolated between adjacent midpoints.
 
+  ### Arguments
+
+  * `beaufort` is a Beaufort scale number.
+
+  ### Returns
+
+  * The speed in meters per second, as a float.
+
   ### Examples
 
       iex> Localize.Unit.Conversion.Beaufort.forward(0)
@@ -63,6 +71,14 @@ defmodule Localize.Unit.Conversion.Beaufort do
 
   Finds the Beaufort band whose midpoint range contains the given
   speed and interpolates within it. Negative speeds return `0.0`.
+
+  ### Arguments
+
+  * `mps` is a speed in meters per second.
+
+  ### Returns
+
+  * The Beaufort scale value, as a float.
 
   ### Examples
 

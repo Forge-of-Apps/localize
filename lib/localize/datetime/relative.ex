@@ -219,6 +219,10 @@ defmodule Localize.DateTime.Relative do
   @doc """
   Returns the list of known time units.
 
+  ### Returns
+
+  * The unit atoms the `:unit` option accepts.
+
   ### Examples
 
       iex> Localize.DateTime.Relative.known_units()

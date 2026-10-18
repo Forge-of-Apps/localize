@@ -100,6 +100,16 @@ defmodule Localize.Message.Sigils do
 
   * `u` — return a non-pretty-printed (compact) string.
 
+  ### Arguments
+
+  * `message` is the sigil's MF2 message string.
+
+  * `modifiers` is the sigil's modifiers, `p` or `u`.
+
+  ### Returns
+
+  * The canonically formatted message string.
+
   ### Examples
 
       iex> import Localize.Message.Sigils
@@ -158,6 +168,28 @@ defmodule Localize.Message.Sigils do
 
   See the `Localize.Message.Sigils` moduledoc for binding-derivation
   rules and a full example.
+
+  ### Arguments
+
+  * `message` is the sigil's MF2 message string, with any `#{expr}`
+    interpolations.
+
+  * `modifiers` must be empty.
+
+  ### Returns
+
+  * The quoted code that translates the message through the module's
+    Gettext backend at run time.
+
+  ### Examples
+
+  The sigil needs a Gettext backend, so the example is the shape of its
+  use rather than a doctest:
+
+      use Localize.Message.Sigils, backend: MyApp.Gettext
+
+      ~t"Hello #{name}!"
+
   """
   defmacro sigil_t({:<<>>, meta, pieces}, modifiers) do
     unless modifiers == [] do
@@ -199,6 +231,15 @@ defmodule Localize.Message.Sigils do
         which resolves to the backend's configured default domain.
 
       * `:context` — default Gettext message context. The default is `nil`.
+
+  ### Arguments
+
+  * `opts` is a keyword list of options.
+
+  ### Returns
+
+  * The quoted code that imports the sigils into the calling module
+    and records the backend and sigil options.
 
   ### Examples
 

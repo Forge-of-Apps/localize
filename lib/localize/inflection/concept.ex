@@ -313,6 +313,15 @@ defmodule Localize.Inflection.Concept do
   dictionary?". Use `Localize.Inflection.known?/2` to test
   dictionary membership.
 
+  ### Arguments
+
+  * `concept` is a concept from `new/3`.
+
+  ### Returns
+
+  * `true` when rendering produces a form, and `false` otherwise or
+    when `concept` is not a concept.
+
   ### Examples
 
       iex> {:ok, concept} = Localize.Inflection.Concept.new(:en, "cat", constraints: %{number: :plural})

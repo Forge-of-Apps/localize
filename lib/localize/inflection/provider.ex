@@ -47,11 +47,27 @@ defmodule Localize.Inflection.Provider do
   @doc """
   Returns the full pinned unicode-org/inflection commit SHA.
 
+  ### Returns
+
+  * The 40-character commit SHA, whose first 12 characters begin the
+    data version.
+
+  ### Examples
+
+      iex> sha = Localize.Inflection.Provider.upstream_sha()
+      iex> String.starts_with?(Localize.Inflection.Provider.data_version(), binary_part(sha, 0, 12))
+      true
+
   """
   def upstream_sha, do: @upstream_sha
 
   @doc """
   Returns the inflection data version.
+
+  ### Returns
+
+  * The first 12 characters of the pinned upstream commit and the data
+    revision, joined by `-r`.
 
   ### Examples
 
@@ -70,6 +86,15 @@ defmodule Localize.Inflection.Provider do
 
       config :localize, inflection_base_url: "https://mirror.example.com/inflection"
 
+  ### Returns
+
+  * The configured `:inflection_base_url`, or the Localize CDN's.
+
+  ### Examples
+
+      iex> Localize.Inflection.Provider.base_url()
+      "https://elixir-localize.com/inflection"
+
   """
   def base_url do
     Application.get_env(:localize, :inflection_base_url, @default_base_url)
@@ -78,6 +103,14 @@ defmodule Localize.Inflection.Provider do
   @doc """
   Returns the download URL for a data file of the current data
   version.
+
+  ### Arguments
+
+  * `file_name` is a file name such as "ru.etf".
+
+  ### Returns
+
+  * The file's URL under `base_url/0` and `data_version/0`.
 
   ### Examples
 
@@ -104,6 +137,14 @@ defmodule Localize.Inflection.Provider do
 
   * `{:ok, binary}` with the verified contents, or
     `{:error, exception}`.
+
+  ### Examples
+
+  A string name is downloaded, so the example shows the one answer that
+  needs no network, for a name that is not a string:
+
+      iex> Localize.Inflection.Provider.download_file(:ru) |> elem(0)
+      :error
 
   """
   def download_file(file_name) when is_binary(file_name) do

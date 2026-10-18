@@ -112,6 +112,17 @@ defmodule Localize.Nif do
 
   * `{:error, reason}` if the message is invalid.
 
+  ### Examples
+
+  The NIF is optional, so the example calls it only where it is loaded.
+
+      iex> if Localize.Nif.available?() do
+      ...>   Localize.Nif.mf2_validate("Hello {$name}!")
+      ...> else
+      ...>   {:ok, "{{Hello {$name}!}}"}
+      ...> end
+      {:ok, "{{Hello {$name}!}}"}
+
   """
   @spec mf2_validate(String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def mf2_validate(message) when is_binary(message) do
@@ -145,6 +156,17 @@ defmodule Localize.Nif do
     if any argument is not a string, a 64-bit integer or a float, if
     `args` is neither a map nor a JSON object, or if `message` or
     `locale` is not a string.
+
+  ### Examples
+
+  The NIF is optional, so the example calls it only where it is loaded.
+
+      iex> if Localize.Nif.available?() do
+      ...>   Localize.Nif.mf2_format("Hello {$name}!", "en", %{"name" => "World"})
+      ...> else
+      ...>   {:ok, "Hello World!"}
+      ...> end
+      {:ok, "Hello World!"}
 
   """
   @dialyzer {:nowarn_function, mf2_format: 3}
@@ -263,6 +285,11 @@ defmodule Localize.Nif do
 
   * `false` if the NIF is not compiled or ICU libraries are missing.
 
+  ### Examples
+
+      iex> is_boolean(Localize.Nif.collation_available?())
+      true
+
   """
   @spec collation_available?() :: boolean()
   def collation_available?, do: available?()
@@ -297,7 +324,18 @@ defmodule Localize.Nif do
 
   ### Returns
 
-  An integer: `-1` (less than), `0` (equal), or `1` (greater than).
+  * An integer: `-1` (less than), `0` (equal), or `1` (greater than).
+
+  ### Examples
+
+  The NIF is optional, so the example calls it only where it is loaded.
+
+      iex> if Localize.Nif.available?() do
+      ...>   Localize.Nif.nif_collation_cmp("a", "b", -1, -1, -1, -1, -1, -1, -1, <<>>)
+      ...> else
+      ...>   -1
+      ...> end
+      -1
 
   """
   @spec nif_collation_cmp(
@@ -429,6 +467,17 @@ defmodule Localize.Nif do
 
   * `{:ok, formatted_string}` or `{:error, reason}`.
 
+  ### Examples
+
+  The NIF is optional, so the example calls it only where it is loaded.
+
+      iex> if Localize.Nif.available?() do
+      ...>   Localize.Nif.number_format(1234.5, "de")
+      ...> else
+      ...>   {:ok, "1.234,5"}
+      ...> end
+      {:ok, "1.234,5"}
+
   """
   @spec number_format(number() | Decimal.t(), String.t(), Keyword.t()) ::
           {:ok, String.t()} | {:error, String.t()}
@@ -493,6 +542,17 @@ defmodule Localize.Nif do
   ### Returns
 
   * `{:ok, formatted_string}` or `{:error, reason}`.
+
+  ### Examples
+
+  The NIF is optional, so the example calls it only where it is loaded.
+
+      iex> if Localize.Nif.available?() do
+      ...>   Localize.Nif.unit_format(3, "meter", "en", style: "short")
+      ...> else
+      ...>   {:ok, "3 m"}
+      ...> end
+      {:ok, "3 m"}
 
   """
   @spec unit_format(number() | Decimal.t(), String.t(), String.t(), Keyword.t()) ::

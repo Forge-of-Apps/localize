@@ -428,6 +428,25 @@ defmodule Localize.Inflection.PronounConcept do
   @doc """
   Removes a constraint from the concept.
 
+  ### Arguments
+
+  * `concept` is a pronoun concept from `new/2`.
+
+  * `name` is the grammatical feature to remove, such as `:person`.
+
+  ### Returns
+
+  * The concept without the constraint, or
+
+  * `{:error, exception}` when `concept` is not a pronoun concept.
+
+  ### Examples
+
+      iex> {:ok, concept} = Localize.Inflection.PronounConcept.new(:en)
+      iex> {:ok, concept} = Localize.Inflection.PronounConcept.put_constraint(concept, :person, :first)
+      iex> concept |> Localize.Inflection.PronounConcept.clear_constraint(:person) |> Localize.Inflection.PronounConcept.to_speakable_string()
+      "they"
+
   """
   def clear_constraint(%__MODULE__{} = concept, name) do
     %{concept | constraints: Map.delete(concept.constraints, Feature.to_internal(name))}
@@ -440,6 +459,16 @@ defmodule Localize.Inflection.PronounConcept do
 
   @doc """
   Removes all constraints from the concept.
+
+  ### Arguments
+
+  * `concept` is a pronoun concept from `new/2`.
+
+  ### Returns
+
+  * The concept without constraints, or
+
+  * `{:error, exception}` when `concept` is not a pronoun concept.
 
   ### Examples
 
@@ -496,6 +525,22 @@ defmodule Localize.Inflection.PronounConcept do
   Returns true when a pronoun matches the constraints without
   falling back to the default entry.
 
+  ### Arguments
+
+  * `concept` is a pronoun concept from `new/2`.
+
+  ### Returns
+
+  * `true` when a pronoun matches, and `false` otherwise or when
+    `concept` is not a pronoun concept.
+
+  ### Examples
+
+      iex> {:ok, concept} = Localize.Inflection.PronounConcept.new(:en)
+      iex> {:ok, concept} = Localize.Inflection.PronounConcept.put_constraint(concept, :person, :first)
+      iex> Localize.Inflection.PronounConcept.exists?(concept)
+      true
+
   """
   def exists?(%__MODULE__{} = concept) do
     current_value(concept, nil, false, true) != nil
@@ -506,6 +551,28 @@ defmodule Localize.Inflection.PronounConcept do
   @doc """
   Returns true when a custom display-data entry matches the
   constraints.
+
+  ### Arguments
+
+  * `concept` is a pronoun concept from `new/2`.
+
+  ### Returns
+
+  * `true` when an entry of the concept's `:display_data` matches,
+    and `false` otherwise or when `concept` is not a pronoun concept.
+
+  ### Examples
+
+      iex> {:ok, concept} =
+      ...>   Localize.Inflection.PronounConcept.new(:en,
+      ...>     display_data: [{"xe", %{person: :third, number: :singular}}]
+      ...>   )
+      iex> {:ok, third} = Localize.Inflection.PronounConcept.put_constraint(concept, :person, :third)
+      iex> Localize.Inflection.PronounConcept.custom_match?(third)
+      true
+      iex> {:ok, first} = Localize.Inflection.PronounConcept.put_constraint(concept, :person, :first)
+      iex> Localize.Inflection.PronounConcept.custom_match?(first)
+      false
 
   """
   def custom_match?(%__MODULE__{} = concept) do
@@ -529,7 +596,14 @@ defmodule Localize.Inflection.PronounConcept do
   ### Returns
 
   * A speakable string (a binary, or `{print, speak}`), or nil when
-    no pronoun matches.
+    no pronoun matches or `concept` is not a pronoun concept.
+
+  ### Examples
+
+      iex> {:ok, concept} = Localize.Inflection.PronounConcept.new(:en)
+      iex> {:ok, concept} = Localize.Inflection.PronounConcept.put_constraint(concept, :person, :first)
+      iex> Localize.Inflection.PronounConcept.to_speakable_string(concept)
+      "I"
 
   """
   def to_speakable_string(concept, referenced_concept \\ nil)

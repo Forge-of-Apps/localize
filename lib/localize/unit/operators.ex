@@ -52,6 +52,22 @@ defmodule Localize.Unit.Operators do
   calling module, excluding the corresponding `Kernel` operators
   from the default import so the overrides take effect.
 
+  ### Arguments
+
+  * `options` is ignored.
+
+  ### Returns
+
+  * The quoted code that imports the operators.
+
+  ### Examples
+
+      defmodule MyApp.Physics do
+        use Localize.Unit.Operators
+
+        def distance(speed, time), do: speed * time
+      end
+
   """
   defmacro __using__(_options) do
     quote do

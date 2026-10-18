@@ -42,6 +42,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * The parse functions no longer take `:return_calendar`. Use `Date.convert/2` on the result.
 
+* `Localize.DependencyRequiredError` is removed. Nothing returns it, since Localize no longer reaches for Calendrical by name.
+
 * A numeric month is written as the calendar writes it (`written_date/3`): a Hebrew common year's Adar is "6", as ICU writes it, where it was "7".
 
 * `y` in the Chinese and Dangi calendars is the year's place in the 60-year cycle: the year that began in 2026 is "43", where it was "4663". `u` writes the year's number.

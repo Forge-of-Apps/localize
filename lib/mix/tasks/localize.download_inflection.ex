@@ -95,10 +95,28 @@ defmodule Mix.Tasks.Localize.DownloadInflection do
 
   Accepts locale identifiers in any form; regional locales map to
   their parent language (`en-AU` → `en`) and locales the inflection
-  project does not support are skipped. Returns the number of failed
-  downloads (0 on success). Shared with
+  project does not support are skipped. Shared with
   `mix localize.download_locales`, which downloads inflection data
   alongside the locale data so one command provisions both.
+
+  ### Arguments
+
+  * `locale_names` is a list of locale identifiers.
+
+  * `force?` downloads files already present when `true`. The default
+    is `false`.
+
+  ### Returns
+
+  * The number of failed downloads, `0` when every download succeeded.
+
+  ### Examples
+
+  A locale the inflection project does not support is skipped, so
+  nothing is downloaded:
+
+      iex> Mix.Tasks.Localize.DownloadInflection.download_for(["zz"])
+      0
 
   """
   def download_for(locale_names, force? \\ false) do

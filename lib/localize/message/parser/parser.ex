@@ -348,6 +348,32 @@ defmodule Localize.Message.Parser do
     |> eos()
     |> label("an MF2 message")
 
+  @doc """
+  Parses a MessageFormat 2 message string with the NimbleParsec
+  combinator that `parse/1` wraps.
+
+  ### Arguments
+
+  * `binary` is a MF2 message string.
+
+  * `options` is a keyword list of NimbleParsec options. The default
+    is `[]`.
+
+  ### Returns
+
+  * `{:ok, ast, rest, context, position, byte_offset}` on success.
+
+  * `{:error, reason, rest, context, position, byte_offset}` when the
+    text is not a message.
+
+  ### Examples
+
+      iex> {:ok, ast, "", _context, _position, _offset} =
+      ...>   Localize.Message.Parser.message("{{Hello}}")
+      iex> ast
+      [{:complex, [], {:quoted_pattern, [text: "Hello"]}}]
+
+  """
   defparsec(:message, message_v)
 
   # parsec:Localize.Message.Parser

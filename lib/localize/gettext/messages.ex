@@ -17,19 +17,6 @@ defmodule Localize.Gettext.Messages do
   def __messages__ do
     [
       # Currency
-      # Dependencies
-      Gettext.Macros.dpgettext_noop_with_backend(
-        Localize.Gettext,
-        "localize",
-        "datetime",
-        "{$operation} requires the {$package} package, which is not among your dependencies."
-      ),
-      Gettext.Macros.dpgettext_noop_with_backend(
-        Localize.Gettext,
-        "localize",
-        "datetime",
-        "Text of {$input_length} bytes is longer than the {$max_length} bytes a date and time is read from."
-      ),
       Gettext.Macros.dpgettext_noop_with_backend(
         Localize.Gettext,
         "localize",
@@ -50,6 +37,12 @@ defmodule Localize.Gettext.Messages do
       ),
 
       # DateTime
+      Gettext.Macros.dpgettext_noop_with_backend(
+        Localize.Gettext,
+        "localize",
+        "datetime",
+        "Text of {$input_length} bytes is longer than the {$max_length} bytes a date and time is read from."
+      ),
       Gettext.Macros.dpgettext_noop_with_backend(
         Localize.Gettext,
         "localize",

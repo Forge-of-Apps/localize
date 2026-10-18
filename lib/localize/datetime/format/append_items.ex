@@ -113,6 +113,14 @@ defmodule Localize.DateTime.Format.AppendItems do
 
   * `{:error, exception}` if the locale's data cannot be read.
 
+  ### Examples
+
+  `en` has no format with a quarter, so the closest match takes the
+  locale's append item for it:
+
+      iex> Localize.DateTime.Format.AppendItems.augment(:yMMMdQ, :en, :gregorian)
+      {:ok, "MMM d, y ('quarter': Q)"}
+
   """
   @spec augment(atom() | String.t(), Localize.locale(), atom(), Keyword.t()) ::
           {:ok, String.t()} | :error | {:error, Exception.t()}
@@ -285,6 +293,14 @@ defmodule Localize.DateTime.Format.AppendItems do
   * `:error` when the skeleton cannot be resolved at all.
 
   * `{:error, exception}` if the locale's data cannot be read.
+
+  ### Examples
+
+      iex> Localize.DateTime.Format.AppendItems.resolve_pattern(:yMMMd, :en, :gregorian)
+      {:ok, "MMM d, y"}
+
+      iex> Localize.DateTime.Format.AppendItems.resolve_pattern(:yMMMdQ, :en, :gregorian)
+      {:ok, "MMM d, y ('quarter': Q)"}
 
   """
   @spec resolve_pattern(atom() | String.t(), Localize.locale(), atom(), Keyword.t()) ::

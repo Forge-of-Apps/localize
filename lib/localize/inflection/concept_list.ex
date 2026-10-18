@@ -119,7 +119,18 @@ defmodule Localize.Inflection.ConceptList do
   @doc """
   Builds an or-list of concepts.
 
-  See `and_list/2` for arguments and returns.
+  ### Arguments
+
+  * `locale` is a locale atom or string, canonically BCP47.
+
+  * `concepts` is a list of `Localize.Inflection.Concept` or
+    nested `Localize.Inflection.ConceptList` members; nil members
+    are dropped.
+
+  ### Returns
+
+  * `{:ok, list}` or `{:error, exception}` when the locale's list
+    patterns are unavailable.
 
   ### Examples
 
@@ -303,6 +314,25 @@ defmodule Localize.Inflection.ConceptList do
     string unsets the field, re-enabling any language-specific
     dynamic conjunction.
 
+  ### Returns
+
+  * The concept list with the field set, or
+
+  * `{:error, exception}` when `field` is not a separator field or
+    `list` is not a concept list.
+
+  ### Examples
+
+      iex> concepts =
+      ...>   for word <- ["Jane", "Omar"] do
+      ...>     {:ok, concept} = Localize.Inflection.Concept.new(:es, word)
+      ...>     concept
+      ...>   end
+      iex> {:ok, list} = Localize.Inflection.ConceptList.plain_list(:es, concepts)
+      iex> list = Localize.Inflection.ConceptList.put_separator(list, :item_delimiter, " / ")
+      iex> Localize.Inflection.ConceptList.to_speakable_string(list)
+      "Jane / Omar"
+
   """
   def put_separator(%__MODULE__{} = list, field, value)
       when field in [
@@ -385,12 +415,48 @@ defmodule Localize.Inflection.ConceptList do
   @doc """
   Returns the number of members.
 
+  ### Arguments
+
+  * `list` is a concept list.
+
+  ### Returns
+
+  * The number of members, or
+
+  * `{:error, exception}` when `list` is not a concept list.
+
+  ### Examples
+
+      iex> concepts =
+      ...>   for word <- ["Jane", "Omar"] do
+      ...>     {:ok, concept} = Localize.Inflection.Concept.new(:es, word)
+      ...>     concept
+      ...>   end
+      iex> {:ok, list} = Localize.Inflection.ConceptList.and_list(:es, concepts)
+      iex> Localize.Inflection.ConceptList.size(list)
+      2
+
   """
   def size(%__MODULE__{concepts: concepts}), do: length(concepts)
   def size(list), do: {:error, invalid_list(list)}
 
   @doc """
   Returns true when the list has at least one member.
+
+  ### Arguments
+
+  * `list` is a concept list.
+
+  ### Returns
+
+  * `true` when the list has a member, and `false` when it is empty
+    or is not a concept list.
+
+  ### Examples
+
+      iex> {:ok, list} = Localize.Inflection.ConceptList.and_list(:es, [])
+      iex> Localize.Inflection.ConceptList.exists?(list)
+      false
 
   """
   def exists?(%__MODULE__{concepts: concepts}), do: concepts != []
@@ -401,6 +467,33 @@ defmodule Localize.Inflection.ConceptList do
 
   @doc """
   Puts a constraint on every member and records it on the list.
+
+  ### Arguments
+
+  * `list` is a concept list.
+
+  * `name` is a grammatical feature, such as `:number` or `:gender`.
+
+  * `value` is the feature's value, such as `:plural`.
+
+  ### Returns
+
+  * `{:ok, list}` with every member constrained, or
+
+  * `{:error, exception}` when a member cannot take the constraint or
+    `list` is not a concept list.
+
+  ### Examples
+
+      iex> concepts =
+      ...>   for word <- ["Jane", "Omar"] do
+      ...>     {:ok, concept} = Localize.Inflection.Concept.new(:es, word)
+      ...>     concept
+      ...>   end
+      iex> {:ok, list} = Localize.Inflection.ConceptList.and_list(:es, concepts)
+      iex> {:ok, list} = Localize.Inflection.ConceptList.put_constraint(list, :number, :plural)
+      iex> Localize.Inflection.ConceptList.to_speakable_string(list)
+      "Janes y Omares"
 
   """
   def put_constraint(%__MODULE__{} = list, name, value) do
@@ -425,6 +518,28 @@ defmodule Localize.Inflection.ConceptList do
   A grammatical category (number, gender, case, ...) returns the
   first member's value; a display feature renders the whole list
   with each member replaced by its feature value.
+
+  ### Arguments
+
+  * `list` is a concept list.
+
+  * `name` is the feature, such as `:number`.
+
+  ### Returns
+
+  * The feature's value, or `nil` when the list is empty or is not a
+    concept list.
+
+  ### Examples
+
+      iex> concepts =
+      ...>   for word <- ["Jane", "Omar"] do
+      ...>     {:ok, concept} = Localize.Inflection.Concept.new(:es, word)
+      ...>     concept
+      ...>   end
+      iex> {:ok, list} = Localize.Inflection.ConceptList.and_list(:es, concepts)
+      iex> Localize.Inflection.ConceptList.feature_value(list, :number)
+      :singular
 
   """
   def feature_value(%__MODULE__{concepts: []}, _name), do: nil
@@ -451,9 +566,26 @@ defmodule Localize.Inflection.ConceptList do
   @doc """
   Renders the list with locale-correct separators.
 
+  ### Arguments
+
+  * `list` is a concept list.
+
   ### Returns
 
-  * A speakable string, or nil when the list is empty.
+  * A speakable string, or `nil` when the list is empty, or
+
+  * `{:error, exception}` when `list` is not a concept list.
+
+  ### Examples
+
+      iex> concepts =
+      ...>   for word <- ["Jane", "Omar"] do
+      ...>     {:ok, concept} = Localize.Inflection.Concept.new(:es, word)
+      ...>     concept
+      ...>   end
+      iex> {:ok, list} = Localize.Inflection.ConceptList.and_list(:es, concepts)
+      iex> Localize.Inflection.ConceptList.to_speakable_string(list)
+      "Jane y Omar"
 
   """
   def to_speakable_string(%__MODULE__{} = list) do

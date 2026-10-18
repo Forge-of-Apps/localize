@@ -97,7 +97,33 @@ defmodule Localize.Inflection.Inflector do
   @doc """
   Inflects a word without trying case variants.
 
-  See `inflect/5` for arguments and options.
+  ### Arguments
+
+  * `locale` is any locale atom for which data has been generated.
+
+  * `word` is the word to inflect, matched as written.
+
+  * `word_grammemes` is the combined grammeme mask for `word`.
+
+  * `constraints` is a list of grammeme names to inflect to, such
+    as `["plural"]`.
+
+  * `options` is a keyword list of options.
+
+  ### Options
+
+  * The options of `inflect/5`.
+
+  ### Returns
+
+  * `{:ok, inflected}` or `:error` when the word cannot be
+    inflected to the constraints.
+
+  ### Examples
+
+      iex> grammemes = Localize.Inflection.Dictionary.combined_grammemes(:en, "cat")
+      iex> Localize.Inflection.Inflector.inflect_word(:en, "cat", grammemes, ["plural"], [])
+      {:ok, "cats"}
 
   """
   def inflect_word(_locale, _word, 0, _constraints, _options), do: :error
@@ -152,8 +178,40 @@ defmodule Localize.Inflection.Inflector do
   Reinflects a surface form within one pattern from its current
   grammemes to the target constraint mask.
 
-  Returns `{:ok, inflected}` or `:error` when the pattern has no
-  row satisfying the constraints.
+  ### Arguments
+
+  * `pattern` is a pattern map from
+    `Localize.Inflection.Dictionary.patterns_for_word/2`.
+
+  * `from_grammemes` is the grammeme mask of the reading the surface
+    form has.
+
+  * `to_mask` is the grammeme mask to inflect to; `0` returns the
+    surface form unchanged.
+
+  * `optional_masks` is a list of grammeme masks preferred but not
+    required in the target row. The default is `[]`.
+
+  * `surface_form` is the word as written.
+
+  * `tie_break` is `:first` to keep the first of equally scored rows or
+    `:last` to take the last. The default is `:first`.
+
+  ### Returns
+
+  * `{:ok, inflected}` or `:error` when the pattern has no row
+    satisfying the constraints.
+
+  ### Examples
+
+      iex> [pattern] =
+      ...>   for pattern <- Localize.Inflection.Dictionary.patterns_for_word(:en, "cats"),
+      ...>       "noun" in Localize.Inflection.Dictionary.property_names(:en, pattern.pos_mask),
+      ...>       do: pattern
+      iex> from = Localize.Inflection.Dictionary.binary_properties(:en, ["noun", "plural"])
+      iex> to = Localize.Inflection.Dictionary.binary_properties(:en, ["singular"])
+      iex> Localize.Inflection.Inflector.reinflect(pattern, from, to, "cats")
+      {:ok, "cat"}
 
   """
   def reinflect(

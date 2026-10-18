@@ -69,6 +69,14 @@ defmodule Localize.Locale.Provider.Cache do
   * `{:error, Localize.LocaleNotFoundInCacheError.t()}` if the
     cache file is not present.
 
+  * `{:error, exception}` if `locale_id` is not an atom.
+
+  ### Examples
+
+      iex> {:error, error} = Localize.Locale.Provider.Cache.get(:"zz-ZZ")
+      iex> error.__struct__
+      Localize.LocaleNotFoundInCacheError
+
   """
   @spec get(locale_id()) ::
           {:ok, map()} | {:error, Exception.t()}
@@ -86,6 +94,9 @@ defmodule Localize.Locale.Provider.Cache do
 
     read_first(locale_id, search_paths)
   end
+
+  def get(locale_id),
+    do: {:error, Localize.Utils.Helpers.invalid_value(locale_id, "a locale identifier atom")}
 
   defp read_first(locale_id, [file_path]) do
     read_and_validate(locale_id, file_path)
@@ -193,6 +204,17 @@ defmodule Localize.Locale.Provider.Cache do
 
   * `{:error, Localize.LocaleCacheWriteError.t()}` on failure.
 
+  * `{:error, exception}` if `locale_id` is not an atom or `content`
+    is not a binary.
+
+  ### Examples
+
+  A store writes the cache file, so the example shows the answer that
+  writes nothing, for content that is not a binary:
+
+      iex> Localize.Locale.Provider.Cache.store(:en, :not_a_binary) |> elem(0)
+      :error
+
   """
   @spec store(locale_id(), binary()) ::
           {:ok, String.t()} | {:error, Exception.t()}
@@ -223,6 +245,12 @@ defmodule Localize.Locale.Provider.Cache do
          )}
     end
   end
+
+  def store(locale_id, content) when is_atom(locale_id),
+    do: {:error, Localize.Utils.Helpers.invalid_value(content, "a binary of locale data")}
+
+  def store(locale_id, _content),
+    do: {:error, Localize.Utils.Helpers.invalid_value(locale_id, "a locale identifier atom")}
 
   defp written_atomically(dir, temp_path, file_path, content) do
     with :ok <- File.mkdir_p(dir),

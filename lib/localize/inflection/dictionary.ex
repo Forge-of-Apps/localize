@@ -56,7 +56,17 @@ defmodule Localize.Inflection.Dictionary do
 
   Names unknown to the locale are skipped, as upstream: the Arabic
   definiteness lookup asks for "definite" although no dictionary
-  entry carries it. Returns nil when none of the names are known.
+  entry carries it.
+
+  ### Arguments
+
+  * `locale` is a locale identifier.
+
+  * `names` is a list of grammeme names, such as `["noun", "plural"]`.
+
+  ### Returns
+
+  * The combined bitmask, or `nil` when none of the names is known.
 
   ### Examples
 
@@ -90,8 +100,18 @@ defmodule Localize.Inflection.Dictionary do
   end
 
   @doc """
-  Returns the grammeme name for a mask with exactly one bit set,
-  or nil otherwise.
+  Returns the grammeme name for a mask with exactly one bit set.
+
+  ### Arguments
+
+  * `locale` is a locale identifier.
+
+  * `mask` is a grammeme bitmask.
+
+  ### Returns
+
+  * The grammeme name, or `nil` when `mask` does not have exactly one
+    bit set or names no grammeme of the locale.
 
   ### Examples
 
@@ -123,6 +143,23 @@ defmodule Localize.Inflection.Dictionary do
   @doc """
   Returns the list of grammeme names present in `mask`.
 
+  ### Arguments
+
+  * `locale` is a locale identifier.
+
+  * `mask` is a grammeme bitmask.
+
+  ### Returns
+
+  * A list of grammeme names, empty where the locale has no
+    inflection data.
+
+  ### Examples
+
+      iex> mask = Localize.Inflection.Dictionary.binary_properties(:en, ["noun", "plural"])
+      iex> Enum.sort(Localize.Inflection.Dictionary.property_names(:en, mask))
+      ["noun", "plural"]
+
   """
   def property_names(locale, mask) when is_integer(mask) do
     case Data.metadata(locale) do
@@ -139,6 +176,27 @@ defmodule Localize.Inflection.Dictionary do
   @doc """
   Returns true if the word has all the properties in `mask`.
 
+  ### Arguments
+
+  * `locale` is a locale identifier.
+
+  * `word` is the word to look up.
+
+  * `mask` is a grammeme bitmask.
+
+  ### Returns
+
+  * `true` when the word's combined grammemes include every bit of
+    `mask`, and `false` otherwise or when the word is unknown.
+
+  ### Examples
+
+      iex> mask = Localize.Inflection.Dictionary.binary_properties(:en, ["noun", "plural"])
+      iex> Localize.Inflection.Dictionary.has_all_properties?(:en, "cats", mask)
+      true
+      iex> Localize.Inflection.Dictionary.has_all_properties?(:en, "xyzzy", mask)
+      false
+
   """
   def has_all_properties?(locale, word, mask) when is_integer(mask) do
     case combined_grammemes(locale, word) do
@@ -150,8 +208,26 @@ defmodule Localize.Inflection.Dictionary do
   def has_all_properties?(_locale, _word, _mask), do: false
 
   @doc """
-  Returns the inflection patterns for a word as a list of pattern
-  maps, or [] if the word is unknown or uninflectable.
+  Returns the inflection patterns for a word.
+
+  ### Arguments
+
+  * `locale` is a locale identifier.
+
+  * `word` is the word to look up.
+
+  ### Returns
+
+  * A list of pattern maps, each with `:name`, `:inflections`,
+    `:pos_mask` and `:lemma_suffix`, or `[]` when the word is unknown
+    or uninflectable.
+
+  ### Examples
+
+      iex> length(Localize.Inflection.Dictionary.patterns_for_word(:en, "cats"))
+      2
+      iex> Localize.Inflection.Dictionary.patterns_for_word(:en, "xyzzy")
+      []
 
   """
   def patterns_for_word(locale, word) do
@@ -171,7 +247,25 @@ defmodule Localize.Inflection.Dictionary do
   A word that belongs to inflection patterns gets one grammeme set
   per matching inflection row (the row grammemes combined with the
   pattern part of speech). A word without patterns returns its
-  combined grammemes as the single set. Unknown words return [].
+  combined grammemes as the single set.
+
+  ### Arguments
+
+  * `locale` is a locale identifier.
+
+  * `word` is the word to look up.
+
+  ### Returns
+
+  * A list of grammeme bitmasks, one for each reading, or `[]` when
+    the word is unknown.
+
+  ### Examples
+
+      iex> for set <- Localize.Inflection.Dictionary.grammeme_sets(:en, "cats") do
+      ...>   Enum.sort(Localize.Inflection.Dictionary.property_names(:en, set))
+      ...> end
+      [["present", "simple", "singular", "third", "verb"], ["noun", "plural"]]
 
   """
   def grammeme_sets(locale, word) do
@@ -211,6 +305,27 @@ defmodule Localize.Inflection.Dictionary do
   Only rows whose grammemes are a subset of `from_grammemes` and
   whose suffix is a suffix of the surface form qualify; among those,
   only the rows with the longest matching suffix are returned.
+
+  ### Arguments
+
+  * `surface_form` is the word as written.
+
+  * `from_grammemes` is the word's combined grammeme bitmask.
+
+  * `pattern` is a pattern map from `patterns_for_word/2`.
+
+  ### Returns
+
+  * A list of `{grammemes, suffix}` rows, or `[]` when none qualifies.
+
+  ### Examples
+
+      iex> [pattern | _rest] = Localize.Inflection.Dictionary.patterns_for_word(:en, "cats")
+      iex> grammemes = Localize.Inflection.Dictionary.combined_grammemes(:en, "cats")
+      iex> for {_grammemes, suffix} <-
+      ...>       Localize.Inflection.Dictionary.matching_inflections("cats", grammemes, pattern),
+      ...>     do: suffix
+      ["s"]
 
   """
   def matching_inflections(surface_form, from_grammemes, %{inflections: inflections})

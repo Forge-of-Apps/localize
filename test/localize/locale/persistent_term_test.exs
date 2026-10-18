@@ -11,6 +11,8 @@ defmodule Localize.Locale.PersistentTermTest do
 
   alias Localize.Locale
 
+  doctest Localize.Locale.Provider.PersistentTerm
+
   # pt names Brasília's short zone names; pt-PT, whose parent it is, does not.
   @parent_only_key [:dates, :time_zone_names, :metazone, :brasilia, :short, :standard]
   @grandparent_only_key [:subdivisions, :twcyi]

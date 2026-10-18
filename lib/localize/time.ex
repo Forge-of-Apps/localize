@@ -337,6 +337,16 @@ defmodule Localize.Time do
   @doc """
   Same as `hour_format_from_locale/1` but raises on error.
 
+  ### Arguments
+
+  * `locale` is a locale identifier or a `t:Localize.LanguageTag.t/0`.
+
+  ### Returns
+
+  * `:h11`, `:h12`, `:h23` or `:h24`.
+
+  Raises the exception `hour_format_from_locale/1` returns.
+
   ### Examples
 
       iex> Localize.Time.hour_format_from_locale!(:ja)
