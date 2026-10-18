@@ -2,6 +2,10 @@
 
 This guide covers the practical use of `Localize.Inflection`: inflecting words and phrases, querying grammatical features, and selecting pronouns. If you are new to grammatical inflection itself, start with [What is inflection?](https://hexdocs.pm/localize/what_is_inflection.html).
 
+> #### Inflection is a technical preview {: .warning}
+>
+> Its API may change in a minor release, and it covers only the 48 languages the Unicode inflection project publishes data for.
+
 ## Inflection data
 
 Inflection is part of Localize, and its data is optional: nothing is downloaded unless you ask for it. Each locale ships as a single `<locale>.etf` carrying its dictionary, grammatical metadata, and pronoun table, built from the [Unicode inflection project](https://github.com/unicode-org/inflection) at a pinned commit.

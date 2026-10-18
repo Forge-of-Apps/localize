@@ -10,6 +10,11 @@ defmodule Localize.Inflection do
   queried, for use with grammar-dependent message selection such as
   MessageFormat 2 `.match` selectors.
 
+  > #### Inflection is a technical preview {: .warning}
+  >
+  > Its API may change in a minor release, and it covers only the 48
+  > languages the Unicode inflection project publishes data for.
+
   ### Examples
 
       iex> Localize.Inflection.inflect("light on the patio", :en, number: :plural)

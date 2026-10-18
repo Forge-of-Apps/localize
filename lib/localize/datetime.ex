@@ -1149,8 +1149,8 @@ defmodule Localize.DateTime do
     calendar's own, as its `date_from_week_date/3` answers: ISO 8601's
     week for `Calendar.ISO`, and the fifth week of its own year for a
     calendar built of weeks. Text that none of the calendar's own
-    formats reads is read in the calendar its `parsing_calendar/0`
-    names, and converted, as `Localize.Date.parse/2` reads a date. A
+    formats reads is read in the calendar its `info/0` names as
+    `:parsing_calendar`, and converted, as `Localize.Date.parse/2` reads a date. A
     calendar's own formats come before ISO 8601: a year, a
     month and a day between hyphens that any of them reads, as CLDR's
     root short date of the Chinese calendar does (`r-MM-dd`), and a time

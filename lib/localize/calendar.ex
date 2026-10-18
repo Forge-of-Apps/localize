@@ -722,8 +722,8 @@ defmodule Localize.Calendar do
   @doc """
   Returns a localized string for a part of a date or time.
 
-  A month is named by its calendar: `month_of_year/3` gives its month of
-  the year and `cardinal_month/1` the CLDR month whose name it takes, so
+  A month is named by its calendar: its `cldr_month/2` gives the CLDR
+  month whose name it takes, so
   a year that begins in July names its first month July, and the Hebrew
   and lunisolar calendars name each month whatever its place in the
   year. A leap month takes CLDR's leap-year name for its month (the
@@ -1686,11 +1686,11 @@ defmodule Localize.Calendar do
 
   @doc false
   # The CLDR calendar whose data names a date's months and days: the
-  # calendar's answer for the date where it gives one, through the optional
-  # `cldr_calendar_type/3` (a composite calendar answers with the calendar in
-  # effect on the date, so the Japanese composite names its lunisolar months
-  # from the Chinese calendar and its later months from the Japanese), and
-  # otherwise its `cldr_calendar_type/0`. A date without its month or day is
+  # calendar's answer for the date, its `cldr_calendar_type/3` (a composite
+  # calendar answers with the calendar in effect on the date, so the Japanese
+  # composite names its lunisolar months from the Chinese calendar and its
+  # later months from the Japanese), and otherwise the type its `info/0`
+  # gives. A date without its month or day is
   # asked on the first. A value without a year has only the calendar's type.
   @spec date_calendar_type(term()) :: atom()
   def date_calendar_type(%{year: year} = date) when is_integer(year) do
@@ -1746,9 +1746,9 @@ defmodule Localize.Calendar do
 
   @doc false
   # The calendars whose formats a date written for `calendar` is read with,
-  # in turn: itself, and then any it names besides with the optional
+  # in turn: itself, and then any it names besides with its
   # `parsing_calendars/0`. Text none of them reads is read in the calendar
-  # its `parsing_calendar/0` names (`parsing_calendar/1`), which must be
+  # its `info/0` names as `:parsing_calendar` (`parsing_calendar/1`), which must be
   # one Localize can ask. A composite calendar writes the dates of
   # each of its calendars with that calendar's formats, its
   # `cldr_calendar_type/3` answering for a date: `Calendrical.Reform.Japan`

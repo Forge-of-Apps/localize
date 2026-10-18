@@ -1330,10 +1330,9 @@ defmodule Localize.DateTime.Formatter do
 
   def standalone_month(_date, _count, _locale_id, _options), do: ""
 
-  # A month's number is the CLDR month its name uses, as its calendar answers
-  # through `month_of_year/3` and `cardinal_month/1`: a fiscal year's first
-  # month is its month of the year it begins in, and a Hebrew common year's
-  # Adar is 7, CLDR's number for it, where ICU writes its place in the year.
+  # A month's number is the one its calendar writes the date with, as
+  # `written_date/3` gives it: a Hebrew common year's Adar is 6, its place in
+  # the year as ICU writes it, while its name stays CLDR's.
   # A leap month is written in CLDR's numeric leap pattern where the calendar
   # has one, so the leap second month is "2bis" in `en` and "闰2" in `zh`.
   defp numeric_month(date, count, locale_id, options, field) do

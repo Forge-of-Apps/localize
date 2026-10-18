@@ -6,25 +6,121 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [1.4.0] — Unreleased
 
+### Release notes
+
+1. Built on CLDR 49 and Unicode 18. CLDR 49 no longer publishes 114 locales below Basic coverage, collation follows UCA 18, and its new data is supported, from dual and UTC offset formats to new units and the Unicode 18 currency signs.
+
+2. Significant work on date and time formatting towards TR35: semantic skeletons, append items, qualified metazone names, cyclic years, and a calendar's own weeks and quarters. Many outputs change; see the breaking changes below.
+
+3. Date, time, date-time and interval parsing move from Calendrical into Localize, so an application that uses only the proleptic Gregorian calendar no longer needs Calendrical.
+
+4. Time zones are parsed and resolved by `Localize.DateTime.Timezone.parse_zone/2`, `resolve/3` and `parse_offset/2`, and `Localize.TimeZoneDatabase` handles fixed offsets.
+
+5. Calendars other than `Calendar.ISO` come from Calendrical 2.0, which ships the same day, and a locale's `-u-ca-` converts a value into its calendar.
+
+6. `Localize.Inflection` is added as a technical preview: inflected words, pronouns and quantities, MessageFormat 2's `i:` functions and inflected units.
+
+7. CLDR 49's ordinal days and numeric date and time separators are supported as technical previews.
+
+8. Number parsing reads currency amounts and a locale's alternative separators (`:currency`, `:separators`).
+
+9. Locale data is verifiable and self-hostable: `mix localize.verify_locales`, `Localize.cldr_repo_ref/0` and a self-hosting guide.
+
+10. Public functions return `{:error, exception}` for arguments and options of the wrong type, where they raised.
+
 ### Breaking changes
 
-* A locale's `-u-ca-` names the calendar its dates are written in, so a value is converted into that calendar before it is formatted, where the key was read only for the week rules of `-u-ca-iso8601`: `en-u-ca-hebrew` writes a Gregorian date as the Hebrew calendar's. The calendar module comes from the value's own calendar, through an optional `calendar_from_cldr_calendar_type/1` that the library supplying the calendars answers for its family, and MessageFormat's `calendar` option now names the calendar on the message's locale rather than resolving a module itself, so Localize no longer reaches for Calendrical by name.
+#### Calendars
 
-* Two times of one day at a format with seconds are each written whole around the locale's fallback pattern, as TR35's interval algorithm has it where no interval format is keyed by the time fields: the default format writes "Apr 8, 2026, 12:00:00 PM – Apr 8, 2026, 2:00:00 PM" in `en`, where the date was written once, "Apr 8, 2026, 12:00:00 PM – 2:00:00 PM". `time_format: :short`, or a skeleton without seconds such as `:yMMMdhm`, writes the date once beside CLDR's time interval, as before.
+* A calendar other than `Calendar.ISO` must implement the Calendrical 2.0 behaviour, and any other is refused with `Localize.UnknownCalendarError`. Use Calendrical 2.0 with Localize 1.4.
 
-* A date and time read with an offset is a `t:DateTime.t/0` whose time zone is the offset itself, `"-05:00"`, as ECMA-262 Temporal and RFC 9557 name the zone of a fixed offset, where it was `"Etc/UTC"` beside a non-zero `:utc_offset`: Elixir took that for UTC, so `DateTime.shift_zone/3` returned it unchanged and `DateTime.shift/3` a time hours out. `DateTime.add/4` and `DateTime.shift/3` need a time zone database that knows such a zone, which the new `Localize.TimeZoneDatabase` is, wrapping the application's own, and a value under `"Etc/UTC"` with an offset of its own is still written and measured as the fixed offset it is.
+* A locale's `-u-ca-` converts a value into that calendar before it is formatted: `en-u-ca-hebrew` writes a Gregorian date as a Hebrew one. The calendar comes from the provider registered with `Localize.Calendar.register_provider/1`, which Calendrical 2.0 registers when it starts.
 
-* `Localize.Calendar.localize/3` returns a `Localize.DateTimeInvalidInputError` naming the field for a value that lacks one its part is named from, as `Localize.Date.to_string/2` does for a pattern that asks for the part. It named the part's first value: `localize(%{year: 2026}, :month)` was "January", a year and a month a Monday, and a value with no year of the current era; a value that is no map is an error too.
+* MessageFormat 2's `calendar` option names the calendar on the message's locale, as `-u-ca-` does, rather than a calendar module.
+
+* The parse functions' `:calendar` option is a calendar module, and the date is returned in it. A CLDR calendar name such as `:hebrew`, or a module that is no calendar, returns `Localize.UnknownCalendarError`.
+
+* The parse functions no longer take `:return_calendar`. Use `Date.convert/2` on the result.
+
+* A numeric month is written as the calendar writes it (`written_date/3`): a Hebrew common year's Adar is "6", as ICU writes it, where it was "7".
+
+* `y` in the Chinese and Dangi calendars is the year's place in the 60-year cycle: the year that began in 2026 is "43", where it was "4663". `u` writes the year's number.
+
+* Quarters and week numbers are the calendar's own: a Coptic or Hebrew thirteenth month is in Q4, where it was Q5. `Calendar.ISO` keeps the locale's weeks.
+
+* `W` numbers a month's weeks as a year's are numbered, and its pattern writes the month that week belongs to: 1 October 2021 is "week 5 of September" in `en-GB`, where it was "week 0 of October".
+
+* A date in a calendar of weeks is written with CLDR's generic calendar, "M06 16, 2026 AD", where its week was written as its month.
+
+* A calendar's own formats are read before ISO 8601, so "2023-11-22" read in the Chinese calendar is a Chinese date, where it was a Gregorian date converted.
+
+* Text that none of a calendar's formats reads is read in the calendar its `info/0` names as `:parsing_calendar`, then converted: "Feb 1, 2024" in `Calendrical.ISOWeek` is 1 February 2024.
+
+* Japanese eras before Meiji start on proleptic Gregorian dates, so each moves by days to weeks: CLDR recorded their lunisolar proclamation dates.
+
+#### Formatting dates and times
+
+* `Localize.DateTime.to_string/2` joins date and time with the locale's "at" pattern by default: `en` `:long` is "July 6, 2024 at 2:30:45 PM". `style: :default` restores the previous output; `:medium` and `:short` are unchanged.
+
+* An interval joins date and time with the locale's standard date-time pattern, not the "at" pattern: "June 15, 2026, 10:00 – 14:30". `style: :at` restores it.
+
+* An interval at a standard format writes the fields and widths of that format's single-value pattern: `vi` `:short` is "1/4/23 – 10/4/23", where it was "01/04/2023 – 10/04/2023".
+
+* Two times on one day at a format with seconds are each written whole: "Apr 8, 2026, 12:00:00 PM – Apr 8, 2026, 2:00:00 PM". `time_format: :short`, or a skeleton without seconds, writes the date once.
+
+* Skeletons match the locale's `availableFormats` only, as CLDR's pattern generator does, not its standard formats: `ko` `:yMd` is "2024/7/6".
+
+* A pattern or skeleton that asks for a field the value lacks returns `{:error, %Localize.DateTimeInvalidInputError{}}`, where it left the field blank: "Jun , 2026".
+
+* A partial date takes its skeleton from the fields it has: `%{year: 2024, month: 6}` is "Jun 2024", where it was "6/2024".
+
+* The numeric weekday fields `e` and `c` count from the locale's first day of the week: Saturday is 7 in `en` and 6 in `de`, where both gave 6. `cc` is one digit.
+
+* A pattern field at a width TR35 does not list, such as `MMMMMM` or `HHH`, formats as U+FFFD.
+
+* `Localize.Calendar.localize/3` returns a `Localize.DateTimeInvalidInputError` for a value that lacks the field it names, where it gave the field's first value: `localize(%{year: 2026}, :month)` was "January".
+
+#### Time zones
+
+* A metazone name is qualified by the zone's country or city unless the zone is the metazone's preferred zone for the locale's country: in `en`, Berlin is "Central European Time (Germany)" (`v`) and "Central European Summer Time (Germany)" (`z`).
+
+* A zone's standard name stands in for a missing generic name only where the zone keeps one offset for 184 days either side, so London's summer is no longer "Greenwich Mean Time".
+
+* A zero offset is spelled out in the localized GMT format, "GMT+00:00" long and "GMT+0" short. `Localize.DateTime.Timezone.gmt_format/3` drops its `:zero_format` option.
+
+* `EST5EDT`, `CST6CDT`, `MST7MDT` and `PST8PDT` are zones of their own in CLDR 49, not aliases of New York, Chicago, Denver and Los Angeles, so they format by their offset.
+
+#### Parsing
+
+* A date-time parsed with an offset keeps its wall time and offset: "2026-05-23T14:30:00+05:00" is 14:30 at +05:00, where it was 09:30 UTC. `DateTime.shift_zone/3` gives the previous result.
+
+* The time zone of a date-time parsed with an offset is the offset itself, `"+05:00"`, where it was `"Etc/UTC"`. `DateTime.add/4` and `DateTime.shift/3` on it need the new `Localize.TimeZoneDatabase`.
+
+* A named zone in parsed text resolves to a `DateTime` through the configured time zone database, where it was dropped unless Calendrical was installed. A zone the locale does not write, such as "XQZV", is an error.
+
+#### Relative time
+
+* `Localize.DateTime.Relative` counts the calendar periods between two dates with the calendar's `diff/3` and `shift/6`, not a mean month or year: 1 February is "next month" from 31 January. Hours count the clock, so 00:01 is "in 1 hour" from 23:59.
+
+* Without `:unit`, the largest unit of which a whole one lies between the two values is chosen, as ECMA-262 Temporal chooses it. A number of seconds is counted in weeks at most.
+
+#### MessageFormat 2
+
+* `{$t :time}` and `{$d :datetime}` give the time to the minute, as TR35 specifies; `precision=second` restores the seconds. A date or time option other than `timeZone`, `hour12` and `calendar` set from a variable is an error.
+
+#### Locale data and display names
+
+* CLDR 49 drops 114 locales below Basic coverage, among them `aa`, `ab`, `an` and `ht`. Such a locale resolves to a fallback, `:und` for `aa`.
+
+* An unsupported `:prefer` value is an error, where it resolved to `:standard`. `:prefer` now applies to `Localize.Language`, `Localize.Territory` and `Localize.Script` too.
+
+* Collation moves to Unicode 18 (UCA 18.0.0), so any stored `Localize.Collation.sort_key/2` must be regenerated. `compare/3` is unchanged for existing characters.
 
 ### Added
 
-* The module that answers the Calendrical behaviour for `Calendar.ISO` answers its five newest callbacks too, so it keeps every required callback of the behaviour: `weeks_of_month/2`, `traditional_month/2`, `month_from_traditional/2`, `months_in_year_bounds/0` and `days_in_month_bounds/1`, each the Gregorian calendar's fact (a month is its own traditional month, a year has twelve months, February has 28 or 29 days) and the weeks of a month those `month_week/3` gives.
+* An ISO 8601 week date parses in any of its forms, "2026-W25-2", "2026W252" or "2026-W25", as a week and day of the calendar it is read in.
 
-* The module that answers the Calendrical behaviour for `Calendar.ISO` is a full calendar a value may name as its own: it declares the `Calendar` behaviour, answers with dates of itself, and reads a date written for it as one of its own. A date, a time or an interval held in it is read, written and its weeks numbered exactly as the `Calendar.ISO` value of the same fields is.
-
-* A week date in any form ISO 8601 writes one in ("2026-W25-2", "2026W252", "2026-W25") is the week and the day of the calendar it is read for, which every calendar answers with `date_from_week_date/3`, so `Calendar.ISO`'s is ISO 8601's and a calendar of weeks' its own. The module that answers the Calendrical behaviour for `Calendar.ISO` answers `date_from_week_date/3`, `week_date_from_date/3` and `weeks_in_week_year/1`.
-
-* `Localize.Number.Parser.parse/2` takes `:currency`, reading a string as an amount of that currency with the separators `Localize.Number.to_string/2` writes it with, so a currency amount reads back to the number it was written from. `de-AT` writes `€ 1.234,56` but `1 234,56` plain, so `"1.234,56"` is a number with the option and not one without it.
+* `Localize.Number.Parser.parse/2` takes `:currency` and reads an amount with that currency's separators: `de-AT` writes `€ 1.234,56` but `1 234,56` plain, so `"1.234,56"` parses only with the option.
 
 * `Localize.Number.Parser.parse/2` takes `:separators`, naming the set of decimal and grouping separators to read with for a locale that has more than one: `en-ZA` writes `1 234,56` with its `:standard` set and `1,234.56` with its `:us` set. A locale without the named set reads with its standard one.
 
@@ -32,37 +128,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Number.Symbol.for_currency/2` returns the symbols an amount of a currency is written with, taking the currency's own decimal separator over the locale's currency separators over its plain ones.
 
-* The formatter's day of the month (`d`) is the day the calendar names, through an optional `cardinal_day/3` of the date's calendar, so a calendar whose months are counted from the year's first day — Calendrical's Julian year-start variants — writes 25 March 1750 from its month 1 day 1. A calendar without it writes the day field, as before.
+* The day of the month (`d`) is the day the calendar writes its date with, its `written_date/3`, so Calendrical's Julian year-start variants write 25 March 1750 from month 1 day 1.
 
-* A date written that way reads back, through an optional `date_from_julian_date/3` of the calendar, which takes the calendar's own year with the month and day that name it and answers the date they named: "March 25, 1750" reads as month 1 day 1 again, for a single date, a date read as a map and each end of an interval.
+* Such a date reads back through the calendar's `date_from_written_date/3`: "March 25, 1750" is month 1 day 1 again, alone, in a map or at either end of an interval.
 
-* The months between two dates of a month calendar are counted by its year and month fields, which follow the order of time, so a split year-start month (Calendrical's `March25` months 1 and 13, both named March) counts as the two months it is; a week calendar's months are still its `month_of_year/3` periods.
+* The months between two dates are counted by the calendar's `diff/3`, so Calendrical's `March25` months 1 and 13, both named March, are two months.
 
-* Text longer than `:max_parse_length`, 1,024 bytes by default, is refused by every parse function with a `Localize.DateTimeParseLengthError` rather than read. Reading a date and time tries each place the text could divide into a date half and a time half, which costs the square of the text's length, and the longest any locale writes is 666 bytes — a full Dzongkha interval of two zoned date-times.
+* Every parse function refuses text longer than `:max_parse_length`, 1,024 bytes by default, with a `Localize.DateTimeParseLengthError`. The longest text any locale writes is 666 bytes, and reading cost grows with the square of the length.
 
-* `Localize.Territory.Hemisphere.hemisphere/1` returns the half of the world a territory lies in — `:northern`, `:southern`, or `:ambiguous` for a territory the equator runs through, so that seasons can be reckoned from a locale: `hemisphere(:AU)` is `{:ok, :southern}` and `hemisphere(:BR)` is `{:ok, :ambiguous}`. It takes a territory code or a locale, whose territory comes from `Localize.Territory.territory_from_locale/1`, and answers a region from the territories it contains, so `:"053"` (Australasia) is southern while `:"005"` (South America) is ambiguous.
+* `Localize.Territory.Hemisphere.hemisphere/1` returns the hemisphere of a territory or locale, `:northern`, `:southern` or `:ambiguous` where the equator crosses it: `hemisphere(:AU)` is `{:ok, :southern}`. A region is answered from the territories it contains.
 
-* `Localize.Calendar.register_provider/1` registers the module that answers for the calendars an application supplies, which `calendar_provider/0` returns. A CLDR calendar type names no calendar module of its own and Localize ships `Calendar.ISO` alone, so a value in that calendar has no family to ask for the calendar a locale's `-u-ca-` names; the provider answers for it, and a value in another calendar is still asked first.
+* `Localize.Calendar.register_provider/1` registers the module that supplies calendar modules for a locale's `-u-ca-`, and `calendar_provider/0` returns it. Calendrical 2.0 registers itself when it starts.
 
-* A calendar may name further calendars for its dates to be read in, with an optional `parsing_calendars/0` callback that returns calendar modules: a composite calendar writes the dates of each of its calendars with that calendar's formats, which the formats of its own CLDR type do not all read. `Localize.Date.parse/2`, `Localize.DateTime.parse/2` and `Localize.Interval.parse/2` read a date in each calendar named and convert it, keeping a reading only where the composite writes that day with the formats of the calendar it was read in.
+* `Localize.Date.parse/2`, `Localize.DateTime.parse/2` and `Localize.Interval.parse/2` read a composite calendar's date in each calendar its `parsing_calendars/0` names, so "Mo5 11, 1872" in `Calendrical.Reform.Japan` reads back.
 
-* `Localize.Date.parse/2` takes `:format`, the standard format, skeleton or pattern the text was written with, and reads the text with that format alone, so a date written by a skeleton whose fields stand in another order than the standard formats' reads back: `mt`'s `:yMd` "4/3/2024" is 3 April. `Localize.Interval.parse/2` takes it as the interval's own format.
+* `Localize.Date.parse/2` takes `:format`, a standard format, skeleton or pattern, and reads the text with it alone: `mt`'s `:yMd` "4/3/2024" is 3 April. `Localize.Interval.parse/2` takes it as the interval's format.
 
-* `Localize.DateTime.parse/2` reads each half of a date and time with its part of `:format`, a standard format, a skeleton or a pattern, which is split at the text between its date fields and its time fields: "3/4/2024 22:05" with `format: "d/M/y HH:mm"`. `:date_format` and `:time_format` name a half's format on its own.
+* `Localize.DateTime.parse/2` reads the date and the time with the two halves of `:format`: "3/4/2024 22:05" with `format: "d/M/y HH:mm"`. `:date_format` and `:time_format` set one half.
 
 * `Localize.Time.parse/2` takes `:format` too, a standard format, a skeleton or a pattern, and reads the text with that format alone: "14h30" with `format: "HH'h'mm"`. A `:long` or a `:full` format reads a time with its zone and, as it is written for a time that has none, without it.
 
-* A calendar may answer `cldr_calendar_type/3` for a date, and Localize names that date's months, days and patterns from its answer: Calendrical's composite calendars answer with the calendar in effect, so Japan's lunisolar dates before 1873 take the Chinese calendar's names.
+* A date's months, days and patterns are named from the CLDR calendar in effect on that date, the calendar's `cldr_calendar_type/3`: Japan's lunisolar dates before 1873 take the Chinese calendar's names.
 
-* `Localize.Number.resolve_currency/2` and `resolve_currencies/2` resolve a string several of the locale's currencies share by the nearest locale that uses one of them, so "$" is the Canadian dollar in `fr`, as in `fr-CA`. It stays unknown where no such locale is a good fit, or two currencies' locales are as near, as in `es`.
+* `Localize.Number.resolve_currency/2` and `resolve_currencies/2` resolve a symbol several currencies share by the nearest locale that uses one, so "$" is the Canadian dollar in `fr`. It stays unknown where no locale is a clear fit, as in `es`.
 
 * `Localize.Interval.to_string/3` and `to_parts/3` take a skeleton or a pattern as a date interval's `:format` or `:date_format`, as CLDR keys interval formats by skeleton, so a format no standard format reaches can be named: `format: :yMMMEd` is "Mon, Jun 15 – Thu, Jun 18, 2026" in `en`.
 
 * `Localize.DateTime.Timezone.parse_zone/2` reads a time zone in any form a locale writes one — a name, location, city, zone ID or localized GMT format — as TR35's time zone parsing does, and `resolve/3` resolves it at a date and time through the configured time zone database.
 
-* `Localize.Inflection` inflects words for grammatical constraints from CLDR's inflection data — `inflect("Haus", :de, %{case: "dative", number: "plural"})` gives "Häusern" — with `pronoun/2,3`, `quantify/4` (whose numbers are spoken in agreement with the noun), and concepts that carry forms of their own as `:display_data`. Data for 48 languages comes from `mix localize.download_inflection`.
+* `Localize.Inflection`, a technical preview, inflects words from CLDR's inflection data, with `pronoun/2,3` and `quantify/4`: `inflect("Haus", :de, %{case: "dative", number: "plural"})` is "Häusern". Data for 48 languages comes from `mix localize.download_inflection`.
 
-* MessageFormat 2 gains inflection functions in the Unicode inflection project's `i:` namespace, with its option names, `to` and `withReferent`, selection and SSML output (`output: :ssml`) — `{$w :i:inflect case=dative}`, `:i:pronoun`, `:i:quantify`, `:i:list` and `:i:numeral`. `Localize.Message.Namespace` lets an application own a custom namespace with one handler, registered with `:namespaces` or `:mf2_namespaces`.
+* MessageFormat 2 gains the Unicode inflection project's `i:` functions, `:i:inflect`, `:i:pronoun`, `:i:quantify`, `:i:list` and `:i:numeral`, with SSML output (`output: :ssml`). `Localize.Message.Namespace` lets an application register a namespace of its own.
 
 * `Localize.Unit.to_string/2` takes `:inflect`, synthesizing a pattern when the requested `:grammatical_case` has no CLDR one — `:safe` uses attested paths only, `:always` also guesses from suffixes. `Localize.Unit.grammatical_gender/2` returns a unit's gender.
 
@@ -74,15 +170,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * CLDR 49's `placeholderBoundarySpacing` separates a text field from a neighbour its output would run digits into, as TR35 now specifies, so zh's "vHH:mm:ss" renders a nameless zone as "GMT+8 14:30:45" rather than "GMT+814:30:45". Numeric fields written together are left alone.
 
-* CLDR 49's `gmtFormat` and `gmtUnknownFormat` `alt="utc"` forms, which spell the unambiguous designation for Coordinated Universal Time where `gmtFormat` may spell the London zone's "GMT": `designation: :utc` on `Localize.DateTime.Timezone.gmt_format/3` writes "UTC+01:00" and "UTC+?" in `en`, and `non_location_format/3` passes it to its GMT fallback. Both spellings read back through `parse_offset/2`.
+* `designation: :utc` on `Localize.DateTime.Timezone.gmt_format/3` writes CLDR 49's `alt="utc"` forms, "UTC+01:00" and "UTC+?" in `en`, and `non_location_format/3` passes it to its GMT fallback. Both spellings read back through `parse_offset/2`.
 
 * CLDR 49's `dualOffsetFormat` joins the two offsets a zone keeps, so the localized GMT format describes a zone that moves between them: `offsets: :dual` writes Los Angeles as "GMT-8/-7" and Denver as "GMT-7/-6", where Phoenix keeps one offset and stays "GMT-7". A value with no zone writes its single offset.
 
 * A skeleton whose time half is only a zone joins its date through CLDR 49's `Date-Timezone` item, and one whose date half is only a weekday joins its time through `Time-Day-Of-Week`, as TR35 now specifies. `en` `:yMMMdz` renders "Jul 6, 2024 EDT", where it errored.
 
-* `Localize.DateTime.SemanticSkeleton` implements TR35 semantic skeletons, asking for a date by meaning (`"YMDE"`) rather than by field and rejecting the field sets and option pairings TR35 does not define, and `:format` accepts one throughout. The year, month and day take the locale's own widths, so `YMD` renders its length's standard date format; `:time_precision`, `:zone_length` and `:hour_cycle` shape the time, and `alignment: :column` pads a numeric month, day and hour to two digits.
+* `Localize.DateTime.SemanticSkeleton` implements TR35 semantic skeletons, which ask for a date by meaning (`"YMDE"`) rather than by field, and `:format` accepts one everywhere. `:time_precision`, `:zone_length`, `:hour_cycle` and `alignment: :column` shape the result.
 
-* MessageFormat 2's `:date`, `:time` and `:datetime` take TR35's options — `fields`, `length`, `precision`, `dateFields`, `dateLength`, `timePrecision` and `timeZoneStyle` — and the override options `timeZone`, `hour12` and `calendar`, which a re-annotation inherits. `{$d :date fields=month-day}` in `en-AU` is "14 Jun".
+* MessageFormat 2's `:date`, `:time` and `:datetime` take TR35's options, from `fields` and `length` to `timeZoneStyle`, and the overrides `timeZone`, `hour12` and `calendar`: `{$d :date fields=month-day}` in `en-AU` is "14 Jun".
 
 * `Localize.DateTime.Timezone.parse_offset/2` reads a fixed UTC offset from a zone string — ISO 8601, or the localized GMT format in any locale's spelling — inverting `gmt_format/3`. `Localize.DateTime.parse/2` uses it, so `"May 16, 2026 2:30 PM GMT+10:30"` parses without `calendrical`.
 
@@ -92,7 +188,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * CLDR's `symbol-alt-variant` currency symbols are ingested as `Localize.Currency.variant_symbol` and selected with `currency_symbol: :variant` — `:TRY` in `en` gives "TL". CLDR 49's new Unicode 18 signs resolve through it: `:AED` "⃃", `:MVR` "⃂", `:OMR` "⃄" and `:SAR` "⃁".
 
-* CLDR 49's numeric separators, which CLDR designates a **technical preview**: `Localize.DateTime.numeric_separators/2` returns a locale's pair, and `:numeric_date_separator` and `:numeric_time_separator` substitute them on the date, time, datetime and interval formatters. The two axes stay independent where a locale spells both alike.
+* CLDR 49's numeric date and time separators, a **technical preview**: `Localize.DateTime.numeric_separators/2` returns a locale's pair, and `:numeric_date_separator` and `:numeric_time_separator` set them on the date, time and interval formatters.
 
 * Ordinal dates from CLDR 49, which CLDR designates a **technical preview**: the `ddd` field formats the day from the locale's `dayOfMonths` data, so `en` `:yMMMddd` renders "Jul 6th, 2024". Locales without that data, and patterns with a numeric month, format the plain day.
 
@@ -102,91 +198,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * The `g` pattern symbol formats the modified Julian day and the deprecated `l` is ignored, as TR35 specifies, where both returned a tokenize error.
 
-* `mix localize.verify_locales` checks a directory of locale `.etf` files against the SHA-256 manifest bundled with the release and names the ones that differ, exiting non-zero so it can gate a build. It reports the CLDR repository tag the reference files were generated from, which is the only way out of a mismatch: the hashes pin the data to the shape the release's accessors expect, so they are not overridable.
+* `mix localize.verify_locales` checks a directory of locale files against the release's SHA-256 manifest, exiting non-zero on a mismatch so it can gate a build. It reports the CLDR tag the reference data came from, since the hashes are not overridable.
 
 * `Localize.cldr_repo_ref/0` returns the CLDR repository tag the bundled data was generated from, such as `"release-49-beta3"`, and the tag now ships in the hex package. Together with `Localize.version/0` it traces a locale file to the source it came from.
 
-* A [self-hosting guide](https://hexdocs.pm/localize/self_hosting_locale_data.html) covers provisioning locale data into an application, verifying it, and serving it from a private CDN, with the ordering that matters: configure the cache location before downloading, since the download target follows the configuration. It also records why the data version segment tracks the CLDR release rather than the Localize package, so a mirror survives package upgrades.
+* A [self-hosting guide](https://hexdocs.pm/localize/self_hosting_locale_data.html) covers provisioning, verifying and serving locale data from a private CDN. Configure the cache location before downloading, since the download target follows it.
 
 ### Changed
 
-* `Localize.Interval.parse/2` takes `:format` as the interval's own format, and reads the text as `Localize.Interval.to_string/3` writes two dates at it: with the patterns of the format's interval format ("Jun 16 – 20, 2026" at `:medium`, which was an error), as two dates written whole with it, or as one date, read as the range of that date alone. Each end was read with the format, so only two dates written whole were read.
+* `Localize.Interval.parse/2` reads text as `Localize.Interval.to_string/3` writes it at the given `:format`, so "Jun 16 – 20, 2026" at `:medium` parses, where only two dates written whole did.
 
-* A relative time takes its named form for a whole offset alone, as TR35's `relative` names an instance of a field: `Localize.DateTime.Relative.to_string(0.9999, unit: :day)` is "in 1 day", the number as it is displayed, where an offset within half a hundredth of a whole number was "tomorrow".
+* A relative time uses its named form only for a whole offset: `Localize.DateTime.Relative.to_string(0.9999, unit: :day)` is "in 1 day", where it was "tomorrow".
 
-* A date read with no format is read from patterns kept for its locale and calendar, with their order and what each pass asks of them, where the patterns were tokenized some hundreds of times on every call: `Localize.Date.parse/2` of "Jun 16, 2026" in `en` takes about 0.4 ms where it took 5.
+* `Localize.Date.parse/2` without a format keeps its compiled patterns for each locale and calendar: "Jun 16, 2026" in `en` takes about 0.4 ms, where it took 5.
 
-* `Localize.Interval.parse/2` keeps the compiled patterns of a locale's intervals for each calendar, as `Localize.Date.parse/2` keeps a date's, where it compiled them on every call: an `en` interval no early pattern read took about 80 ms and takes about 2. They stay in `:persistent_term`, up to about 300 KB for each locale and calendar a range is read in.
+* `Localize.Interval.parse/2` keeps its compiled patterns too, so an `en` interval takes about 2 ms, where it took up to 80. They use up to about 300 KB of `:persistent_term` for each locale and calendar.
 
-* **Breaking.** A specific zone name (`z`, `zzzz`) taken from a metazone is qualified by the zone's country or city unless the zone is the metazone's preferred zone for the locale's country, by TR35's steps for the non-location formats and as CLDR's own `TimezoneFormatter` writes it: in `en`, Berlin is "Central European Summer Time (Germany)" and Phoenix "Mountain Standard Time (Phoenix)". Each reads back as its own zone; ICU never qualifies one, which the ICU divergences guide records.
+* The Japanese calendar keeps all 237 eras, from 大化 (645) to 令和, where CLDR 49 has Meiji onwards only; the earlier eras take curated dates and CLDR 48.2's names. 白鳳 carries `private_era: true`, and four unattested eras `unverified: true`.
 
-* **Breaking.** `y` in a calendar of cyclic years, the Chinese and Dangi calendars, is the year's place in the sixty-year cycle, the number `U` names, as TR35 has it and ICU4C writes it: the year that began in 2026 is "43" where it was "4663", in `ko`'s Dangi short date "43. 5. 2." and in every locale's `yMd` interval, "5/2/43 – 5/6/43" in `en`. `u` writes the year's number, and a place is read back as the year of that place nearest the reference date.
-
-* **Breaking.** An interval at a standard format writes its dates and times with the fields and widths of the pattern the single value is written with, where it asked for CLDR's `datetimeSkeleton`, which is not the pattern's in many locales: `vi`'s short interval is "1/4/23 – 10/4/23" beside "1/4/23", where it was "01/04/2023 – 10/04/2023". Dates change in 71 locales, a `:short` time interval takes the clock of the short time pattern (`ady-JO` "10:05–11:30"), and a month written as a number beside a word (`ja`'s "M月") stays the named month.
-
-* **Breaking.** A calendar's own formats are read before ISO 8601: text such as "2023-11-22" that any format of the calendar asked for reads, as leniently as it reads any text, is that calendar's own date, and with a time after a space too, where it was a Gregorian date converted (CLDR's root Chinese short date is `r-MM-dd`). `Calendar.ISO`, a calendar none of whose formats reads the text, and text with ISO 8601's `T` read as before.
-
-* **Breaking.** A date's month, era, years, week and weekday, a year's days and the years and months between two dates are its calendar's answers — `month_of_year/3` and `cardinal_month/1` for the month, the Calendrical behaviour's callbacks for the rest — never its own fields, so a calendar other than `Calendar.ISO` must implement the Calendrical behaviour (Calendrical 1.4, which adds `cardinal_month/1` and `parsing_calendar/0` and requires `era_calendar_type/0`) and any other is refused with `Localize.UnknownCalendarError` by formatting, parsing and relative time alike. An answer that is not one is a `Localize.InvalidValueError`.
-
-* **Breaking.** A numeric month is the CLDR month its name uses, in formatting and parsing alike, so a Hebrew common year's Adar is "7", CLDR's number for it, where ICU4C writes its place in the year, "6".
-
-* **Breaking.** `Localize.DateTime.Relative.to_string/2` and `to_parts/2` count a difference between dates in the calendar periods of the value's own calendar, as the calendar counts them with its `diff/3` and `plus/6`, where they divided seconds by a mean month or year, so 1 February is "next month" from 31 January, a Hebrew leap year has thirteen months and a week calendar's months are its periods of weeks. Hours, minutes and seconds count the clock periods of the time that passes, so 00:01 is "in 1 hour" from 23:59, across a change of UTC offset too.
-
-* **Breaking.** Without `:unit`, a relative time takes the largest unit of which a whole one lies between the two, reckoned as ECMA-262 Temporal reckons it across a change of UTC offset and in lunisolar calendars. A number of seconds has no calendar, so it is counted in weeks at most: 31,556,926 seconds is "in 52 weeks", not "in 1 year".
-
-* **Breaking.** The generic zone format (`v`, `vvvv`) qualifies a metazone name with the zone's country or city unless the zone is the metazone's preferred zone for the locale's country, as TR35 and CLDR's own formatter give it: "Central European Time (Germany)" for Berlin in `en`, "Mountain Time (Phoenix)". A standard name stands in for a generic one only where the zone keeps one offset for 184 days either side, so London's summer is no longer "Greenwich Mean Time" in a locale naming no British daylight time.
-
-* **Breaking.** A named zone in a parsed date-time resolves to a `DateTime` in Localize, through the configured time zone database, where it was dropped unless `calendrical` was installed, and an abbreviation is read where the locale's CLDR names hold it (`en` reads "EST", not "JST"). A zone field reads only a zone the locale writes, so "2:30 PM XQZV" is an error.
-
-* **Breaking.** MessageFormat 2's `{$t :time}` and `{$d :datetime}` give the time to the minute, as TR35 specifies, where they gave seconds; `precision=second` and `timePrecision=second` restore them. A date or time option other than `timeZone`, `hour12` and `calendar` set by a variable is an error, as TR35 requires.
-
-* **Breaking.** The parse functions' `:calendar` option is a calendar module — `Calendar.ISO`, the default, or one such as `Calendrical.Hebrew` — and the date is built and returned in that module, where a module sharing a CLDR calendar type with another came back in the other. A CLDR calendar name such as `:hebrew` returns `Localize.UnknownCalendarError`, and `Localize.DateParseError` reports the module.
-
-* **Breaking.** A quarter is the calendar's own, its `quarter_of_year/3` and, when parsed, its `quarter/2`, so a Coptic or Hebrew thirteenth month is in the fourth quarter and an ISO week date in its own thirteen-week quarter, where they were Q5 and Q9. `Q` and `q` need the year as well as the month, and `Localize.Calendar.localize/3` names a date without one as the first quarter.
-
-* **Breaking.** A calendar's week numbers are its own, `Y` and `w` from its `week_of_year/3` and `W` from its `week_of_month/3`, where every calendar's followed the locale's week data; `Calendar.ISO`, which has no weeks of its own, keeps the locale's, so 1 January 2027 is in week 1 of 2027 in `en` and week 53 of 2026 in `de`. Week text parses back in the weeks it was written in, and an ISO 8601 week date such as "2026-W25-2" is always ISO 8601's.
-
-* **Breaking.** `W` numbers a month's weeks as a year's are numbered, giving a week to the month that holds the locale's minimum days of it, and a pattern with `W` writes its month, year and era as that month's, as `Y` writes the year `w` belongs to. `MMMMW` writes 1 October 2021 as "week 5 of September" in `en-GB`, where it was "week 0 of October", and 30 September 2021 as "week 1 of October" in `en`.
-
-* **Breaking.** An interval joins a date and a time with the locale's standard date-time pattern, as TR35 says an interval takes, where it took the "at" pattern: "June 15, 2026, 10:00 – 14:30" and "June 15, 2026, 10:00 – June 16, 2026, 14:30" in `en`. `style: :at` restores it.
-
-* **Breaking.** Text that none of a calendar's own formats reads is read in the calendar its `parsing_calendar/0` names, and converted: a calendar of weeks names `Calendar.ISO`, so "Feb 1, 2024" in `Calendrical.ISOWeek` is 1 February 2024, where "M02 1, 2024 AD", its own format, is the first day of its second month. An ISO 8601 date and time is returned in the `:calendar` module, as a date is, where it came back in `Calendar.ISO`.
-
-* **Breaking.** A date in a calendar of weeks is a year, a month of its pattern of weeks and a day of that month, and is written in the locale's formats of CLDR's generic calendar, "M06 16, 2026 AD", where its week was written as its month ("25/2/26"). It reads back as itself, a day of a 35-day month too, where a day above 31 was no day.
-
-* **Breaking.** The parse functions no longer take `:return_calendar`: the date comes back in the `:calendar` module, and `Date.convert/2` gives it in any other calendar.
-
-* **Breaking.** `Localize.DateTime.parse/2` keeps the UTC offset an ISO 8601 input carried rather than normalising to UTC, so `"2026-05-23T14:30:00+05:00"` now returns `14:30:00+05:00`, not `09:30:00Z`. Call `DateTime.shift_zone/3` for the previous output.
-
-* **Breaking.** The `:calendar` option is resolved before parsing, so an unavailable or unknown calendar is reported rather than silently replaced by `Calendar.ISO`. A missing module returns `Localize.DependencyRequiredError`, an unknown calendar `Localize.UnknownCalendarError`.
-
-* `:prefer` now selects a display-name alternate on `Localize.Language`, `Localize.Territory` and `Localize.Script` as well as `Localize.Locale.LocaleDisplay`, with `:style` still accepted. An unsupported value is an error rather than silently resolving to `:standard`.
-
-* **Breaking.** `Localize.DateTime.to_string/2` joins date and time with the locale's "at time" wrapper by default, so `en` at `:long` is now "July 6, 2024 at 2:30:45 PM". Pass `style: :default` for the previous output; `:medium` and `:short` are unchanged.
-
-* **Breaking for historical Japanese dates.** Pre-Meiji era start dates are now proleptic Gregorian. CLDR recorded the lunisolar proclamation date in a proleptic-Gregorian field for all 231 pre-Meiji eras, so every era before Meiji moves by days to weeks.
-
-* The Japanese calendar keeps all 237 eras, from 大化 (645) to 令和, where CLDR 49 ships only Meiji onwards: the earlier eras take their dates from curated research and their names, in every locale, from CLDR 48.2. 白鳳 is flagged `private_era: true`, and four entries lacking primary-source attestation carry `unverified: true`.
-
-* **Breaking.** Collation moves to Unicode 18 / UCA 18.0.0 from Unicode 17. Primary weights shift wherever UCA inserts a character ahead of an existing one, so any persisted `Localize.Collation.sort_key/2` must be regenerated; `compare/3` is unaffected for pre-existing characters.
-
-* **Breaking.** CLDR 49 no longer publishes 114 locales below Basic coverage — `aa`, `ab`, `an`, `ht` and 110 others — and Localize follows suit. `tag.cldr_locale_id` now resolves to a fallback (`:und` for `aa`) and formatting succeeds against that data rather than erroring.
-
-* **Breaking.** CLDR 49 makes `EST5EDT`, `CST6CDT`, `MST7MDT` and `PST8PDT` zones of their own again rather than aliases of New York, Chicago, Denver and Los Angeles. `-u-tz-est5edt` now resolves to "EST5EDT", which has no location or metazone and so formats by its UTC offset.
-
-* **Breaking.** Skeletons match the locale's `availableFormats` alone, as CLDR's reference pattern generator does, not the standard formats as well; CLDR 49 gives many locales an entry beside a standard format with the same skeleton. `ko` `:yMd` is now "2024/7/6"; `format: :medium` still gives "2024. 7. 6.".
-
-* Skeleton matching ranks narrow and short text widths nearer abbreviated than wide, and breaks a tie between formats missing a field by TR35's field order, as CLDR's reference generator does. `ja` `:yMdEEEEE` now renders "2024/7/6(土)", not "2024/7/6土".
-
-* **Breaking.** A pattern or skeleton asking for a field the value does not hold returns `{:error, %Localize.DateTimeInvalidInputError{}}` naming the missing fields, where it rendered blank — `format: :yMMMd` on `%{year: 2026, month: 6}` gave "Jun , 2026".
-
-* **Breaking.** A standard format on a partial date derives its skeleton from the fields present, with the month as wide as the format asks, where it errored. Without a format the `:medium` default applies, so `%{year: 2024, month: 6}` renders "Jun 2024" rather than "6/2024".
-
-* **Breaking.** The numeric `e` and `c` weekday fields count from the locale's first day of the week, as TR35 specifies, so a Saturday is 7 in `en` and 6 in `de` where both gave 6. `cc` is one digit, like `c`, rather than zero-padded.
-
-* **Breaking.** A date or time pattern field at a width TR35's symbol table does not list — `ddd`, `MMMMMM`, `HHH` — formats as U+FFFD, following TR35's Handling Invalid Patterns.
-
-* **Breaking.** A zero offset is spelled out wherever a localized GMT format is used, `"GMT+00:00"` long and `"GMT+0"` short, as TR35's examples and ICU give it. `Localize.DateTime.Timezone.gmt_format/3` drops its `:zero_format` option, which selected between the two.
+* Skeleton matching ranks narrow and short widths nearer abbreviated than wide and breaks ties by TR35's field order, as CLDR's reference generator does: `ja` `:yMdEEEEE` renders "2024/7/6(土)", not "2024/7/6土".
 
 ### Fixed
 
@@ -194,11 +224,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * A fiscal calendar's date is written as the Gregorian date it is, through the calendar's `cardinal_year/3`: 10 August 2026 in a year begun in July is "Aug 10, 2026", where it was "Aug 10, 2027". It reads back through `date_from_cardinal_date/3`, and an interval across 1 January writes both years.
 
-* A locale's `-u-mu-fahrenhe` overrides the unit to Fahrenheit. BCP-47 caps a key's value at eight characters, so CLDR spells the override `fahrenhe`; read as a unit identifier it named no unit, so the override was dropped as not convertible and the locale's own preference stood. `celsius` and `kelvin` were unaffected, their BCP-47 value and unit name being spelled alike.
+* A locale's `-u-mu-fahrenhe` overrides the unit to Fahrenheit, where the override was dropped: BCP 47 caps a value at eight characters, so CLDR spells it `fahrenhe`, which named no unit.
 
-* A currency amount is separated by the locale's currency separators where CLDR gives it any: `fr-CH` writes `1'234.56 CHF` with the dot its `currencyDecimal` names and `de-AT` writes `€ 1.234,56` with the dot of its `currencyGroup`, where both used their plain-number separators. `Localize.Number.Symbol` had no fields for either, so generation dropped them.
+* A currency amount uses the locale's currency separators where CLDR gives them: `fr-CH` writes `1'234.56 CHF` and `de-AT` `€ 1.234,56`, where both used their plain-number separators.
 
-* Locale generation fails on a CLDR key its structs do not define, where `struct/2` discarded it silently. That is how the currency separators above went missing, and it is what a new CLDR release adding a key would otherwise do again. Symbols no formatter reads are left out by name.
+* Locale generation fails on a CLDR key its structs do not define, where `struct/2` dropped it silently, which is how the currency separators went missing.
 
 * A missing locale falls back to its parents and then to `:en` rather than to the `und` root, which has no currency data and no localized names. Only an explicit request for `:und` loads the root, and the error of a locale that cannot be loaded names the locale requested rather than the last fallback tried.
 
@@ -214,51 +244,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Currency.currency_strings/2` reads the index of currency-naming strings from the locale data, where the pipeline now generates it, so a call takes about 0.6 µs where it built the index each time for about 1.2 ms. A filtered call is still built, because a filter changes which strings name a single currency.
 
-* `Localize.validate_locale/1` returns `{:error, %Localize.InvalidLocaleError{}}` for an unknown `-u-tz-` timezone id (`"de-u-tz-zzz"`), a `-t-` numeric value that is not a 4, 6 or 8 digit date (`"de-t-d0-123"`) and a `-t-` keyword without a value (`"de-t-en-m0"`), where it raised. A `-u-vt-` value of several codepoints (`"de-u-vt-0020-0041"`) is accepted, where it raised too.
+* `Localize.validate_locale/1` returns `Localize.InvalidLocaleError` for an unknown `-u-tz-` zone, a `-t-` date that is not 4, 6 or 8 digits and a `-t-` keyword without a value, where it raised. A multi-codepoint `-u-vt-` value is accepted.
 
-* A display name is the name of the code it is keyed by, not of a code CLDR retired in that code's favour: `ak` is "Akan" where it was "Twi", and `fil` is "Filipino" in every locale rather than only on some toolchains. CLDR names both a canonical code and its deprecated aliases, which normalize onto one key, and the winner was decided by map iteration order — so the same CLDR sources generated different locale data on different OTP releases (#59).
+* A display name is that of the code it is keyed by, not of a retired alias: `ak` is "Akan", where it was "Twi", and `fil` is "Filipino" on every OTP release (#59).
 
-* Inflection artifacts are addressed under their data version, so an artifact of an earlier version is never read in place of a current one: a `zh` artifact predating the Traditional Chinese pronoun table resolved `zh-TW` to the Simplified table, where the download task skipped any file already on disk. `mix localize.download_inflection --prune` removes the directories of superseded versions.
+* Inflection data is stored under its data version, so an earlier version is never read for a current one, as a stale `zh` file was for `zh-TW`. `mix localize.download_inflection --prune` removes superseded versions.
 
-* A locale the VM's literal memory has no room for is not loaded, and the call that needed it returns a `Localize.LiteralMemoryError` naming the VM's flag, `+MIscs`, where keeping it stopped the VM: `:persistent_term` keeps its terms in an area of a fixed size, a gigabyte by default, and all of CLDR's locales take about 814 MB of it. A parser's compiled patterns and the supplemental data are not kept where there is no room, an inflection lexicon is the same error and the collation table is logged, and the performance guide's "Memory" section gives the sizes.
+* A locale that `:persistent_term` has no room for returns a `Localize.LiteralMemoryError` naming the VM flag `+MIscs`, where loading it stopped the VM. All CLDR locales take about 814 MB of its 1 GB default; the performance guide's "Memory" section gives the sizes.
 
-* A skeleton that asks a date of another calendar for a field its formats lack has the field appended, as TR35's Missing Skeleton Fields has it, where it was an error in every calendar but the Gregorian: a Hebrew date's `:yMMMdw` is "1 Tamuz 5786 (week: 39)" and its `:ywE` "Tue, week 39 of 5786". A skeleton is matched against the calendar's formats and then the Gregorian calendar's, which TR35 has most calendars inherit, in a date and time as in a date, and the Chinese and Dangi calendars, which it excepts, take their own alone: their `:yw` is "2026(bing-wu) (week: 18)" where it was "week 18 of 4663".
+* A skeleton asking a non-Gregorian date for a field its formats lack has it appended, after matching the calendar's formats and then the Gregorian's: a Hebrew `:yMMMdw` is "1 Tamuz 5786 (week: 39)", where it was an error. The Chinese and Dangi calendars match only their own.
 
-* A week date is the calendar's own in every form ISO 8601 writes one in: "2026W252" and a week alone, "2026-W25", were ISO 8601's weeks for every calendar, so in a calendar whose weeks are not ISO 8601's one text named two days as its hyphens came and went. A week or a day the calendar does not have is an error, where "2026-W53-1" was ISO 8601's week 53 for a calendar whose 2026 has 52 weeks.
+* A week date in every ISO 8601 form is the calendar's own week, where "2026W252" and "2026-W25" were ISO 8601's in every calendar. A week or day the calendar lacks is an error, where "2026-W53-1" was read in a 52-week year.
 
-* A year, and a year and a quarter, written for a calendar other than `Calendar.ISO` are read as a map of the fields written: a calendar of weeks' "2023 AD" is `%{year: 2023}`, as the Gregorian calendar's "2023" is, where it was an error, and "Q2 2023 AD" is the year and the quarter, where it was the quarter's whole first day.
+* A year, or a year and quarter, written for a calendar other than `Calendar.ISO` reads as a map of those fields: "2023 AD" in a calendar of weeks is `%{year: 2023}`, where it was an error, and "Q2 2023 AD" is the year and quarter, not the quarter's first day.
 
-* A related Gregorian year is read as the calendar's year that begins in it, however far from the reference date: the Islamic calendar's "AH 1699-12-28", 16 June 1700, was an error read in 2026, its year taken as far from the reference date's as 1699 is from 2025, where the two calendars' years are not one length. Of two years that begin in one Gregorian year, as the Islamic years 1429 and 1430 did in 2008, the nearer the reference date is read.
+* A related Gregorian year reads as the calendar year that begins in it, however far from the reference date: the Islamic "AH 1699-12-28" is 16 June 1700, where it was an error. Of two years beginning in one Gregorian year, the nearer is read.
 
-* A year named by its place in the sixty-year cycle beside an era is the year of that name in the era: `Calendrical.LunarJapanese`'s "Genroku (1688–1704) geng-chen 4 29" is read as 1700, where it was the geng-chen year nearest the reference date, 2000, whatever era was written. An era of more than sixty years takes the nearer of its two, and a name the era has no year of is an error.
+* A cyclic year beside an era is that era's year of the name: `Calendrical.LunarJapanese`'s "Genroku (1688–1704) geng-chen 4 29" is 1700, where it was 2000. A name the era has no year of is an error.
 
 * An inverted range read for a calendar whose dates are read in another names its two dates in the calendar asked for: `Localize.Interval.parse/2` of "Feb 5, 2024 – Feb 1, 2024" for a calendar of weeks returned a `Localize.DateRangeParseError` holding the Gregorian dates the text was read as.
 
 * A year below 1 is read where its numbering spells its sign: `ja` writes a Japanese date before the first era with the `jpanyear` numbering, "大化マイナス688年3月15日", and it was read as no date, alone and in an interval.
 
-* A week written without its year is a week of the reference date's week-based year, where it was a week of that date's calendar year: "Sun (week: 53)" read on Sunday 3 January 2021, the last day of ISO 8601's 2020, is that day and was no date. Two such weeks are read by their week-based years as an interval, and a week and a weekday without a year, or with an era, are read with no format too.
+* A week without its year is a week of the reference date's week-based year: "Sun (week: 53)" read on 3 January 2021 is that day, where it was no date. Two such weeks read as an interval.
 
-* A pattern's `''`, a quote written as text, is read inside quoted text and outside it, as TR35 has it and as it was written: `mt`'s week of the year, "w 'ġimgħa' 'ta''' Y", is written "25 ġimgħa ta' 2026" and read as no week, its "ta'" read as "ta". A date or a time read with such a pattern as its `:format` reads back too.
+* A pattern's `''` is read inside and outside quoted text, as TR35 has it, so `mt`'s "25 ġimgħa ta' 2026" reads back, where its "ta'" was read as "ta".
 
 * A weekday beside a week is that day of the week in every calendar, where "Tue, week 25 of 2026" was read as the week's first day.
 
-* An interval of two dates at a standard format is written in the numbering that format states, CLDR's `numbers` attribute, as the date alone is: `he`'s Hebrew medium interval is "א׳–ה׳ בתמוז ה׳תשפ״ו", where it was "1–5 בתמוז 5786" beside the date "א׳ בתמוז ה׳תשפ״ו", and `zh`'s Chinese "2026年五月初二至初六". It is read back in that numbering, and an interval at a skeleton, which states none, stays in digits.
+* An interval at a standard format is written in that format's numbering, as the date alone is: `he`'s Hebrew medium interval is "א׳–ה׳ בתמוז ה׳תשפ״ו", where it used digits. It reads back, and an interval at a skeleton stays in digits.
 
-* A year a format names is never made a number, nor a numbered year a name, as TR35's adjustments have it ("never convert a numeric element in the pattern to an alphabetic element, or the opposite"): `en`'s Chinese medium interval is "Mo5 2 – 6, bing-wu", the year its own pattern names, where the related year the format asks for took the name's place, and `de`'s `rMMMd` is "2. M05 bing-wu". Between two numbered years the one asked for is still written, "5/2/2026 – 5/6/2026" from "M/d/y – M/d/y".
+* A year a format names is never written as a number, nor a numbered year as a name, as TR35's adjustments require: `en`'s Chinese medium interval is "Mo5 2 – 6, bing-wu", where the related year took the name's place. Between two numbered years the one asked for is written, "5/2/2026 – 5/6/2026".
 
 * An interval whose dates are in two sixty-year cycles of the Chinese or Dangi calendar writes both dates in full, "5/2/2026 – 5/2/2086" for `en`'s `yMd`, as ICU does, where the interval's pattern wrote the two alike, "5/2/43 – 5/2/43". A format that writes no year takes one first, as it does for any two years.
 
-* `G` for a date of the Chinese or Dangi calendar writes the number of the year's sixty-year cycle, "78" in 2026, as ICU does, where it returned `Localize.ItemNotFoundError`: CLDR names no era for those calendars and TR35 does not say what `G` writes. Read beside the year's place or name it gives the one year the two name, "77 60" being the year that began in 1983.
+* `G` on a Chinese or Dangi date writes the number of its sixty-year cycle, "78" in 2026, as ICU does, where it returned `Localize.ItemNotFoundError`. Read beside the year's place it names one year: "77 60" began in 1983.
 
 * An interval written without a year across the new year ends in the year after: "Dec 28 – Jan 3" was refused as an inverted range of the reference date's year. The later date is a year on only where it would otherwise come before the earlier, by its calendar's own days, and never an earlier day of the same month.
 
-* A date written without its year beside one written with its year takes that year, or the year next to it across the new year, wherever a range is read: "June 16 to August 20, 2031" was read as five years from the reference date's June, and "Dec 28 – Jan 3, 2027" was refused. As maps the two share the year the same way, and two strings for a calendar of weeks are read as Gregorian dates before they are converted.
+* A date without its year in a range takes the other date's year, or the next across the new year: "June 16 to August 20, 2031" is that summer, where it was five years earlier, and "Dec 28 – Jan 3, 2027" reads, where it was refused.
 
-* A zone keeps its metazone from 1970 on, where CLDR gives its first metazone period no beginning, as ICU has it: New York in 1965 is "GMT-05:00" and "New York Time", and Los Angeles at its local mean time of 1850 is "GMT-07:52:58" and no longer "Pacific Standard Time". A metazone's name is still read with an earlier date, and `Localize.DateTime.Timezone.metazone_for/2` is `nil` before 1970.
+* A zone keeps its metazone from 1970 on, as ICU has it: New York in 1965 is "GMT-05:00" and "New York Time", and Los Angeles in 1850 "GMT-07:52:58", not "Pacific Standard Time". `Localize.DateTime.Timezone.metazone_for/2` is `nil` before 1970.
 
 * A pattern that writes a year's name beside its number keeps the name when a skeleton asks for another numbered year. The skeleton `r` wrote a Chinese year as "2026(2026)" in most locales, root's "r(U)" turned to "r(r)", and writes "2026(bing-wu)".
 
-* `Localize.DateTime.parse/2` reads a date and time with the `Localize.DateTime.SemanticSkeleton` given as `:format`, each half with the skeleton's date fields or its time fields; the skeleton was ignored, and text in any of the locale's formats read. A skeleton whose minutes are optional reads a time on the hour written without them, "2 PM", which `Localize.Time.parse/2` refused.
+* `Localize.DateTime.parse/2` reads with a `Localize.DateTime.SemanticSkeleton` given as `:format`, where the skeleton was ignored. A skeleton whose minutes are optional reads "2 PM", which `Localize.Time.parse/2` refused.
 
 * A date and time is written with the numbering its date format states, CLDR's `numbers` attribute, as the date alone is. `he`'s Hebrew date and time was "1 בתמוז 5786, 14:30" beside the date's "א׳ בתמוז ה׳תשפ״ו", and `zh`'s Chinese day "2" beside "初二".
 
@@ -268,83 +298,83 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * An interval written without a year is read as dates of the reference date's year, as a date alone is. "Jun 16 – 20", which the month and day fields write, was read only as two partial dates with `as: :map`.
 
-* An interval is read with the spaces about its dash left out or put in, as TR35's parsing has spaces ignored but where they set tokens apart. `en`'s "Jun 16–20, 2026", its dash typed without spaces, was an error, as `de`'s "16. – 20.06.2026" was with them.
+* An interval reads with or without spaces about its dash, so `en`'s "Jun 16–20, 2026" and `de`'s "16. – 20.06.2026" read, where they were errors.
 
 * An interval in a year two eras share is read where one of its dates is written without its month. `en`'s "May 1 – 5, 1 Reiwa" asked the calendar about the year 2019 alone, which is Heisei 31 until April, and was an error; each date now asks with the month and the day it takes from the other.
 
-* A skeleton with a numbered field takes the abbreviated width of a named one where the calendar has no numbered format for its fields, as CLDR's conformance data and ICU do. `GyMd` for a Chinese or Dangi date in `en` is "Mo5 2, 2026", from `GyMMMd`, where the order of two format ids chose `GyMMMMd`'s "Fifth Month 2, 2026(bing-wu)".
+* A numeric field takes the abbreviated width of a named one where the calendar has no numeric format, as CLDR's conformance data and ICU do: `GyMd` for a Chinese date in `en` is "Mo5 2, 2026", where it was "Fifth Month 2, 2026(bing-wu)".
 
-* An interval's two values are written, and read, in the order the locale's fallback pattern states, as TR35 has it and ICU does: `kek`'s Gregorian pattern is "{1} – {0}", so its `yMd` item writes 16 June 2026 to 20 August 2027 as "20/8/2027 – 16/6/2026", where it wrote the earlier date first beside ranges the fallback pattern joined the other way. A date written once beside two times stays before them, and an open interval keeps no space where its missing value was.
+* An interval's values are written and read in the order the locale's fallback pattern states, as ICU does: `kek` writes 16 June 2026 to 20 August 2027 as "20/8/2027 – 16/6/2026", where the earlier date came first. A date written once beside two times stays before them.
 
 * The first year of a Japanese era is read as `ja` writes it. Its full, long and medium dates take CLDR's `jpanyear` numbering, whose year 1 is 元, so "令和元年5月1日" was an error.
 
 * A year of an era that began before a calendar changed how it numbers its years is read. `Calendrical.Reform.Japan` counts its years from 645 until 1872 and as the Gregorian calendar does from 1873, so every date from the reform to the end of Meiji in 1912, "Jun 16, 6 Meiji", was an error.
 
-* A range of two dates is cut at every place its separator is found, where only the first was tried: `da`'s and `el`'s fallback patterns join two dates with a hyphen, so a range of two week dates, "2026-W25-2-2026-W27-1", was no interval, and "October 5, 2026 to October 10, 2026" was cut inside "October". The text a fallback pattern writes before its first date is read as well (`fr-CH`'s "du {0} au {1}"), and a pattern that writes the later date first (`kek`'s "{1} – {0}").
+* A range is cut at every place its separator occurs, where only the first was tried, so `da`'s "2026-W25-2-2026-W27-1" and "October 5, 2026 to October 10, 2026" read. Text before the first date (`fr-CH`'s "du {0} au {1}") and a later-date-first pattern read too.
 
 * An interval is read by the pattern whose own separators are in the text before one that reads it through a lenient separator. `ha`'s `yMd` writes a year's difference with root's pattern, "26-06-16 – 27-08-20", which its own day-first pattern read as 26 June 2016 to 27 August 2020.
 
-* A date of an interval written without an era is of the era beside the other date, where it was read in the era of the reference date: `ja`'s "H5/06/16～5/06/20", five days of 1993, read as 1993 to 2023, and `en`'s "6/16/5 – 6/20/5 Heisei" was an error. A narrow era name is read wherever it names one era, by a format that states it before one that only allows it, so the narrow era a short interval writes ("R 8/06/16 – 8/06/20") reads back.
+* An interval date without an era takes the other date's era, where it took the reference date's: `ja`'s "H5/06/16～5/06/20" is five days of 1993, where it ran to 2023. A narrow era name reads where it names one era, so "R 8/06/16 – 8/06/20" reads back.
 
 * A Hebrew date in Elul is read beside its era. The year of an era is settled by asking the calendar about the date, and it was asked about CLDR's number for the month, 13, in a common year of twelve months, so `de`'s "07.13.5786 AM", `af`'s "07 Elul 5786 AM" and every interval ending in Elul were errors.
 
-* A narrow month name is read where the format writes one and the calendar's narrow names tell its months apart. `mn`'s `yM` is "y MMMMM" and its narrow months are Roman numerals, so the "2026 VI" it writes and its intervals, "2026 оны VI/16 – VIII/20", read back where every narrow name was passed over; `en`'s "J", three months' name, is still no month.
+* A narrow month name reads where the format writes one and the calendar's narrow names are distinct: `mn`'s "2026 VI" and "2026 оны VI/16 – VIII/20" read back. `en`'s "J", shared by three months, is still no month.
 
-* A date or interval format with a variant is read as the formatter writes it, the standard or default pattern before the variant: `en-CA`'s Chinese short date "5/2/2026" is the second day of the fifth month, where the variant "d/M/r" was tried first, and its `yMd` interval "6/16/2026–6/20/2026", an item of a default and a variant pattern, reads back where it was an error.
+* A format with a variant is read as the formatter writes it, standard pattern first: `en-CA`'s Chinese short date "5/2/2026" is the fifth month's second day, where the variant was tried first, and its `yMd` interval "6/16/2026–6/20/2026" reads back.
 
-* A skeleton's year is a number at every width and the cyclic year `U` a name at every width, so TR35's larger distance between a numeric and a text field keeps a `y` request from the format of the year's name: `yMd` for a Chinese date in `en` is `yyyyMd`'s "5/2/2026" where it was `UMd`'s "5/2/bing-wu", and `yMMMd` for a Buddhist date in `en-AU` is "19 Apr 2566 BE" where it was "19/04/2566". A whole year and TR35's "two low-order digits", `yy`, stay apart, so `yyyy` in `en` is "2024" and not its `yy` format widened.
+* A skeleton's year is a number at every width and `U` a name at every width, so a `y` request never takes the year-name format: `yMd` for a Chinese date in `en` is "5/2/2026", where it was "5/2/bing-wu". `yyyy` and `yy` stay apart, so `yyyy` in `en` is "2024".
 
-* A 24-hour hour beside a day period is read only where the two agree, as TR35's parsing checks a day period against its hour. `ksh`'s `Hmsv`, "H:mm:ss a v" in CLDR 49, read "4:00:00 n.M. GMT+5:30", four in the afternoon, as 04:00.
+* A 24-hour hour beside a day period reads only where the two agree, as TR35 checks, so `ksh`'s "4:00:00 n.M. GMT+5:30", four in the afternoon, is no longer read as 04:00.
 
-* `Localize.DateTime.Timezone.resolve/3` takes, of a string's readings, the one whose zone is written so at the date: `it`'s "Ora dell’Europa orientale (Kaliningrad)" is Kaliningrad in 2026 where it was Minsk, "Malaysia Time" in 1975 is Kuala Lumpur at +07:30, and `sv`'s "Kaliningradtid" in a summer follows Kaliningrad's clock. A name qualified by a city is that city's zone, so "Israel Time (Gaza)" is Gaza and not Jerusalem.
+* `Localize.DateTime.Timezone.resolve/3` takes the reading whose zone is written so at the date: `it`'s "Ora dell’Europa orientale (Kaliningrad)" is Kaliningrad in 2026, where it was Minsk. A name qualified by a city is that city's zone, so "Israel Time (Gaza)" is Gaza.
 
 * A country or city in parentheses is read as a zone's qualifier only after a name the locale writes, so text that is no name before it is no zone. A 24-hour pattern took a time's day period for part of its zone: `en-GB` read "4:00:00 pm (India)" as 04:00 in India.
 
 * A locale's GMT literal alone is read as GMT, as TR35's parsing reads "the absence of a numeric offset" in "localized or global formats": "غرينتش" in `ar` and `ga`'s "MAG" are offset 0, where only "GMT", "UTC" and "UT" were.
 
-* `Localize.DateTime.Timezone.parse_zone/2`, `parse_offset/2` and `resolve/3` read a number with no sign after the GMT literal as an offset east of it ("GMT 3", "UTC5:30", "غرينتش ٣"), as TR35's parsing allows "+, -, or nothing". A zone that is a field of a date or time keeps needing the sign, where the number can be the year or the hour that follows ("12:00:00 UTC 2026").
+* `Localize.DateTime.Timezone.parse_zone/2`, `parse_offset/2` and `resolve/3` read a number with no sign after the GMT literal as east ("GMT 3", "UTC5:30"), as TR35 allows. A zone inside a date or time still needs its sign, since the number could be the year or the hour.
 
-* An offset's seconds are written by the localized GMT format (`O`, `OOOO`, `ZZZZ`) and by `Z` to `ZZZ`, which TR35 gives an optional seconds field: Los Angeles before standard time is "GMT-07:52:58" and "-075258", where "GMT-07:52" and "-0752" read back 58 seconds out. `Localize.DateTime.Timezone.parse_offset/2` reads seconds after an hour of one digit ("GMT+3:30:45") and an hour up to 23, so Juneau's "+15:02:19" before 1867 is read.
+* An offset's seconds are written by the localized GMT format and by `Z` to `ZZZ`: Los Angeles before standard time is "GMT-07:52:58", where it read back 58 seconds out. `parse_offset/2` reads seconds after a one-digit hour and hours up to 23, so Juneau's "+15:02:19" reads.
 
 * The long localized GMT format (`OOOO`, `ZZZZ`, and a zone name's fallback to it) has a two-digit hour in `cs`, `fi` and `vmw`, as TR35 gives the long format always: "GMT+05:30" and "UTC+05.30", where the one-digit hour of those locales' `hourFormat`, the short format's, wrote "GMT+5:30" and "UTC+5.30".
 
-* `Localize.DateTime.Timezone.resolve/3`, `parse_zone/2` and `parse_offset/2` read an offset in the digits of any numbering system, as TR35's parsing reads the localized GMT format with "non-Latin numbers": "غرينتش+٥:٣٠" and "GMT+५:३०", which the formatter writes in `ar-EG` and `ne`, were an unknown zone in the 67 locales with digits of their own.
+* `resolve/3`, `parse_zone/2` and `parse_offset/2` read an offset in any numbering system's digits, as TR35 has it: `ar-EG`'s "غرينتش+٥:٣٠" and `ne`'s "GMT+५:३०" read, where they were an unknown zone in the 67 locales with digits of their own.
 
 * `Localize.DateTime.Timezone.parse_zone/2` and `resolve/3` return an error for bytes that are not UTF-8, where they raised an `ArgumentError`.
 
 * A custom MF2 function receives its options under their names as strings, as `Localize.Message.Function` documents. It received an atom for any name an atom existed for, so the documented `func_opts["format"]` read `nil`.
 
-* A zone name qualified by a place is read as that place's zone where the country it also names has a primary zone: "Chile Time (Punta Arenas)" was read as Santiago, and `fo`'s "Vesturevropa tíð (Spania)", the Canary Islands' zone, as Madrid. A metazone's name in the shape of a standard or daylight region format is read as the name: `ko`'s "사모아 표준시", American Samoa's standard time, was read as Samoa's zone.
+* A zone name qualified by a place reads as that place's zone even where its country has a primary zone: "Chile Time (Punta Arenas)" is Punta Arenas, where it was Santiago. A metazone name shaped like a region format reads as the name, so `ko`'s "사모아 표준시" is American Samoa.
 
-* A name of standard or daylight time is read with the time its zone keeps at the date, as the formatter names it: "Chile Summer Time (Punta Arenas)", the -03:00 that zone keeps all year, read back an hour out, as did a name within nine months of a change of its zone's offset ("Eastern Standard Time (Knox, Indiana)" in 1991). A standard name that is the only name its metazone has ("Kyrgyzstan Time") follows the zone's clock, as TR35's type fallback has it.
+* A standard or daylight name reads with the time its zone keeps at the date, as the formatter names it, where "Chile Summer Time (Punta Arenas)" read back an hour out. A standard name that is its metazone's only name ("Kyrgyzstan Time") follows the zone's clock.
 
-* The location format (`VVVV`, and `v` and `vvvv` where they fall back to it) writes a country the locale has no name for by its code, as TR35 composes it and ICU4C writes it: Havana's zone is "CU" in `su` and "ora de CU" in `oc`, where it was the city, "Havana". The code is read back as that country's zone in a locale that writes the country so.
+* The location format writes a country the locale has no name for by its code, as TR35 and ICU4C do: Havana's zone is "CU" in `su` and "ora de CU" in `oc`, where it was "Havana". The code reads back in a locale that writes it.
 
 * A location whose country's name has the shape of the fallback format is read as that country: `fr-CA`'s "heure : Saint-Martin (France)" was read as France's zone, and `ru`'s "Виргинские о-ва (Великобритания)" as the United Kingdom's.
 
-* `Localize.Interval.parse/2` reads an interval whose years are two digits and whose era is written once, as an interval at a standard format with `yy` beside its era is written: `nl`'s Buddhist "16-06-69 – 20-06-69 BE" read its second year as the year 69. Each way the calendar's formats write a year is tried, and the reading whose years are nearest the reference date is taken.
+* `Localize.Interval.parse/2` reads two-digit years with the era written once: `nl`'s Buddhist "16-06-69 – 20-06-69 BE" reads, where its second year was the year 69. The reading nearest the reference date is taken.
 
-* The six zones whose locale data key is not their lowercase name (`America/Blanc-Sablon`, `America/Port-au-Prince`, `Africa/Porto-Novo`, `Asia/Ust-Nera`, `Antarctica/DumontDUrville`, `Antarctica/McMurdo`) take the city and names their locale gives them, "بلانك-سابلون" in `ar`, and are read from them. They were written with the city their own name gives, in every locale.
+* The six zones whose data key is not their lowercase name, such as `America/Port-au-Prince` and `Antarctica/McMurdo`, take the city names their locale gives them, "بلانك-سابلون" in `ar`, where every locale used their own name.
 
 * A zone name qualified by a place is read where the place or the name holds the fallback format's own text: `pt-AO`'s "Hora de Greenwich (Côte d’Ivoire (Costa do Marfim))" was an error, and `ko`'s "중부유럽 하계 표준시(독일)", whose name has the shape of the standard region format, was read as standard time.
 
-* A date and time in another calendar than `Calendar.ISO` is given the zone names of the instant it names: its fields were read as ISO's, so a Persian date in January 2026 in `Asia/Almaty` was "GMT+05:00" where it is "Kazakhstan Time", and so in 10 of 13 calendars tried. `Localize.DateTime.Timezone.metazone_for/2` reads a date and time in its calendar too.
+* A date and time in a calendar other than `Calendar.ISO` takes the zone names of the instant it names, where its fields were read as ISO's: a Persian date in January 2026 in `Asia/Almaty` is "Kazakhstan Time", where it was "GMT+05:00". `metazone_for/2` reads it in its calendar too.
 
-* A time is read only with an hour its field has, as TR35 gives each field's range and as ICU reads one when it is not lenient: a 12-hour field took its hour modulo 12, so "45:30 PM" was 21:30 and "13:30 AM" 01:30 in 618 locales, and "45:30" was 09:30 in `fr-CM` and `bal-Latn`. "13:30 PM", which read as 13:30, is an error with them.
+* A time reads only an hour its field allows, as TR35 and a strict ICU do, where "45:30 PM" was 21:30 and "13:30 AM" 01:30 in 618 locales. "13:30 PM" is an error too.
 
-* `Localize.Time.parse/2` reads ISO 8601's times in every locale: a time between colons without its seconds ("14:30", which `fi`, `da` and 13 more locales that write a time another way did not read), and after the time designator `T` a time without its minutes or its separators ("T14", "T1430", "T143045"). `z` for `Z` and U+2212 in an offset are read as well.
+* `Localize.Time.parse/2` reads ISO 8601's times in every locale: "14:30" without seconds, which `fi`, `da` and 13 more did not read, and "T14", "T1430" and "T143045". `z` for `Z` and U+2212 in an offset read too.
 
-* `Localize.DateTime.parse/2` reads every form ISO 8601 joins a date to a time in, where it read one: a week date or a day of the year before the `T`, a time without its seconds or its minutes after it ("2026-W25-2T10:30", "2026-06-16T10:30"), and either without its separators ("20260616T103000"). MessageFormat 2's date/time literals take the same forms.
+* `Localize.DateTime.parse/2` reads every ISO 8601 date-time form: week dates and ordinal days before the `T`, times without seconds or minutes ("2026-W25-2T10:30"), and the basic form ("20260616T103000"). MessageFormat 2's date and time literals take the same forms.
 
-* `Localize.Date.parse/2` reads the rest of ISO 8601's date forms: a week without a day ("2026-W25", "2026W25"), which is the Monday of ISO 8601's week whatever the locale's weeks are, and the week date and the day of the year without separators ("2026W252", "2026166"). A year and a month, or a year, is read `as: :map` in every locale.
+* `Localize.Date.parse/2` reads the rest of ISO 8601's date forms: a week alone ("2026-W25"), as its Monday in ISO 8601's weeks, and basic-format week and ordinal dates ("2026W252", "2026166"). A year and month, or a year, reads `as: :map` in every locale.
 
 * `Localize.Time.parse/2` reads an hour only in the range TR35 gives its field, `h` 1 to 12 and `K` 0 to 11: "0:30 AM" at `h:mm a` and "12:30 AM" at `K:mm a` are errors, where they were read as 00:30 and 12:30. `H` and `k` were held to their ranges already.
 
-* An interval writes the fields its format names and no others, as TR35's interval algorithm has it: two values that differ in a field the skeleton does not write are each written with it around the locale's fallback pattern, `:MMMd` from 28 December to 3 January being "Dec 28 – Jan 3", and two alike in every field it writes are one, a date and a time as a date is, so `:yMMMHm` on two days of June at 10:00 is "Jun 2026, 10:00". The year, the month or the era two values differ in is written where the format asks for it (`:yMMMd`, `:GyMMMd`).
+* An interval writes only the fields its format names, as TR35's algorithm has it: `:MMMd` from 28 December to 3 January is "Dec 28 – Jan 3", and `:yMMMHm` on two June days at 10:00 is "Jun 2026, 10:00". A year, month or era the values differ in is written where the format asks for it.
 
-* `Localize.Time.to_string/2` writes a `Time` and a `NaiveDateTime` at a standard format with the locale's standard time pattern, where it took the pattern CLDR's skeleton for the format resolves to: another in 44 locales at `:short` and 47 at `:medium`. `bg`'s short time is "10:30", not "10:30 ч.", and `cop`, `syr` and `kxv` keep their 12-hour clock.
+* `Localize.Time.to_string/2` writes a `Time` or `NaiveDateTime` at a standard format with the locale's standard time pattern, where it took its skeleton's, which differs in 44 locales at `:short`: `bg`'s short time is "10:30", not "10:30 ч.".
 
-* A date and time with no zone is written at `:long` and `:full` with the time `Localize.Time.to_string/2` writes for it, a map without a zone as a `NaiveDateTime` is, so it reads back in every locale: `ja`'s full is "2024年4月3日水曜日 10:30:00", where the time was "10時30分00秒". `fa`, `es` and `zh-Hant` no longer leave "()" or "[]" where the zone would be.
+* A date and time with no zone is written at `:long` and `:full` with `Localize.Time.to_string/2`'s time, so it reads back in every locale: `ja`'s full is "2024年4月3日水曜日 10:30:00", where the time was "10時30分00秒". `fa`, `es` and `zh-Hant` no longer leave "()" or "[]" for the missing zone.
 
 * A date interval compares its two dates in the fields its format writes, as TR35 does, so a week format writes both weeks (`format: :yw` is "week 25 of 2026 – week 30 of 2026", where only the first was written) and a quarter is written once for two dates within it ("Q2 2026", where "Q2 2026 – Q2 2026" was written).
 
@@ -354,13 +384,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * Compiling Localize on Elixir 1.17 and 1.18 no longer logs "The on_load function for module Elixir.Localize.Nif returned: {:undef, …}" and an `UndefinedFunctionError`: `Localize.Priv`, which the NIF module's `@on_load` callback calls, is compiled and loaded first.
 
-* `Localize.Interval.to_string/3` and `to_parts/3` take dates that hold only some of their fields, in CLDR's interval format for those fields: two months are "Jun – Aug", a month and a day each "Jun 15 – 20", a year and a month "Jun – Aug 2026", where a date with no year was a `:mixed_endpoints` error and one with no day an error for the day. A date and time with no year keeps its date, where it was written as a time alone.
+* `Localize.Interval.to_string/3` and `to_parts/3` take dates with only some fields, in CLDR's interval format for them: two months are "Jun – Aug" and a year and month "Jun – Aug 2026", where they were errors. A date and time with no year keeps its date.
 
 * `w` and `Y` take a date without its day when every day it could be is in one week.
 
 * A specific time zone name takes standard or daylight time from TR35's `stdOffset` and `dstOffset` where a metazone period names them, as CLDR 49 does for `Europe/Dublin` and `America/Winnipeg`, rather than from the time zone database's flag: Dublin's summer is "Irish Standard Time" however `std_offset` is set.
 
-* Parsing no longer depends on the order a map iterates in, which changes between VMs: the standard formats are tried in the order of `Localize.DateTime.Format.standard_formats/0`, and a country or city name in a zone name that two places share resolves to the one `Localize.Territory` picks, or the alphabetically first zone.
+* Parsing no longer depends on map iteration order, which varies between VMs: standard formats are tried in `Localize.DateTime.Format.standard_formats/0` order, and a place name two zones share resolves to the one `Localize.Territory` picks, else the alphabetically first.
 
 * `Localize.Locale.parent/1` returns a parent that names its CLDR locale, where it cleared the CLDR locale id with the child's subtags, so a caller walking up the locales no longer validates each parent against every locale, about 20 ms a step.
 
@@ -380,11 +410,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Territory.territory_from_locale/1` returns the region of a `-u-rg-` subdivision, so `en-u-rg-gbsct` (Scotland) is `:GB` where it was `:gbsct`, and such a locale's currency, unit preferences and time zone names are its region's.
 
-* The week fields `Y`, `w`, `W`, `e` and `c` take the locale's week data from the locale as given, so a `-u-fw-` first day and a `-u-rg-` region count, which they ignored: Friday is `e` 5 in `en-u-fw-mon`. `Localize.Calendar.first_day_for_locale/1` and `min_days_for_locale/1` follow TR35's first day algorithm in full, reading `-u-ca-iso8601` (ISO 8601's weeks), a `-u-sd-` subdivision and the world's data where a locale has no region.
+* The week fields `Y`, `w`, `W`, `e` and `c` honour a locale's `-u-fw-` and `-u-rg-`, which they ignored: Friday is `e` 5 in `en-u-fw-mon`. `first_day_for_locale/1` and `min_days_for_locale/1` follow TR35's algorithm in full, `-u-ca-iso8601` and `-u-sd-` included.
 
-* A datetime interval splits a skeleton into its date and time fields, as TR35's interval algorithm does, so one day's `format: :yMMMdHm` is "Jun 15, 2026, 10:00 – 14:30" where it was an error and `format: :Hm` writes the times alone where it wrote "10:00, 10:00 – 14:30". A skeleton of date fields alone formats the dates as a date interval does, "Jun 15 – 16, 2026".
+* A datetime interval splits a skeleton into date and time fields, as TR35 does: one day's `:yMMMdHm` is "Jun 15, 2026, 10:00 – 14:30", where it was an error, and `:Hm` writes the times alone. A skeleton of date fields formats as a date interval, "Jun 15 – 16, 2026".
 
-* A date or time its calendar does not have is a `Localize.InvalidValueError` wherever it enters formatting, intervals, `Localize.Calendar.localize/3` and relative time, checked by the calendar's `valid_date?/3` and `valid_time?/4`. `E`, `e`, `c`, `D`, `g` and `Q` raised for one, and the other fields wrote it, "Feb 30, 2019" or hour 25 as "1:00 AM".
+* A date or time its calendar lacks is a `Localize.InvalidValueError` in formatting, intervals, `Localize.Calendar.localize/3` and relative time, by the calendar's `valid_date?/3` and `valid_time?/4`. Some fields raised for one and others wrote it, "Feb 30, 2019" or hour 25 as "1:00 AM".
 
 * A calendar whose year begins in another month, such as a fiscal year beginning in July, names its months for the months they are, period 1 "Jul" and "7", where they were named by their place in the year, "Jan" and "1".
 
@@ -396,9 +426,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.DateTime.Relative.to_string/2` counts a number of seconds beyond the range of a float, where it raised `ArithmeticError`.
 
-* `Localize.Duration.new/2` counts years, months and days as the calendar's own shifting adds them, its `shift_date/4` from a first count by its `diff/3`, so the duration is the span `Date.shift/2` adds to the earlier date to reach the later: 14 January to 13 July is 5 months and 29 days, where it was 30, and a calendar of weeks or a lunisolar leap year no longer gives negative months. A date its calendar does not have is an error, where it raised, and a calendar that does not implement the Calendrical behaviour is refused, as it is in formatting.
+* `Localize.Duration.new/2` counts years, months and days with the calendar's `diff/3` and `shift/6`, giving the span `Date.shift/2` adds to the earlier date: 14 January to 13 July is 5 months and 29 days, where it was 30. A date the calendar lacks is an error, where it raised.
 
-* `Localize.Duration.new/2` measures two date-times in time zones as two moments, as ECMA-262 Temporal does: the later is moved to the earlier's time zone, days and longer are counted on that wall clock and the hours, minutes and seconds are the time that passes, so 10:00 UTC to 18:00 in Karachi is 3 hours, where it was 8. A time paired with a naive date-time no longer raises, and no pairing of a date, a time and a date-time gives a negative duration.
+* `Localize.Duration.new/2` measures two zoned date-times as two moments, as ECMA-262 Temporal does: 10:00 UTC to 18:00 in Karachi is 3 hours, where it was 8. A time paired with a naive date-time no longer raises, and no pairing gives a negative duration.
 
 * `Localize.DateTime.Relative.to_string/2` returns an error for a `DateTime` built by hand without its offsets from UTC or its time zone, where it raised `ArithmeticError`.
 
@@ -408,7 +438,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Substitution.substitute/2` substitutes into a template of any shape, where it raised on one it did not list, such as `el`'s zone fallback format "[{1} ({0})]".
 
-* A zone in a parsed date or time is read in the locale's own words and spelling — "heure d’été de l’Est nord-américain", "UTC−4", "غرينتش-4", "heure : New York" — and a name of standard or daylight time keeps its own offset, as ICU reads it. Of 52,560 zoned date-times formatted in every locale, all but `nnh`'s 80 now round-trip, where 14,099 did.
+* A zone in parsed text reads in the locale's own words and spelling, "heure d’été de l’Est nord-américain" or "غرينتش-4", and a standard or daylight name keeps its own offset, as ICU reads it. Of 52,560 zoned date-times formatted in every locale, all but 80 in `nnh` round-trip, where 14,099 did.
 
 * `Localize.Time.parse/2` reads a time written in the digits of the locale's number system, as the date parser does, so `bn` "১০:০৫ AM" and `fa` "۱۰:۰۵" parse, and with them the date-times of 67 locales that write their own digits.
 
@@ -416,13 +446,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Time.parse/2` tries the locale's standard formats first, then its available formats with those carrying a zone or a flexible day period last, where their order followed a map, so `ms` "11:59 PTG" is 23:59 rather than 11:59 in a zone "PTG".
 
-* A flexible day period is read as the period of that name its hour falls in (`fr` "9:05 matin" is 09:05, not 21:05), as midnight or noon at their hour, and as AM or PM where the locale names none, as the formatter then writes it. A word the locale does not name is no longer read as one, where any word was read as the morning.
+* A flexible day period reads as the period its hour falls in, so `fr`'s "9:05 matin" is 09:05, not 21:05, and as AM or PM where the locale names none. A word the locale does not name is no longer read as the morning.
 
 * `Localize.Interval.to_string/3` and `to_parts/3` format with the formats of the endpoints' calendar — its interval patterns, date and time formats and date-time pattern — where they used the Gregorian calendar's, and return an error for endpoints in two calendars.
 
 * An interval across a change of era writes each date's era where its format has one: `format: :GyMMMd` is "Dec 31, 1 BC – Jan 1, 1 AD", and the Japanese calendar's formats, which write the era with the year, "Apr 30, 31 Heisei – May 1, 1 Reiwa" across the change within 2019.
 
-* An interval whose endpoints differ in no field it shows is the date in the requested standard format, as `Localize.Date.to_string/2` and ECMA-402 write it (`ko` "2023. 4. 1." where it was "2023/4/1"), and a date-time interval formatted whole honours `:style`.
+* An interval whose endpoints differ in no field it shows is the date at the requested standard format, as `Localize.Date.to_string/2` and ECMA-402 write it: `ko` "2023. 4. 1.", where it was "2023/4/1". A date-time interval formatted whole honours `:style`.
 
 * `Localize.DateTime.parse/2` returns the date-time where it raised for every calendar but `Calendar.ISO`, and reads a date-time pattern that puts the time first, as `vi`'s "{0} {1}" does.
 
@@ -430,11 +460,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.DateTime.to_string/2` and `Localize.Time.to_string/2` resolve formats in the value's calendar — its date-time pattern, available formats and append items — where they used the Gregorian calendar's, and `Localize.DateTime.parse/2` reads the calendar's date-time pattern as well as the Gregorian one.
 
-* The date and interval parsers read a lunisolar date as the formatter and ICU4C write it: `r`, `U` (the year of that name nearest the reference date), leap months ("Mo2bis", "闰二月", "2bis") in their traditional numbering, and `zh`'s `hanidays` and `ja`'s `hanidec` numerals. Where a locale writes the year both as the calendar's and as the related year (`ko`'s "y. M. d." and "r. M. d."), the nearer reading is taken.
+* The date and interval parsers read a lunisolar date as the formatter and ICU4C write it: `r`, `U`, leap months ("Mo2bis", "闰二月") and `zh`'s and `ja`'s Han numerals. Where a locale writes both the calendar year and the related year, as `ko` does, the nearer reading is taken.
 
 * A date read without its year is completed with the reference date's year in the calendar it is read in, so "15 Nisan" in the Hebrew calendar is in 5786 where it was in the Hebrew year 2026, and a two-digit year is read in the century around it in every calendar.
 
-* Era names come from a calendar's `era_calendar_type/0` where it has one, so Calendrical's lunisolar Japanese calendar names its eras (令和) where it returned an error, and the parser reads a year written without its era in such a calendar as a year of the reference date's era, as ICU reads one.
+* Era names come from the CLDR calendar a calendar's `info/0` names as `:era_calendar_type`, so Calendrical's lunisolar Japanese calendar names its eras (令和), where it returned an error. A year written without its era reads as one of the reference date's era, as ICU reads it.
 
 * The date parser reads a year of an era that begins before the calendar's first year from the calendar year it begins in, so "Hedar 15, 5495 AA" is the Ethiopic year -5, as Calendrical numbers it.
 
@@ -490,7 +520,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Locale.LocaleDisplay.display_name/2` renders a locale in `root` (or `und`) as bare subtag codes per TR35's code fallback — `display_name("nl-BE", locale: :root)` is `"nl (BE)"`, where it answered in English. `root` is now accepted wherever `und` is.
 
-* Month names come from the calendar's `month_of_year/3`, so Hebrew months are named correctly in ordinary and leap years ("Adar II" included) and a Chinese leap month takes the leap-month pattern ("Second Monthbis"). They were looked up by the date's month number.
+* Month names come from the calendar's `cldr_month/2`, so Hebrew months are named correctly in ordinary and leap years ("Adar II" included) and a Chinese leap month takes the leap-month pattern ("Second Monthbis"), where they were looked up by month number.
 
 * The `Localize.FormatError` message for a selector without an annotation is rendered. Its example declaration was being formatted as a live placeholder, which failed, so the raw template was returned and a warning logged.
 
@@ -500,13 +530,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.to_string/1,2` and `Localize.List` return `Localize.InvalidValueError` for an improper list and for a bitstring that is not whole bytes, where they raised `FunctionClauseError`.
 
-* `Localize.Message.format/3` with `backend: :nif` formats a message whose bindings are not all strings, 64-bit integers or floats with the Elixir interpreter, where a `DateTime`, tuple or invalid UTF-8 binding raised and a struct, big integer or `nil` was misformatted. The NIF now decodes JSON `\b`, `\f` and `\u` escapes and exponent-form numbers, which reached ICU as literal text.
+* `Localize.Message.format/3` with `backend: :nif` falls back to the Elixir interpreter for bindings other than strings, 64-bit integers and floats, where some raised and others were misformatted. The NIF decodes JSON `\b`, `\f` and `\u` escapes and exponent-form numbers, which reached ICU as text.
 
 * `Localize.Nif.mf2_format/3` returns `{:error, exception}` for arguments that are not a map or JSON object of strings, 64-bit integers and floats, and for a message or locale that is not a string, where it raised.
 
 * `Localize.Message.format/3` and `format_to_iolist/3` return an error for an improper binding list, where both backends raised, and the NIF backend skips a list element that is not a `{name, value}` pair, as the interpreter does.
 
-* `Localize.Currency.current_currency_for_territory/1` returns CLDR's primary currency where several are current tender, where it took whichever came first in atom-creation order (LS gave LSL and ZW gave USD), and gives ML its XOF, which an older entry had displaced. The territory currency data now carries each currency's CLDR position as `:order`.
+* `Localize.Currency.current_currency_for_territory/1` returns CLDR's primary currency where several are current, where it depended on atom-creation order (LS gave LSL, ZW USD), and gives ML its XOF. The territory currency data carries each currency's CLDR position as `:order`.
 
 * `Localize.Currency.currency_strings/2`, and so currency parsing, leaves out a narrow symbol that several current currencies share, such as "kr" in `en`, where it went to whichever currency came first in atom-creation order. One current currency among historic ones still takes it.
 
@@ -516,7 +546,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * The module `mix localize.unit.gen_conversions` generates lists each unit once in `known_units/0`, where the simple base units appeared twice.
 
-* `Localize.Territory.to_territory_code/2` matches a name as written before its normalised form and, where territories share a name, prefers a country to a region, then the alphabetically first code, where it took whichever came last in map order. In `scn` the name shared by South Africa and Southern Africa now gives `:ZA`.
+* `Localize.Territory.to_territory_code/2` matches a name as written before its normalised form and, where territories share it, prefers a country to a region, then the first code alphabetically. In `scn` the name South Africa and Southern Africa share gives `:ZA`.
 
 * Fuzzy currency matching takes the alphabetically first of equally close currency strings, where it took whichever came first in map order.
 
@@ -594,7 +624,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Number.Rbnf.rule_names_for_locale/1` returns its names sorted. On OTP 26 and later their order followed the order the VM had created the atoms, so it varied between runs.
 
-* `Localize.Number` formats in a non-default numbering system with the data CLDR gives the locale for it — its own, root's for `arab` and `arabext`, or its `latn` where root aliases the system — so `fa-u-nu-latn` is "1,000.5" not "1٬000٫5", `en-u-nu-arab` "١٬٠٠٠٫٥" not "١,٠٠٠.٥", and `fa-u-nu-arab` takes `fa`'s own "٪" and "E".
+* `Localize.Number` formats a non-default numbering system with the data CLDR gives the locale for it: `fa-u-nu-latn` is "1,000.5", not "1٬000٫5", and `en-u-nu-arab` "١٬٠٠٠٫٥", not "١,٠٠٠.٥".
 
 * The long currency format no longer raises in `sd` and `ckb`, whose `arab` has no unit patterns and now takes their `latn` ones, and writes a currency with no display name by its code, as TR35 specifies ("٣٫٠٠ USD" in `ckb`).
 

@@ -682,12 +682,12 @@ defmodule Localize.Date do
     answers `date_from_week_date/3`, so it is ISO 8601's week for
     `Calendar.ISO` and the fifth week of its own year for a calendar
     built of weeks. Text that none of the calendar's own formats reads
-    is read in the calendar its `parsing_calendar/0` names, and
+    is read in the calendar its `info/0` names as `:parsing_calendar`, and
     converted: a calendar built of weeks, whose months are `"M02"` and
     not `"Feb"`, names `Calendar.ISO`, so `"Feb 1, 2024"` is 1 February
     2024 in it. A composite calendar, whose dates are written with the
-    formats of whichever of its calendars was in effect, may name those
-    calendars with an optional `parsing_calendars/0`, and a date is then
+    formats of whichever of its calendars was in effect, names those
+    calendars with its `parsing_calendars/0`, and a date is then
     read in each and converted, held to the calendar its day is written
     in. A calendar's own formats come before ISO 8601: a year, a
     month and a day between hyphens that any of them reads, as CLDR's
