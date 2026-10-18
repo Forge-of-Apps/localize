@@ -26,7 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 9. Locale data is verifiable and self-hostable: `mix localize.verify_locales`, `Localize.cldr_repo_ref/0` and a self-hosting guide.
 
-10. Public functions return `{:error, exception}` for arguments and options of the wrong type, where they raised.
+10. Public functions return `{:error, exception}` for arguments and options of the wrong type, where they previously raised.
 
 ### Breaking changes
 
