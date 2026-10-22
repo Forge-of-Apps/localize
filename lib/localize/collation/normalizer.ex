@@ -42,19 +42,25 @@ defmodule Localize.Collation.Normalizer do
 
   ### Arguments
 
-  * `string` - a UTF-8 binary string.
+  * `string` is a UTF-8 binary string.
 
   ### Returns
 
-  A list of integer codepoints.
+  * The string's codepoints as a charlist, which is empty for an empty
+    string.
+
+  Raises `UnicodeConversionError` when `string` is not valid UTF-8.
 
   ### Examples
 
       iex> Localize.Collation.Normalizer.to_codepoints("abc")
       [97, 98, 99]
 
+      iex> Localize.Collation.Normalizer.to_codepoints("")
+      []
+
   """
-  @spec to_codepoints(String.t()) :: [non_neg_integer()]
+  @spec to_codepoints(String.t()) :: charlist()
   def to_codepoints(string) when is_binary(string) do
     String.to_charlist(string)
   end
