@@ -172,7 +172,8 @@ defmodule Localize.Calendar do
 
   * `type` is the type of calendar item. One of:
 
-    * `:calendar` — a calendar system name (e.g., `:gregorian`).
+    * `:calendar` — a calendar system name, in CLDR's form
+      (`:gregorian`) or its BCP 47 form (`:gregory`).
 
     * `:era` — an era name by index (e.g., `1` for AD).
 
@@ -213,6 +214,10 @@ defmodule Localize.Calendar do
   * `:calendar` is the calendar system atom. The default is
     `:gregorian`.
 
+  * `:prefer` applies to the `:calendar` type. It is `:standard` (the
+    default) for the full name, "Gregorian Calendar", or `:menu` for the
+    short name CLDR gives for a menu of calendars, "Gregorian".
+
   ### Returns
 
   * `{:ok, name}` where `name` is the localized display name.
@@ -223,6 +228,9 @@ defmodule Localize.Calendar do
 
       iex> Localize.Calendar.display_name(:calendar, :gregorian)
       {:ok, "Gregorian Calendar"}
+
+      iex> Localize.Calendar.display_name(:calendar, :gregory, prefer: :menu)
+      {:ok, "Gregorian"}
 
       iex> Localize.Calendar.display_name(:month, 1)
       {:ok, "January"}
@@ -254,17 +262,14 @@ defmodule Localize.Calendar do
   def display_name(type, value, options \\ [])
 
   def display_name(:calendar, calendar_type, options) when is_keyword_list(options) do
-    locale = Keyword.get(options, :locale, Localize.get_locale())
+    name_options = [
+      locale: Keyword.get(options, :locale, Localize.get_locale()),
+      prefer: Keyword.get(options, :prefer, :standard)
+    ]
 
-    with {:ok, language_tag} <- Localize.validate_locale(locale),
-         {:ok, ldn} <- Localize.Locale.get(language_tag, [:locale_display_names]) do
-      calendar_names = get_in(ldn, [:types, :calendar]) || %{}
-
-      case Map.get(calendar_names, calendar_type) do
-        nil -> {:error, Localize.UnknownCalendarError.exception(calendar: calendar_type)}
-        name when is_binary(name) -> {:ok, name}
-      end
-    end
+    :calendar
+    |> Localize.Locale.LocaleDisplay.type_name(calendar_type, name_options)
+    |> calendar_name(calendar_type, name_options[:prefer])
   end
 
   def display_name(:date_time_field, field, options)
@@ -386,6 +391,14 @@ defmodule Localize.Calendar do
   # are captured by the `defaults` keyword: `style:` overrides the
   # default `:wide`, and `unwrap: true` peels the `%{default: name}`
   # shape that day-period entries can take.
+  # A calendar with no full name is not one the locale knows. One without
+  # a menu name may still be known, so that answer stays as `type_name/3`
+  # gives it.
+  defp calendar_name({:error, %Localize.ItemNotFoundError{}}, calendar_type, :standard),
+    do: {:error, Localize.UnknownCalendarError.exception(calendar: calendar_type)}
+
+  defp calendar_name(result, _calendar_type, _prefer), do: result
+
   defp lookup_calendar_field(data_key, value, options, expected, defaults \\ []) do
     locale = Keyword.get(options, :locale, Localize.get_locale())
     style = Keyword.get(options, :style, Keyword.get(defaults, :style, :wide))

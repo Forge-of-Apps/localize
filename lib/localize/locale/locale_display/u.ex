@@ -29,6 +29,27 @@ defmodule Localize.Locale.LocaleDisplay.U do
   @doc false
   def display_key(field), do: Map.get(@field_to_display_key, field, field)
 
+  # The CLDR name a type value is displayed under. A BCP 47 value maps to
+  # it through the validity data, so `level1` is `:primary` and `false` is
+  # `:no`, and a CLDR name such as `:primary` is its own.
+  @doc false
+  def type_value(display_key, value) when is_atom(value),
+    do: type_value(display_key, Atom.to_string(value))
+
+  def type_value(display_key, value) when is_binary(value),
+    do: {:ok, canonicalize_value(field_for_display_key(display_key), value)}
+
+  def type_value(_display_key, _value), do: :error
+
+  # The extension field a CLDR display key names: `:calendar` is `:ca`, and
+  # a key that is its own field, such as `:hc`, is that field.
+  defp field_for_display_key(display_key) do
+    Enum.find_value(@field_to_display_key, display_key, fn
+      {field, ^display_key} -> field
+      _other -> nil
+    end)
+  end
+
   # # display_name/4
   #
   # Returns a display name for the Unicode locale extension (U).
@@ -49,12 +70,14 @@ defmodule Localize.Locale.LocaleDisplay.U do
   #
   def display_name(locale_ext, locale_id, display_names, options) do
     prefer = Keyword.get(options, :prefer, :standard)
+    key_value_display = Keyword.get(options, :key_value_display, :whole)
 
     # Handle both LanguageTag.U structs and plain maps
     fields = get_fields(locale_ext)
 
     for {_key, field} <- fields, !is_nil(value = get_field(locale_ext, field)) do
-      format_key_value(field, value, locale_ext, locale_id, display_names, prefer)
+      separate_key_value(key_value_display, field, value, display_names) ||
+        format_key_value(field, value, locale_ext, locale_id, display_names, prefer)
     end
     |> join_field_values(display_names)
   end
@@ -122,6 +145,29 @@ defmodule Localize.Locale.LocaleDisplay.U do
       )
     end
   end
+
+  # TR35's `SeparateKeyValue`: the key's name and the value's `scope="core"`
+  # name joined by the locale's key-type pattern, "Calendar: Gregorian".
+  # A pair without both names is written whole, as TR35 directs.
+  defp separate_key_value(:whole, _field, _value, _display_names), do: nil
+
+  defp separate_key_value(:separate, field, value, display_names) do
+    display_key = display_key(field)
+    key_name = get_in(display_names, [:keys, display_key])
+    core_name = core_type(display_key, canonicalize_value(field, value), display_names)
+
+    if key_name && core_name do
+      display_pattern = get_in(display_names, [:locale_display_pattern, :locale_key_type_pattern])
+      names = Enum.map([key_name, core_name], &replace_nested_brackets(&1, display_names))
+      Localize.Substitution.substitute(names, display_pattern)
+    end
+  end
+
+  defp core_type(display_key, [value], display_names),
+    do: core_type(display_key, value, display_names)
+
+  defp core_type(display_key, value, display_names),
+    do: get_in(display_names, [:core_types, display_key, value])
 
   # Canonicalize a BCP47 value using validity data.
   # BCP47 values use hyphens (e.g., "islamic-civil") while CLDR

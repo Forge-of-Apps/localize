@@ -268,6 +268,52 @@ defmodule Localize.Locale.LocaleDisplayUTest do
     end
   end
 
+  describe "display_name/2 with key_value_display: :separate" do
+    test "writes the key name and the core value name" do
+      assert {:ok, "English (Calendar: Gregorian)"} =
+               LocaleDisplay.display_name("en-u-ca-gregory", key_value_display: :separate)
+    end
+
+    test "nests the brackets of a key name" do
+      assert {:ok, "German (Hour Cycle [12 vs 24]: 12)"} =
+               LocaleDisplay.display_name("de-u-hc-c12", key_value_display: :separate)
+    end
+
+    test "writes whole a pair with no core value name" do
+      assert {:ok, "English (Arabic-Indic Digits)"} =
+               LocaleDisplay.display_name("en-u-nu-arab", key_value_display: :separate)
+    end
+
+    test "an unknown value is an error" do
+      assert {:error, %Localize.InvalidValueError{value: :bogus}} =
+               LocaleDisplay.display_name("en", key_value_display: :bogus)
+    end
+  end
+
+  describe "type_name/3 with BCP 47 values" do
+    test "names a BCP 47 value as its CLDR long form" do
+      assert {:ok, "Sort Base Letters Only"} = LocaleDisplay.type_name(:ks, :level1, locale: :en)
+      assert {:ok, "Phonebook Sort Order"} = LocaleDisplay.type_name(:co, :phonebk, locale: :en)
+      assert {:ok, "Sort Digits Numerically"} = LocaleDisplay.type_name(:kn, true, locale: :en)
+
+      assert {:ok, "Hijri (tabular, civil epoch)"} =
+               LocaleDisplay.type_name(:ca, "islamic-civil", locale: :en, prefer: :menu)
+    end
+
+    test "names the CLDR 49 hour cycles c12 and c24" do
+      assert {:ok, "12-Stunden-Format"} = LocaleDisplay.type_name(:hc, :c12, locale: :de)
+      assert {:ok, "24"} = LocaleDisplay.type_name(:hc, :c24, locale: :en, prefer: :menu)
+    end
+
+    test "a value that is no type is not found" do
+      assert {:error, %Localize.ItemNotFoundError{}} =
+               LocaleDisplay.type_name(:ca, :nonsense, locale: :en)
+
+      assert {:error, %Localize.ItemNotFoundError{}} =
+               LocaleDisplay.type_name(:ca, 42, locale: :en)
+    end
+  end
+
   defp render(iodata), do: :erlang.iolist_to_binary(iodata)
 
   defp display_names(locale_id \\ :en) do

@@ -220,7 +220,7 @@ defmodule Localize do
 
   The tag is read from `priv/localize/cldr_repo_ref`, written by
   `mix localize.update_cldr` when the data pipeline last ran. It names the
-  `unicode-org/cldr` ref — a release tag such as `"release-49-beta3"`, or a
+  `unicode-org/cldr` ref — a release tag such as `"release-49"`, or a
   commit SHA when the checkout was not on a tag — that produced both the
   bundled data and the locale files published to the CDN.
 

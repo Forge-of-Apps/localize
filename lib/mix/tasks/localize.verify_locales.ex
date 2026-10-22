@@ -44,7 +44,7 @@ defmodule Mix.Tasks.Localize.VerifyLocales do
 
       Localize version:  1.3.0
       CLDR version:      49.0.0
-      CLDR repo tag:     release-49-beta3
+      CLDR repo tag:     release-49
       Reference CDN:     https://elixir-localize.com/locales/v49.0.0
 
   Each `.etf` file in the directory is then one of:

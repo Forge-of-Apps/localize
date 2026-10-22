@@ -518,6 +518,24 @@ defmodule Localize.CalendarTest do
       assert {:error, %Localize.UnknownCalendarError{calendar: :bogus}} =
                Localize.Calendar.display_name(:calendar, :bogus)
     end
+
+    test "accepts the BCP 47 calendar name" do
+      assert {:ok, "Ethiopic Amete Alem Calendar"} =
+               Localize.Calendar.display_name(:calendar, :ethioaa)
+    end
+
+    test "prefer: :menu returns the short name for a menu" do
+      assert {:ok, "Gregorian"} =
+               Localize.Calendar.display_name(:calendar, :gregorian, prefer: :menu)
+
+      assert {:ok, "buddhistisch"} =
+               Localize.Calendar.display_name(:calendar, :buddhist, prefer: :menu, locale: :de)
+    end
+
+    test "an unknown preference is an error" do
+      assert {:error, %Localize.InvalidValueError{value: :short}} =
+               Localize.Calendar.display_name(:calendar, :gregorian, prefer: :short)
+    end
   end
 
   describe "display_name/3 with :date_time_field" do

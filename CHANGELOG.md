@@ -164,7 +164,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Unit.to_string/2` takes `:inflect`, synthesizing a pattern when the requested `:grammatical_case` has no CLDR one — `:safe` uses attested paths only, `:always` also guesses from suffixes. `Localize.Unit.grammatical_gender/2` returns a unit's gender.
 
-* `Localize.Locale.LocaleDisplay.key_name/2` and `type_name/3` return a BCP 47 key's localized name and the name of one of its type values — `key_name(:ca)` is "Calendar", `type_name(:ca, :buddhist)` is "Buddhist Calendar", and "Buddhist", CLDR's `scope="core"` name, with `prefer: :menu`.
+* `Localize.Locale.LocaleDisplay.key_name/2` and `type_name/3` return a BCP 47 key's localized name and the name of one of its type values — `key_name(:ca)` is "Calendar", `type_name(:ca, :buddhist)` is "Buddhist Calendar", and "Buddhist", CLDR's `scope="core"` name, with `prefer: :menu`. A value may be given in its BCP 47 form, `:gregory` or `:level1`.
+
+* `Localize.Locale.LocaleDisplay.display_name/2` takes `key_value_display: :separate`, TR35's `SeparateKeyValue`, so `en-u-ca-gregory` is "English (Calendar: Gregorian)".
+
+* `Localize.Calendar.display_name(:calendar, calendar)` takes `prefer: :menu` for the short name a menu of calendars uses, "Gregorian", and accepts BCP 47 names such as `:gregory`.
 
 * `Localize.affirmative_responses/1` and `negative_responses/1` return CLDR's POSIX `yesstr` / `nostr` forms — `{:ok, ["ja", "j"]}` for `:de` — and `affirmative?/2` and `negative?/2` match a response against them, folding case as TR35 requires.
 
@@ -202,7 +206,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `mix localize.verify_locales` checks a directory of locale files against the release's SHA-256 manifest, exiting non-zero on a mismatch so it can gate a build. It reports the CLDR tag the reference data came from, since the hashes are not overridable.
 
-* `Localize.cldr_repo_ref/0` returns the CLDR repository tag the bundled data was generated from, such as `"release-49-beta3"`, and the tag now ships in the hex package. Together with `Localize.version/0` it traces a locale file to the source it came from.
+* `Localize.cldr_repo_ref/0` returns the CLDR repository tag the bundled data was generated from, such as `"release-49"`, and the tag now ships in the hex package. Together with `Localize.version/0` it traces a locale file to the source it came from.
 
 * A [self-hosting guide](https://hexdocs.pm/localize/self_hosting_locale_data.html) covers provisioning, verifying and serving locale data from a private CDN. Configure the cache location before downloading, since the download target follows it.
 

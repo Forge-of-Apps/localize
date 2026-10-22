@@ -37,7 +37,7 @@ priv/
 │   ├── collation_table.etf, all_locale_names.etf, known_territories.etf, …
 │   ├── version                    # CLDR version (e.g. "48.2")
 │   ├── localize_patch_version     # "{cldr_version}:{patch}" (e.g. "48.2:1")
-│   └── cldr_repo_ref              # CLDR repository tag or commit (e.g. "release-49-beta2")
+│   └── cldr_repo_ref              # CLDR repository tag or commit (e.g. "release-49")
 │
 ├── unicode/                       # UCD tables (combining_class.txt, general_category.txt)
 

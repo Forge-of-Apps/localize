@@ -23,6 +23,7 @@ defmodule Localize.Locale.LocaleDisplay do
 
   @type display_options :: [
           {:language_display, :standard | :dialect},
+          {:key_value_display, :whole | :separate},
           {:prefer, atom()},
           {:locale, atom() | String.t() | Localize.LanguageTag.t()}
         ]
@@ -47,6 +48,12 @@ defmodule Localize.Locale.LocaleDisplay do
     unqualified CLDR entry), `:short`, `:long`, `:variant`,
     `:stand_alone` or `:menu`. A subtag with no name for the
     requested preference falls back to its `:standard` name.
+
+  * `:key_value_display` determines how a `-u-` key and value are
+    written. `:whole` (the default) writes the value's full name,
+    "Gregorian Calendar". `:separate` writes the key's name and the
+    value's short `scope="core"` name, "Calendar: Gregorian", and
+    writes whole any pair that lacks either name.
 
   * `:locale` is the locale in which to display the name.
     The default is `:en`. Pass `:root` (or `:und`) to render the
@@ -75,6 +82,12 @@ defmodule Localize.Locale.LocaleDisplay do
 
       iex> Localize.Locale.LocaleDisplay.display_name("nl-BE", locale: :root)
       {:ok, "nl (BE)"}
+
+      iex> Localize.Locale.LocaleDisplay.display_name("en-u-ca-gregory")
+      {:ok, "English (Gregorian Calendar)"}
+
+      iex> Localize.Locale.LocaleDisplay.display_name("en-u-ca-gregory", key_value_display: :separate)
+      {:ok, "English (Calendar: Gregorian)"}
 
   """
   @spec display_name(Localize.LanguageTag.t() | String.t() | atom(), display_options()) ::
@@ -132,6 +145,7 @@ defmodule Localize.Locale.LocaleDisplay do
 
     with {:ok, prefer} <- preference_from_options(options, @known_preferences),
          :ok <- validate_language_display(standard_or_dialect),
+         :ok <- validate_key_value_display(Keyword.get(options, :key_value_display, :whole)),
          {:ok, display_names} <- load_display_names(display_locale),
          {:ok, matched_tags, language_name} <-
            language_name(language_tag, display_names, prefer, standard_or_dialect) do
@@ -344,7 +358,8 @@ defmodule Localize.Locale.LocaleDisplay do
   * `key` is a BCP 47 key as an atom or string, in either its short
     form (`:ca`) or CLDR's long form (`:calendar`).
 
-  * `value` is a type value for that key, such as `:buddhist`.
+  * `value` is a type value for that key, in its BCP 47 form (`:gregory`)
+    or CLDR's long form (`:gregorian`).
 
   * `options` is a keyword list of options.
 
@@ -376,6 +391,9 @@ defmodule Localize.Locale.LocaleDisplay do
       iex> Localize.Locale.LocaleDisplay.type_name(:co, :phonebook, locale: :en)
       {:ok, "Phonebook Sort Order"}
 
+      iex> Localize.Locale.LocaleDisplay.type_name(:ks, :level1, locale: :en, prefer: :menu)
+      {:ok, "Base Letters Only"}
+
   """
   @spec type_name(atom() | String.t(), atom() | String.t(), Keyword.t()) ::
           {:ok, String.t()} | {:error, Exception.t()}
@@ -390,7 +408,7 @@ defmodule Localize.Locale.LocaleDisplay do
          {:ok, language_tag} <- Localize.validate_locale(locale),
          {:ok, display_names} <- Localize.Locale.get(language_tag, [:locale_display_names]),
          {:ok, display_key} <- found_key(key, locale, keys),
-         {:ok, type_value} <- found_key(value, locale, keys) do
+         {:ok, type_value} <- found_value(display_key, value, locale, keys) do
       prefer
       |> type_name_for(display_names, display_key, type_value)
       |> found_name(locale, keys)
@@ -410,6 +428,15 @@ defmodule Localize.Locale.LocaleDisplay do
   defp found_key(key, locale, keys) do
     case display_key(key) do
       {:ok, display_key} -> {:ok, display_key}
+      :error -> {:error, Localize.ItemNotFoundError.exception(locale: locale, keys: keys)}
+    end
+  end
+
+  # A value is named under its CLDR name, so a BCP 47 value such as
+  # `:gregory` or `:level1` names the same type as `:gregorian` or `:primary`.
+  defp found_value(display_key, value, locale, keys) do
+    case Localize.Locale.LocaleDisplay.U.type_value(display_key, value) do
+      {:ok, type_value} -> {:ok, type_value}
       :error -> {:error, Localize.ItemNotFoundError.exception(locale: locale, keys: keys)}
     end
   end
@@ -791,6 +818,16 @@ defmodule Localize.Locale.LocaleDisplay do
      Localize.InvalidValueError.exception(
        value: invalid,
        expected: ":standard or :dialect"
+     )}
+  end
+
+  defp validate_key_value_display(style) when style in [:whole, :separate], do: :ok
+
+  defp validate_key_value_display(invalid) do
+    {:error,
+     Localize.InvalidValueError.exception(
+       value: invalid,
+       expected: ":whole or :separate"
      )}
   end
 

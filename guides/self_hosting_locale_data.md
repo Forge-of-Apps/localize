@@ -53,7 +53,7 @@ With no argument the task checks the directory configured in step 1. Pass a path
 ```
 Localize version:  1.4.0
 CLDR version:      49.0.0
-CLDR repo tag:     release-49-beta3
+CLDR repo tag:     release-49
 Reference CDN:     https://elixir-localize.com/locales/v49.0.0
 
 657 file(s) in /path/to/my_app/priv/localize/locales
