@@ -737,8 +737,8 @@ defmodule Localize.Unit do
 
     values
     |> Enum.zip(units)
-    |> Enum.reduce(0.0, fn {val, {:single_unit, opts}}, acc ->
-      component_name = format_single_unit_name(opts)
+    |> Enum.reduce(0.0, fn {val, {:single_unit, unit_options}}, acc ->
+      component_name = format_single_unit_name(unit_options)
 
       case Localize.Unit.Conversion.convert(val * 1.0, component_name, first_name) do
         {:ok, converted} -> acc + converted
@@ -751,9 +751,9 @@ defmodule Localize.Unit do
 
   defp mixed_to_scalar(%Decimal{} = value, _name, _parsed), do: Decimal.to_float(value)
 
-  defp format_single_unit_name(opts) do
-    prefix = Keyword.get(opts, :prefix)
-    base = Keyword.get(opts, :base)
+  defp format_single_unit_name(unit_options) do
+    prefix = Keyword.get(unit_options, :prefix)
+    base = Keyword.get(unit_options, :base)
     prefix_str = if prefix, do: Atom.to_string(prefix), else: ""
     "#{prefix_str}#{base}"
   end

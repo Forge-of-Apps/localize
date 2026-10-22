@@ -32,15 +32,6 @@ defmodule Localize.Calendar.ISO do
 
   @behaviour Calendar
 
-  for {name, arity} <- Calendar.behaviour_info(:callbacks) do
-    arguments = Macro.generate_arguments(arity, __MODULE__)
-
-    @doc false
-    @impl Calendar
-    def unquote(name)(unquote_splicing(arguments)),
-      do: Calendar.ISO.unquote(name)(unquote_splicing(arguments))
-  end
-
   # ISO 8601's weeks begin on Monday, and its week 1 holds four days of the
   # year: the weeks this module answers where a question carries no locale.
   @iso_8601_weeks {1, 4}
@@ -78,6 +69,15 @@ defmodule Localize.Calendar.ISO do
     family: __MODULE__,
     members: nil
   }
+
+  for {name, arity} <- Calendar.behaviour_info(:callbacks) do
+    arguments = Macro.generate_arguments(arity, __MODULE__)
+
+    @doc false
+    @impl Calendar
+    def unquote(name)(unquote_splicing(arguments)),
+      do: Calendar.ISO.unquote(name)(unquote_splicing(arguments))
+  end
 
   @typedoc false
   @type info :: %{

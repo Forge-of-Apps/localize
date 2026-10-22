@@ -20,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 6. `Localize.Inflection` is added as a technical preview: inflected words, pronouns and quantities, MessageFormat 2's `i:` functions and inflected units.
 
-7. CLDR 49's ordinal days and numeric date and time separators are supported as technical previews.
+7. CLDR 49's technical previews are supported and marked as such: ordinal days, numeric date and time separators, the `c12` and `c24` hour cycles, semantic skeletons and rational number formats.
 
 8. Number parsing reads currency amounts and a locale's alternative separators (`:currency`, `:separators`).
 

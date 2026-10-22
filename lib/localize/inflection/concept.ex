@@ -344,6 +344,10 @@ defmodule Localize.Inflection.Concept do
   only through attested dictionary paths, and a failed render
   returns the value unchanged.
 
+  ### Arguments
+
+  * `concept` is a `t:t/0`, as `new/3` returns it.
+
   ### Returns
 
   * A speakable string (a binary, or `{print, speak}` when the

@@ -17,6 +17,12 @@ defmodule Localize.DateTime.SemanticSkeleton do
   skeletons, pairs each of its cases with the classical skeleton it resolves
   to, and every case resolves as it says.
 
+  > #### Semantic skeletons are a technical preview {: .warning}
+  >
+  > TR35 designates semantic skeletons, and the MessageFormat 2 date and
+  > time functions built on them, a technical preview. The fields a
+  > request resolves to may change with a later CLDR release.
+
   ## Field codes
 
   The skeleton code names the fields wanted:

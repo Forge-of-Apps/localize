@@ -843,8 +843,8 @@ defmodule Localize.Collation do
   defp u_bool_value(:no), do: false
   defp u_bool_value(_), do: nil
 
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+  defp maybe_put(options, _key, nil), do: options
+  defp maybe_put(options, key, value), do: Keyword.put(options, key, value)
 
   defp use_nif?(%Options{backend: :nif} = options) do
     Nif.available?() and Options.nif_compatible?(options)

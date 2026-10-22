@@ -146,23 +146,10 @@ defmodule Localize.Locale.Provider.PersistentTerm do
   def store(locale_id, locale_data) do
     Localize.LiteralMemory.put(
       locale_key(locale_id),
-      fix_alt_language_key(locale_data),
+      locale_data,
       "the locale " <> inspect(locale_id)
     )
   end
-
-  # CLDR 48 locale data stores the "alt" language code (Southern
-  # Altai) as the atom :alt — the generation pipeline's alt-variant
-  # key atomization collides with the language code. Restore the
-  # binary key so it is reachable like every other language code.
-  # Remove once the data is regenerated with the pipeline fix
-  # (next CLDR release cycle).
-  defp fix_alt_language_key(%{languages: %{alt: name} = languages} = locale_data) do
-    languages = languages |> Map.delete(:alt) |> Map.put("alt", name)
-    %{locale_data | languages: languages}
-  end
-
-  defp fix_alt_language_key(locale_data), do: locale_data
 
   @doc """
   Returns whether locale data has been loaded into `:persistent_term`.

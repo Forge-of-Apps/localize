@@ -34,6 +34,9 @@ defmodule Localize.Locale do
   alias Localize.Locale.Provider
   alias Localize.SupplementalData
 
+  # The coverage levels CLDR ranks locales by, lowest first.
+  @coverage_levels [:basic, :moderate, :modern]
+
   @typedoc "A BCP 47 language subtag as an atom."
   @type language :: atom() | nil
 
@@ -117,8 +120,6 @@ defmodule Localize.Locale do
   """
   @spec display_name!(LanguageTag.t() | String.t() | atom(), Keyword.t()) :: String.t()
   defdelegate display_name!(locale, options \\ []), to: Localize.Locale.LocaleDisplay
-
-  @coverage_levels [:basic, :moderate, :modern]
 
   # ── Locale inheritance ────────────────────────────────────────
 

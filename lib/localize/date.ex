@@ -478,17 +478,17 @@ defmodule Localize.Date do
   defp locale_from_options(%{} = options, fallback), do: Map.get(options, :locale, fallback)
   defp locale_from_options(_options, fallback), do: fallback
 
-  defp resolve_skeleton(opts) when is_list(opts) do
-    skeleton = Keyword.fetch!(opts, :skeleton)
-    locale_id = Keyword.fetch!(opts, :locale_id)
-    calendar = Keyword.get(opts, :calendar, :gregorian)
-    options = Keyword.get(opts, :options, [])
+  defp resolve_skeleton(request) when is_list(request) do
+    skeleton = Keyword.fetch!(request, :skeleton)
+    locale_id = Keyword.fetch!(request, :locale_id)
+    calendar = Keyword.get(request, :calendar, :gregorian)
+    options = Keyword.get(request, :options, [])
     # Internal: skeletons already attempted in this resolution
     # chain. Prevents an infinite loop where `best_match`
     # returns the same skeleton it was given because the
     # candidate set already contains it (and we then re-look-up
     # in the calendar's available_formats where it's missing).
-    seen = Keyword.get(opts, :seen, MapSet.new())
+    seen = Keyword.get(request, :seen, MapSet.new())
 
     with {:ok, available} <-
            Localize.DateTime.Format.available_formats(

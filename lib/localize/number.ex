@@ -975,6 +975,11 @@ defmodule Localize.Number do
   using the continued fraction algorithm, then formats it with CLDR
   rational format patterns.
 
+  > #### Rational formats are a technical preview {: .warning}
+  >
+  > TR35 designates rational number formatting a technical preview, so
+  > the patterns and the output may change with a later CLDR release.
+
   ### Arguments
 
   * `number` is an integer, float, or Decimal.
