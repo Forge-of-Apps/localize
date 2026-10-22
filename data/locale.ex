@@ -184,27 +184,48 @@ defmodule Localize.Data.Locale do
     Map.put(result, "subdivisions", subdivisions)
   end
 
+  # A locale's subdivision names are its own over those of each parent in
+  # turn, as CLDR inherits them: the converter writes only the names a
+  # locale's file holds, so `en-GB`, whose file names nothing of its own,
+  # takes all of `en`'s.
   defp localized_subdivisions(locale) do
-    subdivisions_path = Localize.Data.subdivisions_source_path(locale)
+    locale
+    |> locale_chain()
+    |> Enum.reverse()
+    |> Enum.reduce(%{}, &Map.merge(&2, own_subdivisions(&1)))
+  end
 
-    if File.exists?(subdivisions_path) do
-      parse_xml_subdivisions(subdivisions_path)
+  defp own_subdivisions(locale) do
+    path = Localize.Data.subdivisions_source_path(locale)
+
+    if File.exists?(path) do
+      path
+      |> File.read!()
+      |> :json.decode()
+      |> get_in(["subdivisions", "localeDisplayNames", "subdivisions"])
+      |> Kernel.||(%{})
     else
       %{}
     end
   end
 
-  defp parse_xml_subdivisions(xml_path) do
-    import SweetXml
+  # The locale and its parents, nearest first: a parent `parentLocales`
+  # names, else the name with its last subtag dropped. The chain stops
+  # short of root, which names no subdivisions.
+  defp locale_chain("und"), do: []
+  defp locale_chain("root"), do: []
 
-    xml_path
-    |> File.read!()
-    |> String.replace(~r/<!DOCTYPE.*>\n/, "")
-    |> xpath(~x"//subdivision"l, code: ~x"./@type"s, translation: ~x"./text()")
-    |> Map.new(fn subdivision ->
-      {subdivision.code, to_string(subdivision.translation)}
-    end)
+  defp locale_chain(locale) do
+    parent =
+      Map.get_lazy(Localize.SupplementalData.parent_locales(), locale, fn ->
+        locale |> String.split("-") |> Enum.drop(-1) |> parent_name()
+      end)
+
+    [locale | locale_chain(parent)]
   end
+
+  defp parent_name([]), do: "und"
+  defp parent_name(subtags), do: Enum.join(subtags, "-")
 
   # ── Loader-equivalent post-processing ──────────────────────────
   #

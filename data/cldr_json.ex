@@ -20,7 +20,8 @@ defmodule Localize.Data.CldrJson do
 
   * `Ldml2JsonConverter` converts that into the JSON packages, for the
     types generation reads: `main` (the `cldr-*-full` packages),
-    `supplemental` (`cldr-core`) and `rbnf` (`cldr-rbnf`).
+    `supplemental` (`cldr-core`), `rbnf` (`cldr-rbnf`) and
+    `subdivisions` (`cldr-subdivisions-full`).
 
   Both need Maven, running a JDK at least as recent as the
   `<java-release>` the repository's `tools/pom.xml` declares (21 for CLDR
@@ -36,9 +37,10 @@ defmodule Localize.Data.CldrJson do
   """
 
   # The converter types generation reads: the per-locale `cldr-*-full`
-  # packages, `cldr-core` and `cldr-rbnf`. Each type is converted on its
-  # own, as cldr-json's `-t all` also does, one converter per type.
-  @types ["main", "supplemental", "rbnf"]
+  # packages, `cldr-core`, `cldr-rbnf` and `cldr-subdivisions-full`. Each
+  # type is converted on its own, as cldr-json's `-t all` also does, one
+  # converter per type.
+  @types ["main", "supplemental", "rbnf", "subdivisions"]
 
   # CLDR 49's GenerateProductionData drops every locale that is not in ICU
   # and whose coverage is below Basic unless `keepPreBasic` is set: 657
@@ -77,6 +79,13 @@ defmodule Localize.Data.CldrJson do
     "-n",
     "true"
   ]
+
+  # The lowest draft status kept for a type, where it differs from the
+  # `contributed` the options above give every type. CLDR's subdivision
+  # names are almost all provisional outside English, so at `contributed`
+  # `ja`, `fr` or `de` would keep 3 names of their 4,700 or more.
+  # `provisional` keeps them and still drops unconfirmed names.
+  @draft_status %{"subdivisions" => "provisional"}
 
   # The heap cldr-json's driver gives Maven. The conversion runs a thread
   # per core and needs more with more of them: on 16 threads it peaked at
@@ -178,8 +187,23 @@ defmodule Localize.Data.CldrJson do
     %{
       "types" => Enum.join(@types, " "),
       "production_data" => Enum.join(@production_options, " "),
-      "converter" => Enum.join(@converter_options, " ")
+      "converter" => Enum.join(@converter_options, " "),
+      "draft_status" =>
+        Enum.map_join(Enum.sort(@draft_status), " ", fn {type, status} -> "#{type}=#{status}" end)
     }
+  end
+
+  # A type's converter options: the shared ones, with its own lowest draft
+  # status where `@draft_status` gives one.
+  defp converter_options(type) do
+    case Map.fetch(@draft_status, type) do
+      {:ok, status} ->
+        index = Enum.find_index(@converter_options, &(&1 == "-s")) + 1
+        List.replace_at(@converter_options, index, status)
+
+      :error ->
+        @converter_options
+    end
   end
 
   # ── Steps ──────────────────────────────────────────────────────
@@ -208,7 +232,7 @@ defmodule Localize.Data.CldrJson do
 
   defp convert(repository, staging, output) do
     Enum.reduce_while(@types, :ok, fn type, :ok ->
-      arguments = @converter_options ++ ["-t", type, "-d", output]
+      arguments = converter_options(type) ++ ["-t", type, "-d", output]
 
       case maven(repository, exec(@converter_class, staging, arguments)) do
         :ok -> {:cont, :ok}

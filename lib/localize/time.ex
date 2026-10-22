@@ -291,7 +291,11 @@ defmodule Localize.Time do
   | `:h24`| 1–24  | 24-hour clock, midnight is 24            |
 
   A `-u-hc-` Unicode extension on the locale (e.g.
-  `"fr-u-hc-h12"`) overrides the territory default.
+  `"fr-u-hc-h12"`) overrides the territory default. CLDR 49's
+  technical-preview `c12` and `c24` ask for the locale's own 12-hour
+  or 24-hour cycle, which TR35 resolves from the cycles the region
+  allows: `c12` is `:h11` where `K` is allowed before `h`, as in
+  Japan, and `:h12` otherwise.
 
   ### Arguments
 
@@ -316,11 +320,18 @@ defmodule Localize.Time do
       iex> Localize.Time.hour_format_from_locale("fr-u-hc-h12")
       {:ok, :h12}
 
+      iex> Localize.Time.hour_format_from_locale("ja-u-hc-c12")
+      {:ok, :h11}
+
+      iex> Localize.Time.hour_format_from_locale("en-US-u-hc-c24")
+      {:ok, :h23}
+
   """
   @spec hour_format_from_locale(Localize.LanguageTag.t() | atom() | String.t()) ::
           {:ok, :h11 | :h12 | :h23 | :h24} | {:error, Exception.t()}
-  def hour_format_from_locale(%Localize.LanguageTag{locale: %{hc: hc}}) when not is_nil(hc) do
-    {:ok, hc}
+  def hour_format_from_locale(%Localize.LanguageTag{locale: %{hc: hc}} = language_tag)
+      when not is_nil(hc) do
+    {:ok, resolved_hour_cycle(language_tag)}
   end
 
   def hour_format_from_locale(%Localize.LanguageTag{cldr_locale_id: locale_id}) do
@@ -362,6 +373,35 @@ defmodule Localize.Time do
     end
   end
 
+  @doc false
+  # The hour cycle a `-u-hc-` keyword asks for. TR35 part 1 resolves the
+  # technical-preview `c12` and `c24` from the allowed hour formats of the
+  # locale's region: `c12` is h11 where `K` comes before `h`, and h12
+  # otherwise; `c24` is h24 where `k` comes before `H`, and h23 otherwise.
+  @spec resolved_hour_cycle(Localize.LanguageTag.t()) :: :h11 | :h12 | :h23 | :h24 | nil
+  def resolved_hour_cycle(%Localize.LanguageTag{locale: %{hc: hc}})
+      when hc in [:h11, :h12, :h23, :h24],
+      do: hc
+
+  def resolved_hour_cycle(%Localize.LanguageTag{locale: %{hc: :c12}} = language_tag),
+    do: allowed_cycle(language_tag, {"K", :h11}, {"h", :h12})
+
+  def resolved_hour_cycle(%Localize.LanguageTag{locale: %{hc: :c24}} = language_tag),
+    do: allowed_cycle(language_tag, {"k", :h24}, {"H", :h23})
+
+  def resolved_hour_cycle(_language_tag), do: nil
+
+  defp allowed_cycle(language_tag, {symbol, cycle}, {other_symbol, other_cycle}) do
+    %{allowed: allowed} = Localize.DateTime.Format.Match.time_preferences_for(language_tag)
+
+    first =
+      allowed
+      |> Enum.map(&String.first/1)
+      |> Enum.find(&(&1 in [symbol, other_symbol]))
+
+    if first == symbol, do: cycle, else: other_cycle
+  end
+
   defp hour_cycle_from_symbol("h"), do: :h12
   defp hour_cycle_from_symbol("K"), do: :h11
   defp hour_cycle_from_symbol("H"), do: :h23
@@ -381,10 +421,12 @@ defmodule Localize.Time do
   # full-name timezone presentation in exchange for the requested
   # hour cycle. Non-standard formats (skeletons, literal patterns)
   # are returned unchanged.
-  defp apply_hc_override(format, %{locale: %{hc: hc}})
-       when format in @standard_formats and hc in [:h11, :h12, :h23, :h24] do
-    cycle = if hc in [:h11, :h12], do: :h12, else: :h23
-    Map.fetch!(@hc_override_skeletons, {format, cycle})
+  defp apply_hc_override(format, language_tag) when format in @standard_formats do
+    case hour_cycle_of(language_tag) do
+      nil -> format
+      hc when hc in [:h11, :h12] -> Map.fetch!(@hc_override_skeletons, {format, :h12})
+      _hc -> Map.fetch!(@hc_override_skeletons, {format, :h23})
+    end
   end
 
   defp apply_hc_override(format, _language_tag), do: format
@@ -414,8 +456,16 @@ defmodule Localize.Time do
   defp apply_hc_to_skeleton(format, _language_tag) when format in @standard_formats,
     do: format
 
-  defp apply_hc_to_skeleton(format, %{locale: %{hc: hc}})
-       when is_atom(format) and hc in [:h11, :h12, :h23, :h24] do
+  defp apply_hc_to_skeleton(format, language_tag) when is_atom(format) do
+    case hour_cycle_of(language_tag) do
+      nil -> format
+      hc -> hour_cycle_skeleton_atom(format, hc)
+    end
+  end
+
+  defp apply_hc_to_skeleton(format, _language_tag), do: format
+
+  defp hour_cycle_skeleton_atom(format, hc) do
     string = Atom.to_string(format)
     symbols = if hc in [:h23, :h24], do: ["j", "J"], else: ["j"]
 
@@ -436,8 +486,6 @@ defmodule Localize.Time do
       format
     end
   end
-
-  defp apply_hc_to_skeleton(format, _language_tag), do: format
 
   @doc false
   # The time half of a skeleton split in two is held as a string, which
@@ -494,11 +542,8 @@ defmodule Localize.Time do
 
   def apply_hour_cycle(pattern, _locale, _skeleton), do: pattern
 
-  defp hour_cycle_of(%Localize.LanguageTag{locale: %{hc: hour_cycle}})
-       when hour_cycle in [:h11, :h12, :h23, :h24],
-       do: hour_cycle
-
-  defp hour_cycle_of(%Localize.LanguageTag{}), do: nil
+  defp hour_cycle_of(%Localize.LanguageTag{} = language_tag),
+    do: resolved_hour_cycle(language_tag)
 
   defp hour_cycle_of(locale) when is_binary(locale) or (is_atom(locale) and not is_nil(locale)) do
     case Localize.validate_locale(locale) do

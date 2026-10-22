@@ -20,6 +20,19 @@ defmodule Localize.Territory.SubdivisionTest do
       assert {:error, %Localize.UnknownSubdivisionError{}} =
                Subdivision.display_name(:zzzzz, locale: :en)
     end
+
+    test "a regional locale inherits its parent's names" do
+      assert {:ok, "England"} == Subdivision.display_name(:gbeng, locale: :"en-GB")
+      assert {:ok, "Ontario"} == Subdivision.display_name(:caon, locale: :"fr-CA")
+      assert {:ok, "Ontário"} == Subdivision.display_name(:caon, locale: :"pt-PT")
+    end
+
+    test "a locale whose parent is root names only its own" do
+      assert {:ok, "英格蘭"} == Subdivision.display_name(:gbeng, locale: :"zh-Hant")
+
+      assert {:error, %Localize.UnknownSubdivisionError{}} =
+               Subdivision.display_name(:caon, locale: :"zh-Hant")
+    end
   end
 
   describe "display_name!/2" do

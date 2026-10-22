@@ -12,12 +12,13 @@ defmodule Localize.Data do
   The sources are read where they sit, never copied into the project:
 
   * `CLDR_REPO` — the CLDR repository, at the ref recorded in
-    `priv/localize/cldr_repo_ref`: supplemental, bcp47, validity,
-    collation and subdivision XML, `FractionalUCA.txt` and
-    `Script_Metadata.csv`, and the tools the JSON is built with.
+    `priv/localize/cldr_repo_ref`: supplemental, bcp47, validity and
+    collation XML, `FractionalUCA.txt` and `Script_Metadata.csv`, and the
+    tools the JSON is built with.
 
   * `CLDR_PRODUCTION` — the JSON `Localize.Data.CldrJson` builds from
-    that repository: locale and supplemental JSON, and the RBNF rule files.
+    that repository: locale and supplemental JSON, localized subdivision
+    names, and the RBNF rule files.
 
   Generation refuses a repository at another ref, and JSON that was not
   built from it with the current options. See `cldr_source_dir/0` and
@@ -242,10 +243,11 @@ defmodule Localize.Data do
   end
 
   @doc """
-  Returns the path to a locale's subdivision names.
+  Returns the path to a locale's own subdivision names in the JSON.
 
-  They are read from the repository's XML, which the JSON build does not
-  convert.
+  The converter writes a file for each locale whose XML names
+  subdivisions, holding only that locale's names at the draft status the
+  build keeps, so a locale inherits the rest from its parents.
 
   ### Arguments
 
@@ -258,7 +260,8 @@ defmodule Localize.Data do
   """
   @spec subdivisions_source_path(String.t()) :: String.t()
   def subdivisions_source_path(locale) do
-    Path.join([cldr_repo_dir(), "common", "subdivisions", "#{locale}.xml"])
+    file = String.replace(locale, "-", "_") <> ".json"
+    Path.join([cldr_source_dir(), "cldr-subdivisions-full", "subdivisions", locale, file])
   end
 
   @doc """

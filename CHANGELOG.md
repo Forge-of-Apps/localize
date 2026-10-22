@@ -196,6 +196,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * CLDR 49's numeric date and time separators, a **technical preview**: `Localize.DateTime.numeric_separators/2` returns a locale's pair, and `:numeric_date_separator` and `:numeric_time_separator` set them on the date, time and interval formatters.
 
+* CLDR 49's `-u-hc-c12` and `-u-hc-c24`, a **technical preview**, ask for the locale's own 12- or 24-hour cycle, resolved from the cycles its region allows: `ja-u-hc-c12` writes 00:30 as "午前0:30".
+
 * Ordinal dates from CLDR 49, which CLDR designates a **technical preview**: the `ddd` field formats the day from the locale's `dayOfMonths` data, so `en` `:yMMMddd` renders "Jul 6th, 2024". Locales without that data, and patterns with a numeric month, format the plain day.
 
 * Date-time skeletons resolve through TR35's append items when no available format carries every requested field, appending the missing ones from the locale's `appendItems` templates. `en` has no quarter format, so `:yMMMdQ` now renders "Jul 6, 2024 (quarter: 3)" where it errored.
@@ -225,6 +227,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 * Skeleton matching ranks narrow and short widths nearer abbreviated than wide and breaks ties by TR35's field order, as CLDR's reference generator does: `ja` `:yMdEEEEE` renders "2024/7/6(土)", not "2024/7/6土".
 
 ### Fixed
+
+* Regional and script locales name subdivisions, inheriting from their parents: `en-GB` names `:gbeng` "England" where it named none. Names CLDR marks unconfirmed are left out.
 
 * Relative months know a month by its name, `cldr_month/1`, again: a Julian year reckoned from 25 March counts its March as two months, and 21 February to 25 March is "next month", where it was "in 2 months".
 

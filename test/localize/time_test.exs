@@ -250,6 +250,38 @@ defmodule Localize.TimeTest do
     test "bang variant returns the bare cycle atom" do
       assert :h23 == Localize.Time.hour_format_from_locale!(:ja)
     end
+
+    test "resolves -u-hc-c12 from the cycles the region allows" do
+      assert {:ok, :h11} = Localize.Time.hour_format_from_locale("ja-u-hc-c12")
+      assert {:ok, :h12} = Localize.Time.hour_format_from_locale("en-GB-u-hc-c12")
+    end
+
+    test "resolves -u-hc-c24 from the cycles the region allows" do
+      assert {:ok, :h23} = Localize.Time.hour_format_from_locale("en-US-u-hc-c24")
+      assert {:ok, :h23} = Localize.Time.hour_format_from_locale("ja-u-hc-c24")
+    end
+  end
+
+  describe "-u-hc-c12 and -u-hc-c24" do
+    test "format with the resolved cycle" do
+      assert {:ok, "13:05:00"} =
+               Localize.Time.to_string(~T[13:05:00], locale: "en-US-u-hc-c24")
+
+      assert {:ok, "1:05:00\u202Fpm"} =
+               Localize.Time.to_string(~T[13:05:00], locale: "en-GB-u-hc-c12")
+
+      assert {:ok, "午前0:30"} =
+               Localize.Time.to_string(~T[00:30:00], locale: "ja-u-hc-c12", format: :short)
+    end
+
+    test "apply to a skeleton asking for the locale's hour" do
+      assert {:ok, "13:05"} =
+               Localize.Time.to_string(~T[13:05:00], locale: "en-US-u-hc-c24", format: :jm)
+    end
+
+    test "parse in the resolved cycle" do
+      assert {:ok, ~T[13:05:00]} = Localize.Time.parse("13:05", locale: "en-US-u-hc-c24")
+    end
   end
 
   describe "to_string/2 honours -u-hc- on standard formats" do

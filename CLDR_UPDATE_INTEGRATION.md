@@ -17,10 +17,11 @@ $CLDR_PRODUCTION/                  # CLDR JSON built from $CLDR_REPO, outside th
 ├── cldr-*-full/main/<locale>/     # Per-locale JSON
 ├── cldr-core/supplemental/        # Supplemental JSON
 ├── cldr-rbnf/rbnf/                # RBNF JSON and rule files
+├── cldr-subdivisions-full/subdivisions/<locale>/   # Localized subdivision names
 └── localize_build.txt             # Stamp: the commit and options it was built from
 
 $CLDR_REPO/                        # CLDR repository checkout, outside the project
-├── common/{supplemental,bcp47,validity,collation,subdivisions}/   # XML
+├── common/{supplemental,bcp47,validity,collation}/   # XML
 ├── common/uca/FractionalUCA.txt   # Fractional UCA table (collation + reorder data)
 └── tools/                         # CLDR's tools, which build the JSON
     └── …/Script_Metadata.csv      # Script metadata (script name → subtag)

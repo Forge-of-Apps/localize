@@ -12,8 +12,9 @@ defmodule Localize.Data.CldrJsonTest do
 
   @current_options """
   converter -m .* -p true -o true -r true -s contributed -n true
+  draft_status subdivisions=provisional
   production_data --keepPreBasic false
-  types main supplemental rbnf
+  types main supplemental rbnf subdivisions
   """
 
   @moduletag :tmp_dir
