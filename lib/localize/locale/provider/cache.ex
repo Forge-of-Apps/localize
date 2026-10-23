@@ -5,7 +5,9 @@ defmodule Localize.Locale.Provider.Cache do
   This module is responsible for reading and writing locale ETF
   files under the directory returned by
   `Localize.Locale.Provider.locale_cache_dir/0`, and for detecting
-  when a cached file is stale relative to `Localize.version/0`.
+  when a cached file is stale: of another version than
+  `Localize.version/0`, or not the bytes the release's hash manifest
+  records for it.
 
   ## Primary API
 
@@ -52,7 +54,8 @@ defmodule Localize.Locale.Provider.Cache do
   Retrieves locale data from the cache directory.
 
   Reads the locale's cache file, decodes it, and validates that
-  its `:version` field matches `Localize.version/0`.
+  its `:version` field matches `Localize.version/0` and that its bytes
+  match the SHA-256 hash the release's manifest records for it.
 
   ### Arguments
 
@@ -60,11 +63,11 @@ defmodule Localize.Locale.Provider.Cache do
 
   ### Returns
 
-  * `{:ok, locale_data}` if the cache file is present and its
-    version matches the current version.
+  * `{:ok, locale_data}` if the cache file is present, its version
+    matches the current version and its bytes match the manifest.
 
   * `{:error, Localize.LocaleIsStaleError.t()}` if the cache file
-    is present but its version does not match.
+    is present but its version or its bytes do not match.
 
   * `{:error, Localize.LocaleNotFoundInCacheError.t()}` if the
     cache file is not present.
@@ -127,7 +130,7 @@ defmodule Localize.Locale.Provider.Cache do
       {:ok, binary} ->
         case decode_etf(binary) do
           {:ok, locale_data} ->
-            validate_version(locale_id, locale_data)
+            validated(locale_id, binary, locale_data)
 
           {:error, :undecodable} ->
             # A corrupt or truncated cache file (torn write, disk
@@ -165,6 +168,45 @@ defmodule Localize.Locale.Provider.Cache do
     case Localize.Utils.Helpers.run_isolated(fn -> :erlang.binary_to_term(binary) end) do
       {:ok, term} -> {:ok, term}
       {:error, _exception} -> {:error, :undecodable}
+    end
+  end
+
+  defp validated(locale_id, binary, locale_data) do
+    with {:ok, locale_data} <- validate_version(locale_id, locale_data) do
+      validate_content(locale_id, binary, locale_data)
+    end
+  end
+
+  # A file of the current version is current only when its bytes are the
+  # ones the release's hash manifest records for the locale, so a file
+  # written for this data version before it was final is refreshed too.
+  # Where there is no manifest, or no entry for the locale, the version
+  # alone decides, as it does for a download.
+  defp validate_content(locale_id, binary, locale_data) do
+    case expected_hash(locale_id) do
+      nil -> {:ok, locale_data}
+      expected -> content_matches(locale_id, binary, locale_data, expected)
+    end
+  end
+
+  defp expected_hash(locale_id) do
+    case Provider.locale_hashes() do
+      %{} = hashes -> Map.get(hashes, locale_id)
+      _no_manifest -> nil
+    end
+  end
+
+  defp content_matches(locale_id, binary, locale_data, expected) do
+    if :crypto.hash(:sha256, binary) == expected do
+      {:ok, locale_data}
+    else
+      {:error,
+       Localize.LocaleIsStaleError.exception(
+         locale_id: locale_id,
+         cached_version: Map.get(locale_data, :version),
+         current_version: Localize.version(),
+         reason: :content
+       )}
     end
   end
 
@@ -274,8 +316,10 @@ defmodule Localize.Locale.Provider.Cache do
   Returns whether a cached locale file is stale.
 
   A cache file is considered stale if its `:version` field does
-  not equal `Localize.version/0`. A file that is missing,
-  unreadable, or undecodable (corrupt) is also considered stale.
+  not equal `Localize.version/0`, or if its bytes do not match the
+  SHA-256 hash the release's manifest records for the locale. A file
+  that is missing, unreadable, or undecodable (corrupt) is also
+  considered stale.
 
   ### Arguments
 
@@ -284,9 +328,10 @@ defmodule Localize.Locale.Provider.Cache do
   ### Returns
 
   * `true` if the cache file is missing, unreadable, or its
-    version does not match `Localize.version/0`.
+    version or bytes do not match.
 
-  * `false` if the cache file is present and its version matches.
+  * `false` if the cache file is present, its version matches and
+    its bytes match the manifest.
 
   ### Examples
 
@@ -296,23 +341,10 @@ defmodule Localize.Locale.Provider.Cache do
   """
   @spec stale?(locale_id()) :: boolean()
   def stale?(locale_id) when is_atom(locale_id) do
-    file_path = path(locale_id)
-
-    case File.read(file_path) do
-      {:ok, binary} ->
-        case decode_etf(binary) do
-          {:ok, locale_data} ->
-            not versions_match?(Map.get(locale_data, :version), Localize.version())
-
-          # A corrupt cache file is stale by definition — it will be
-          # re-downloaded and rewritten.
-          {:error, :undecodable} ->
-            true
-        end
-
-      {:error, _reason} ->
-        true
-    end
+    # The same validation `get/1` applies, so a file the download task
+    # keeps is one the provider will load. A corrupt file is stale by
+    # definition: it will be re-downloaded and rewritten.
+    not match?({:ok, _locale_data}, read_and_validate(locale_id, path(locale_id)))
   end
 
   defp versions_match?(%Version{} = cached, %Version{} = current) do

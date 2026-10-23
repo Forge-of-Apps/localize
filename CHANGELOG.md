@@ -228,6 +228,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+* A cached locale whose bytes do not match the release's hash manifest is stale, as one of another data version is, so `mix localize.download_locales` and runtime downloads replace it where it was kept as current.
+
+* A stale cached locale that cannot be refreshed logs a warning naming `mix localize.download_locales`, once per locale, where it fell back to its parent with only a debug message.
+
 * Regional and script locales name subdivisions, inheriting from their parents: `en-GB` names `:gbeng` "England" where it named none. Names CLDR marks unconfirmed are left out.
 
 * Relative months know a month by its name, `cldr_month/1`, again: a Julian year reckoned from 25 March counts its March as two months, and 21 February to 25 March is "next month", where it was "in 2 months".

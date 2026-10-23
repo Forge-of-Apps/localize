@@ -87,7 +87,7 @@ The cache directory is configurable via `Localize.Locale.Provider.locale_cache_d
 
 With neither key set, Localize falls back to `Application.app_dir(:localize, "priv/localize/locales")` inside its own dependency directory; in an escript, to the copy of its `priv` directory extracted into the user cache directory. A relative `:locale_cache_dir` **without** an `:otp_app` anchor is refused at app start with `Localize.LocaleCacheDirError`: a relative path with no anchor resolves against the BEAM's current working directory, which differs between mix tasks, `mix test`, and a release, so one value cannot be correct in all phases.
 
-Cached files are tagged with the current `Localize.version/0` so stale files are detected and re-downloaded on upgrade.
+A cached file is current only when its version is `Localize.version/0` and its bytes match the SHA-256 hash the release's manifest records for it, so after an upgrade every file from an earlier release, and every file of the same data version downloaded before that version was final, is stale. `mix localize.download_locales` replaces stale files, and so does the first use of a locale when `config :localize, :allow_runtime_locale_download, true` is set. Without either, a stale locale is never loaded: it falls back to its parent locale and a warning names the command that refreshes it.
 
 This means:
 

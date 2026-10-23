@@ -1,11 +1,16 @@
 defmodule Localize.LocaleIsStaleError do
   @moduledoc """
-  Exception raised when a cached locale file's version does not
-  match the current `Localize.version/0`.
+  Exception raised when a cached locale file is not the data this
+  release of Localize was built with.
+
+  `:reason` is `:version` when the file's version does not match
+  `Localize.version/0`, and `:content` when the version matches but the
+  file's bytes do not match the SHA-256 hash the release bundles for
+  it, as for a file downloaded before that data version was final.
 
   """
 
-  defexception [:locale_id, :cached_version, :current_version]
+  defexception [:locale_id, :cached_version, :current_version, reason: :version]
 
   @impl true
   def exception(bindings) when is_list(bindings) do
@@ -13,6 +18,18 @@ defmodule Localize.LocaleIsStaleError do
   end
 
   @impl true
+  def message(%__MODULE__{reason: :content, locale_id: locale_id}) do
+    Localize.Exception.safe_message(
+      "locale",
+      "The cached locale {$locale_id} does not match the data this release of Localize " <>
+        "was built with. Run `mix localize.download_locales {$locale_id_bare}` to refresh it, " <>
+        "or set `config :localize, :allow_runtime_locale_download, true` to " <>
+        "enable on-demand downloading.",
+      locale_id: Localize.Exception.locale_name(locale_id),
+      locale_id_bare: locale_id
+    )
+  end
+
   def message(%__MODULE__{
         locale_id: locale_id,
         cached_version: cached_version,

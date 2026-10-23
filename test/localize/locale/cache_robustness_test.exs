@@ -55,6 +55,60 @@ defmodule Localize.Locale.Provider.CacheRobustnessTest do
     end
   end
 
+  describe "locale data of the current version from before it was final" do
+    # A data version is republished while it is unreleased, so a file of
+    # the current version may still not be the released bytes. The hash
+    # manifest bundled with the release decides.
+    setup do
+      previous = Localize.Locale.Provider.locale_hashes()
+      on_exit(fn -> Localize.Locale.Provider.put_locale_hashes(previous) end)
+      :ok
+    end
+
+    @tag :tmp_dir
+    test "a file whose bytes match the manifest is current" do
+      binary = cached_file(%{version: Localize.version(), data: "released"})
+      Localize.Locale.Provider.put_locale_hashes(%{@locale_id => :crypto.hash(:sha256, binary)})
+
+      assert {:ok, %{data: "released"}} = Cache.get(@locale_id)
+      refute Cache.stale?(@locale_id)
+    end
+
+    @tag :tmp_dir
+    test "a file whose bytes differ from the manifest is stale" do
+      cached_file(%{version: Localize.version(), data: "pre-release"})
+      released = :erlang.term_to_binary(%{version: Localize.version(), data: "released"})
+      Localize.Locale.Provider.put_locale_hashes(%{@locale_id => :crypto.hash(:sha256, released)})
+
+      assert {:error, %Localize.LocaleIsStaleError{reason: :content} = error} =
+               Cache.get(@locale_id)
+
+      assert Cache.stale?(@locale_id)
+
+      message = Exception.message(error)
+      assert message =~ "does not match the data this release"
+      assert message =~ "mix localize.download_locales"
+      assert message =~ "allow_runtime_locale_download"
+    end
+
+    @tag :tmp_dir
+    test "a locale the manifest has no entry for is decided by its version" do
+      cached_file(%{version: Localize.version(), data: "unlisted"})
+      Localize.Locale.Provider.put_locale_hashes(%{})
+
+      assert {:ok, %{data: "unlisted"}} = Cache.get(@locale_id)
+      refute Cache.stale?(@locale_id)
+    end
+
+    @tag :tmp_dir
+    test "without a manifest a file is decided by its version" do
+      cached_file(%{version: Localize.version(), data: "unverified"})
+      Localize.Locale.Provider.put_locale_hashes(:no_manifest)
+
+      assert {:ok, %{data: "unverified"}} = Cache.get(@locale_id)
+    end
+  end
+
   describe "locale data cached from an earlier release" do
     # The upgrade path: an installation whose cached locales were
     # downloaded under a previous CLDR data version. The cached file
@@ -104,5 +158,13 @@ defmodule Localize.Locale.Provider.CacheRobustnessTest do
       assert {:ok, ^path} = Cache.store(@locale_id, second)
       assert File.read!(path) == second
     end
+  end
+
+  defp cached_file(term) do
+    path = Cache.path(@locale_id)
+    File.mkdir_p!(Path.dirname(path))
+    binary = :erlang.term_to_binary(term)
+    File.write!(path, binary)
+    binary
   end
 end

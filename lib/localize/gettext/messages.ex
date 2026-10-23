@@ -221,6 +221,12 @@ defmodule Localize.Gettext.Messages do
         Localize.Gettext,
         "localize",
         "locale",
+        "The cached locale {$locale_id} does not match the data this release of Localize was built with. Run `mix localize.download_locales {$locale_id_bare}` to refresh it, or set `config :localize, :allow_runtime_locale_download, true` to enable on-demand downloading."
+      ),
+      Gettext.Macros.dpgettext_noop_with_backend(
+        Localize.Gettext,
+        "localize",
+        "locale",
         "The calendar {$calendar} is not known."
       ),
       Gettext.Macros.dpgettext_noop_with_backend(

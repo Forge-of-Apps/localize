@@ -37,6 +37,10 @@ defmodule Localize.Locale.Provider do
   @locale_hashes_key {:localize, :locale_hashes}
   @locale_hashes_warned_key {:localize, :locale_hashes_warned}
 
+  # Persistent-term key prefix for the once-only warning that a cached
+  # locale is stale and cannot be refreshed, one key per locale.
+  @stale_locale_warned_key {:localize, :stale_locale_warned}
+
   @default_locale_base_url "https://elixir-localize.com/locales"
 
   # ── Behaviour callbacks ────────────────────────────────────────
@@ -240,6 +244,8 @@ defmodule Localize.Locale.Provider do
   defp load_fallback(provider, locale_id, error) do
     require Logger
 
+    warn_stale_locale(locale_id, error)
+
     Logger.debug(
       "Requested locale #{inspect(locale_id)} is not available. Trying parent locales.",
       domain: [:localize]
@@ -250,6 +256,22 @@ defmodule Localize.Locale.Provider do
       {:error, _} -> error
     end
   end
+
+  # A stale cached locale that cannot be refreshed, which is the default
+  # when runtime downloads are off, falls back to a parent and so to
+  # another language. That is said once per locale at warning level, with
+  # the command that refreshes it, so an upgrade that leaves the cache
+  # behind is visible.
+  defp warn_stale_locale(locale_id, {:error, %Localize.LocaleIsStaleError{} = stale}) do
+    key = {@stale_locale_warned_key, locale_id}
+
+    unless :persistent_term.get(key, false) do
+      :persistent_term.put(key, true)
+      Logger.warning(Exception.message(stale), domain: [:localize])
+    end
+  end
+
+  defp warn_stale_locale(_locale_id, _error), do: :ok
 
   # `:none` where a locale has no parent to walk to, which only `und` has not.
   defp parent_locale_id(locale_id) do
