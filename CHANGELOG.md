@@ -30,6 +30,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Breaking changes
 
+Localize 1.4 includes a significant number of breaking changes but they are all a result of improved conformance with TR35 and would not, in typical use, be expected to be observed in the majority of current use cases.
+
 #### Calendars
 
 * A calendar other than `Calendar.ISO` must implement the Calendrical 2.0 behaviour, and any other is refused with `Localize.UnknownCalendarError`. Use Calendrical 2.0 with Localize 1.4.
