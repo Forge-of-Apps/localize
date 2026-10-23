@@ -528,6 +528,43 @@ defmodule Localize.Inflection.QuantifyConformanceTest do
     end
   end
 
+  # Serbo-Croatian routes every fraction to the genitive singular, and a
+  # fraction may arrive as a `Decimal`, as MessageFormat 2 passes it, or
+  # as a float. Croatian ships no synthesizer (see the inflection guide),
+  # so its noun is not inflected, but it takes the same path either way.
+  describe "Serbo-Croatian fractions" do
+    test "a Serbian Decimal fraction takes the genitive singular" do
+      {:ok, ship} = Concept.new(:sr, "брод")
+      {:ok, land} = Concept.new(:sr, "земља")
+
+      assert {:ok, {"1,1 брода", "један зарез један брода"}} =
+               Quantify.quantify(:sr, Decimal.new("1.1"), ship)
+
+      assert {:ok, {"2,5 брода", "два зарез пет брода"}} =
+               Quantify.quantify(:sr, Decimal.new("2.5"), ship)
+
+      assert {:ok, {"1,1 земље", "једна зарез једна земље"}} =
+               Quantify.quantify(:sr, Decimal.new("1.1"), land)
+    end
+
+    test "a Serbian Decimal fraction and float fraction agree" do
+      {:ok, ship} = Concept.new(:sr, "брод")
+      assert Quantify.quantify(:sr, Decimal.new("1.1"), ship) == Quantify.quantify(:sr, 1.1, ship)
+    end
+
+    test "a whole Serbian Decimal is not a fraction" do
+      {:ok, ship} = Concept.new(:sr, "брод")
+      assert {:ok, {"1 брод", "један брод"}} = Quantify.quantify(:sr, Decimal.new("1"), ship)
+      assert {:ok, {"5 бродова", "пет бродова"}} = Quantify.quantify(:sr, Decimal.new("5"), ship)
+    end
+
+    test "a Croatian Decimal fraction and float fraction agree" do
+      {:ok, ship} = Concept.new(:hr, "brod")
+      assert {:ok, "1,1 brod"} = Quantify.quantify(:hr, Decimal.new("1.1"), ship)
+      assert Quantify.quantify(:hr, Decimal.new("1.1"), ship) == Quantify.quantify(:hr, 1.1, ship)
+    end
+  end
+
   defp quantify(locale, string, constraints, formatted, category, number) do
     with {:ok, concept} <- Concept.new(locale, string, constraints: constraints) do
       Quantify.quantify_formatted(locale, formatted, concept, plural: category, number: number)

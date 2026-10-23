@@ -433,6 +433,35 @@ defmodule Localize.Message.InflectionFunctionsTest do
       assert {:error, _} =
                Message.format("{$n :i:quantify withValue=2}", %{n: 5}, locale: :en)
     end
+
+    test "a Serbian fraction takes the genitive singular, whether a Decimal, a float or a literal (upstream)" do
+      message = "{$unit :i:quantify withValue=$n}"
+
+      for n <- [Decimal.new("1.1"), 1.1] do
+        assert {:ok, "1,1 брода"} = Message.format(message, %{unit: "брод", n: n}, locale: :sr)
+        assert {:ok, "1,1 земље"} = Message.format(message, %{unit: "земља", n: n}, locale: :sr)
+      end
+
+      assert {:ok, "1,1 брода"} =
+               Message.format("{$unit :i:quantify withValue=1.1}", %{unit: "брод"}, locale: :sr)
+    end
+
+    test "a Serbian whole Decimal takes the count's own agreement" do
+      message = "{$unit :i:quantify withValue=$n}"
+
+      assert {:ok, "1 брод"} =
+               Message.format(message, %{unit: "брод", n: Decimal.new("1")}, locale: :sr)
+
+      assert {:ok, "5 бродова"} =
+               Message.format(message, %{unit: "брод", n: Decimal.new("5")}, locale: :sr)
+    end
+
+    test "a Croatian fraction is quantified alike from a Decimal and a float" do
+      message = "{$unit :i:quantify withValue=$n}"
+
+      assert Message.format(message, %{unit: "brod", n: Decimal.new("1.1")}, locale: :hr) ==
+               Message.format(message, %{unit: "brod", n: 1.1}, locale: :hr)
+    end
   end
 
   describe ":i:list" do

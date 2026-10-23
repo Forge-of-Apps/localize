@@ -36,7 +36,13 @@ defmodule Localize.Inflection.Quantify.Slavic do
     end
   end
 
+  # A number written with a fractional part: a float, or a finite
+  # `Decimal` such as MessageFormat 2 passes, whose value is not whole.
   defp fraction?(number) when is_float(number), do: number != Float.floor(number)
+
+  defp fraction?(%Decimal{coef: coef} = number) when is_integer(coef),
+    do: not Decimal.integer?(number)
+
   defp fraction?(_number), do: false
 
   # ONE -> singular base; FEW/MANY from config; OTHER and any
