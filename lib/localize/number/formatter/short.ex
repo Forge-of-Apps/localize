@@ -111,6 +111,12 @@ defmodule Localize.Number.Formatter.Short do
   # all, so a mantissa-magnitude test silently skips exactly the cases that
   # need it. One pass suffices: rounding carries by at most one magnitude,
   # and where nothing carried the same rule is chosen again.
+  #
+  # Zero cannot carry, and `scale_back/3` would divide by it. A `Decimal`
+  # zero is a struct, which never equals `0`, so it is matched on its own.
+  defp promote_magnitude_on_carry({%Decimal{coef: 0}, _format} = chosen, _number, _rules, _opts),
+    do: chosen
+
   defp promote_magnitude_on_carry({mantissa, _format} = chosen, number, format_rules, options)
        when mantissa == 0 do
     _ = {number, format_rules, options}

@@ -34,6 +34,16 @@ defmodule Localize.Number.ShortFormatterTest do
       assert {:ok, "-100K"} =
                Localize.Number.to_string(Decimal.new(-100_000), format: :decimal_short)
     end
+
+    test "short and long formats for a Decimal zero" do
+      for zero <- [Decimal.new(0), Decimal.new("0.00")],
+          format <- [:decimal_short, :decimal_long] do
+        assert {:ok, "0"} = Localize.Number.to_string(zero, format: format)
+      end
+
+      assert {:ok, "$0"} =
+               Localize.Number.to_string(Decimal.new(0), format: :currency_short, currency: :USD)
+    end
   end
 
   describe "long decimal formatting" do
