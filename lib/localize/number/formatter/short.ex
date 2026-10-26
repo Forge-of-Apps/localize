@@ -111,16 +111,24 @@ defmodule Localize.Number.Formatter.Short do
   # all, so a mantissa-magnitude test silently skips exactly the cases that
   # need it. One pass suffices: rounding carries by at most one magnitude,
   # and where nothing carried the same rule is chosen again.
-  defp promote_magnitude_on_carry({mantissa, _format} = chosen, number, format_rules, options)
-       when mantissa == 0 do
-    _ = {number, format_rules, options}
-    chosen
+  defp promote_magnitude_on_carry({mantissa, _format} = chosen, number, format_rules, options) do
+    if rescalable?(mantissa) do
+      number
+      |> scale_back(mantissa, round_mantissa(mantissa, options))
+      |> choose_short_format(format_rules, options)
+    else
+      chosen
+    end
   end
 
-  defp promote_magnitude_on_carry({mantissa, _format}, number, format_rules, options) do
-    number
-    |> scale_back(mantissa, round_mantissa(mantissa, options))
-    |> choose_short_format(format_rules, options)
+  # A zero mantissa gives no divisor to scale back by, and cannot carry.
+  # A `Decimal` zero is a struct, so `== 0` does not catch it.
+  defp rescalable?(%Decimal{} = mantissa) do
+    not Decimal.eq?(mantissa, 0)
+  end
+
+  defp rescalable?(mantissa) when is_number(mantissa) do
+    mantissa != 0
   end
 
   defp round_mantissa(mantissa, options) do

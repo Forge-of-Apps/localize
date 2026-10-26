@@ -83,4 +83,43 @@ defmodule Localize.Number.ShortFormatterTest do
                )
     end
   end
+
+  # https://github.com/elixir-localize/localize/issues/62: a Decimal zero
+  # reached the rounding-carry step, which divides by the mantissa.
+  describe "a Decimal zero in a compact format" do
+    test "formats as the integer zero does" do
+      assert {:ok, "0"} = Localize.Number.to_string(Decimal.new(0), format: :short)
+      assert {:ok, "0"} = Localize.Number.to_string(Decimal.new("0.00"), format: :short)
+      assert {:ok, "0"} = Localize.Number.to_string(Decimal.new(0), format: :long)
+
+      assert {:ok, "$0"} =
+               Localize.Number.to_string(Decimal.new(0), format: :currency_short, currency: :USD)
+    end
+
+    test "every zero form matches the integer or float zero in every compact format" do
+      formats = [
+        [format: :short],
+        [format: :long],
+        [format: :currency_short, currency: :USD],
+        [format: :currency_long, currency: :USD],
+        [format: :short, max_fractional_digits: 2]
+      ]
+
+      zeros = [
+        {Decimal.new(0), 0},
+        {Decimal.new("0.00"), 0},
+        {Decimal.new("0E+5"), 0},
+        {Decimal.new("-0"), -0.0},
+        {Decimal.new("-0.000"), -0.0}
+      ]
+
+      for locale <- [:en, :de, :fr, :ja, :ar], format <- formats, {zero, number} <- zeros do
+        options = [locale: locale] ++ format
+
+        assert Localize.Number.to_string(zero, options) ==
+                 Localize.Number.to_string(number, options),
+               "#{inspect(zero)} with #{inspect(options)}"
+      end
+    end
+  end
 end

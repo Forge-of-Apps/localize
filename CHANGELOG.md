@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] — Unreleased
+
+### Fixed
+
+* `Localize.Number.to_string/2` formats a `Decimal` zero in a compact format (`:short`, `:long`, `:currency_short`), where 1.4.0 raised `Decimal.Error` dividing by the zero mantissa when checking for a rounding carry. Thanks to @etareduction for the report. Closes #62.
+
 ## [1.4.0] — October 23rd, 2026
 
 ### Release notes
