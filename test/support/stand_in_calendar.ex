@@ -81,6 +81,19 @@ defmodule Localize.Test.StandInCalendar do
   end
 
   @doc false
+  # The CLDR month of a stand-in's month. Matched here at runtime rather
+  # than in the code each stand-in is given, where the type checker sees a
+  # stand-in's narrower `month_of_year/3` and warns that the other clauses
+  # never match.
+  def cldr_month(calendar, year, month) do
+    case calendar.month_of_year(year, month, 1) do
+      {named, :leap} when is_integer(named) -> {calendar.cardinal_month(named), :leap}
+      named when is_integer(named) -> calendar.cardinal_month(named)
+      other -> other
+    end
+  end
+
+  @doc false
   def date_from_written_date(calendar, year, month, day) do
     if function_exported?(calendar, :date_from_cardinal_date, 3) do
       case calendar.date_from_cardinal_date(year, month, day) do
@@ -163,11 +176,7 @@ defmodule Localize.Test.StandInCalendar do
   defp definition({:cldr_month, 2}) do
     quote do
       def cldr_month(year, month) do
-        case month_of_year(year, month, 1) do
-          {named, :leap} when is_integer(named) -> {cardinal_month(named), :leap}
-          named when is_integer(named) -> cardinal_month(named)
-          other -> other
-        end
+        Localize.Test.StandInCalendar.cldr_month(__MODULE__, year, month)
       end
     end
   end
