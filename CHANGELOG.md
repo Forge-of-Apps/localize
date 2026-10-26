@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 * `Localize.Number.to_string/2` formats a `Decimal` zero in a compact format (`:short`, `:long`, `:currency_short`), where 1.4.0 raised `Decimal.Error` dividing by the zero mantissa when checking for a rounding carry. Thanks to @etareduction for the report. Closes #62.
 
+* `Localize.Number.to_string/2` keeps the significant digits a caller asks for in a compact format, where 1.4.0 replaced them with the compact default of at most two: `36_437_123` with `format: :short, maximum_significant_digits: 4` is "36.44M" again, not "36M". The mantissa rounded to those digits carries into the next magnitude as the default does, so 999950 is "1M", not "1000K".
+
 ## [1.4.0] — October 23rd, 2026
 
 ### Release notes
