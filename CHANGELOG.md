@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] — Unreleased
+
+### Fixed
+
+* `Localize.Number.to_string/2` keeps the significant digits a caller asks for in a compact format, where 1.4.0 and 1.4.1 replaced them with the compact default of at most two: `36_437_123` with `format: :short, maximum_significant_digits: 4` is "36.44M" again, not "36M". The mantissa rounded to those digits carries into the next magnitude as the default does, so 999950 is "1M", not "1000K". Closes #64.
+
 ## [1.4.1] — October 27th, 2026
 
 ### Changed

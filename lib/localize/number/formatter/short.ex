@@ -140,10 +140,18 @@ defmodule Localize.Number.Formatter.Short do
     # `maybe_set_fractional_digits/2` leaves the options untouched when the
     # caller supplied any precision of their own, so the maximum can still be
     # nil here — a caller who set only `:min_fractional_digits`, say. Nothing
-    # to round to in that case, and nothing that could carry.
+    # to round to in that case, and nothing that could carry. A maximum of
+    # significant digits rounds the mantissa the way the decimal formatter
+    # will, so 999950 at four significant digits carries into "1M".
     case maybe_set_fractional_digits(options, mantissa) do
-      %{max_fractional_digits: nil} -> mantissa
-      %{max_fractional_digits: max} -> Math.round(mantissa, max, options.rounding_mode)
+      %{maximum_significant_digits: max} when is_integer(max) ->
+        Math.round_significant(mantissa, max, options.rounding_mode)
+
+      %{max_fractional_digits: nil} ->
+        mantissa
+
+      %{max_fractional_digits: max} ->
+        Math.round(mantissa, max, options.rounding_mode)
     end
   end
 
@@ -181,16 +189,23 @@ defmodule Localize.Number.Formatter.Short do
 
   defp maybe_set_minimum_grouping(options), do: options
 
-  # When the caller supplies no fraction-digit options, apply the
-  # compact default of ECMA-402, which TR35's own examples show
-  # ("1.2 K" for 1200, "12 K" for 12345): at most two significant
-  # digits on the mantissa, never clipping its integer digits and never
-  # forcing a trailing zero — "1.2M", "12M", "123M" and "1M" (not "1.0M").
-  # That reduces to max one fraction digit while the mantissa is a
-  # single integer digit, none afterwards.
+  # When the caller supplies no fraction-digit or significant-digit
+  # options, apply the compact default of ECMA-402, which TR35's own
+  # examples show ("1.2 K" for 1200, "12 K" for 12345): at most two
+  # significant digits on the mantissa, never clipping its integer digits
+  # and never forcing a trailing zero — "1.2M", "12M", "123M" and "1M"
+  # (not "1.0M"). That reduces to max one fraction digit while the
+  # mantissa is a single integer digit, none afterwards. ECMA-402 applies
+  # that default only when no digit option is given, so significant digits
+  # the caller asks for are kept: "36.44M" at four, not "36M".
   defp maybe_set_fractional_digits(
-         %{fractional_digits: nil, min_fractional_digits: nil, max_fractional_digits: nil} =
-           options,
+         %{
+           fractional_digits: nil,
+           min_fractional_digits: nil,
+           max_fractional_digits: nil,
+           minimum_significant_digits: nil,
+           maximum_significant_digits: nil
+         } = options,
          mantissa
        ) do
     %{options | min_fractional_digits: 0, max_fractional_digits: compact_max_fraction(mantissa)}

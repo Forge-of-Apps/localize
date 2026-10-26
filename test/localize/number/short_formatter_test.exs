@@ -122,4 +122,50 @@ defmodule Localize.Number.ShortFormatterTest do
       end
     end
   end
+
+  # The compact default of at most two significant digits applies only when
+  # the caller gives no digit options; 1.4.0 applied it over a caller's
+  # significant digits too.
+  describe "significant digits in a compact format" do
+    test "keep the digits the caller asks for" do
+      assert {:ok, "36.44M"} =
+               Localize.Number.to_string(36_437_123,
+                 format: :short,
+                 maximum_significant_digits: 4
+               )
+
+      assert {:ok, "$142.9M"} =
+               Localize.Number.to_string(142_934_567,
+                 format: :short,
+                 currency: :USD,
+                 maximum_significant_digits: 4
+               )
+
+      assert {:ok, "1.234K"} =
+               Localize.Number.to_string(1234, format: :short, maximum_significant_digits: 4)
+
+      assert {:ok, "36.4M"} =
+               Localize.Number.to_string(Decimal.new(36_400_000),
+                 format: :short,
+                 maximum_significant_digits: 4
+               )
+    end
+
+    test "carry into the next magnitude when rounding reaches it" do
+      assert {:ok, "1M"} =
+               Localize.Number.to_string(999_950, format: :short, maximum_significant_digits: 4)
+
+      assert {:ok, "$1M"} =
+               Localize.Number.to_string(999_950,
+                 format: :short,
+                 currency: :USD,
+                 maximum_significant_digits: 4
+               )
+    end
+
+    test "leave the compact default alone when no digit option is given" do
+      assert {:ok, "36M"} = Localize.Number.to_string(36_437_123, format: :short)
+      assert {:ok, "1.2K"} = Localize.Number.to_string(1234, format: :short)
+    end
+  end
 end
