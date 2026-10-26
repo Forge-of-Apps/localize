@@ -121,8 +121,13 @@ defmodule Localize.Number.Formatter.Short do
     end
   end
 
-  # A zero mantissa gives no divisor to scale back by, and cannot carry.
-  # A `Decimal` zero is a struct, so `== 0` does not catch it.
+  # A zero mantissa gives no divisor to scale back by, and cannot carry;
+  # NaN and ±Infinity have no magnitude to carry. A `Decimal` zero is a
+  # struct, so `== 0` does not catch it.
+  defp rescalable?(%Decimal{coef: coef}) when coef in [:NaN, :inf] do
+    false
+  end
+
   defp rescalable?(%Decimal{} = mantissa) do
     not Decimal.eq?(mantissa, 0)
   end
@@ -213,6 +218,11 @@ defmodule Localize.Number.Formatter.Short do
     end
   end
 
+  # NaN and ±Infinity have no magnitude; `Decimal.compare/2` raises on NaN.
+  defp magnitude(%Decimal{coef: coef}) when coef in [:NaN, :inf] do
+    nil
+  end
+
   defp magnitude(%Decimal{} = mantissa) do
     absolute = Decimal.abs(mantissa)
 
@@ -280,6 +290,15 @@ defmodule Localize.Number.Formatter.Short do
     |> Enum.reverse()
     |> hd()
     |> maybe_get_default_format(number, options)
+  end
+
+  # NaN and ±Infinity have no magnitude to compact. TR35 does not say how
+  # to compact them; ICU and ECMA-402 write the standard (or currency)
+  # format, as for a number below 1000.
+  defp get_short_format_rule(%Decimal{coef: coef} = number, _format_rules, options)
+       when coef in [:NaN, :inf] do
+    {_zero, format} = get_short_format_rule(0, [], options)
+    {number, format}
   end
 
   defp get_short_format_rule(%Decimal{} = number, format_rules, options) do

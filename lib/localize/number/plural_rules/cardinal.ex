@@ -187,6 +187,11 @@ defmodule Localize.Number.PluralRule.Cardinal do
   # Substitution maps may carry exact-value keys (`%{0 => ..., 1 => ...}`)
   # alongside the plural categories, so an integral value is looked up as an
   # integer first.
+  # NaN and ±Infinity round to themselves but are no integer.
+  defp exact_key(%Decimal{coef: coef} = number) when coef in [:NaN, :inf] do
+    number
+  end
+
   defp exact_key(%Decimal{} = number) do
     truncated = Decimal.round(number, 0, :down)
     if Decimal.equal?(truncated, number), do: Decimal.to_integer(truncated), else: number
@@ -312,6 +317,20 @@ defmodule Localize.Number.PluralRule.Cardinal do
   def plural_rule({number, e}, %LanguageTag{} = locale, rounding)
       when is_float(number) and is_integer(e) and e >= 0 do
     plural_rule_with_exponent(Decimal.from_float(number), e, locale, rounding)
+  end
+
+  # NaN and ±Infinity have no TR35 plural operands, and TR35 does not
+  # say how to select for them. ICU and ECMA-402 (`Intl.PluralRules`)
+  # select `other`, so this does too.
+  def plural_rule({%Decimal{coef: coef}, e}, %LanguageTag{}, rounding)
+      when coef in [:NaN, :inf] and is_integer(e) and e >= 0 and is_integer(rounding) and
+             rounding > 0 do
+    :other
+  end
+
+  def plural_rule(%Decimal{coef: coef}, %LanguageTag{}, rounding)
+      when coef in [:NaN, :inf] and is_integer(rounding) and rounding > 0 do
+    :other
   end
 
   def plural_rule({%Decimal{} = number, e}, %LanguageTag{} = locale, rounding)

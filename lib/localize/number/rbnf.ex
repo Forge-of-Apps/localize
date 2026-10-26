@@ -68,7 +68,7 @@ defmodule Localize.Number.Rbnf do
 
     case Localize.validate_locale(requested_locale) do
       {:ok, language_tag} ->
-        lookup_and_format(coerce_number(number), rule_name, language_tag)
+        lookup_and_format(rbnf_value(number), rule_name, language_tag)
 
       {:error, _} = error ->
         error
@@ -94,6 +94,24 @@ defmodule Localize.Number.Rbnf do
   # representable in IEEE 754 may see floating-point rounding —
   # acceptable for spellout output, where the typical use case is
   # small or whole numbers.
+  # NaN and ±Infinity have no native numeric form for the processor, so
+  # they are tagged and formatted by `format_non_finite/4`.
+  defp rbnf_value(%Decimal{coef: :NaN}) do
+    {:non_finite, :nan}
+  end
+
+  defp rbnf_value(%Decimal{coef: :inf, sign: -1}) do
+    {:non_finite, :negative_infinity}
+  end
+
+  defp rbnf_value(%Decimal{coef: :inf}) do
+    {:non_finite, :infinity}
+  end
+
+  defp rbnf_value(number) do
+    coerce_number(number)
+  end
+
   defp coerce_number(%Decimal{} = decimal) do
     if Decimal.integer?(decimal) do
       Decimal.to_integer(decimal)
@@ -130,14 +148,123 @@ defmodule Localize.Number.Rbnf do
         # The digits are formatted in the requested locale; the plural forms of
         # `$(cardinal,…)$` come from the locale whose rules were found, since
         # they select among that locale's own words.
-        Processor.process(number, resolved_name, rule_set.rules, all_rule_sets, %{
+        format_with_rule_set(number, resolved_name, rule_set, all_rule_sets, %{
           locale: requested_id,
-          plural_locale: Localize.Locale.data_locale_id(locale_id)
+          plural_locale: Localize.Locale.data_locale_id(locale_id),
+          rules_locale: locale_id
         })
 
       {:error, _not_in_this_locale} ->
         nil
     end
+  end
+
+  defp format_with_rule_set({:non_finite, kind}, _name, rule_set, all_rule_sets, context) do
+    {:ok, format_non_finite(kind, rule_set.rules, all_rule_sets, context)}
+  end
+
+  defp format_with_rule_set(number, name, rule_set, all_rule_sets, context) do
+    Processor.process(
+      number,
+      name,
+      rule_set.rules,
+      all_rule_sets,
+      Map.delete(context, :rules_locale)
+    )
+  end
+
+  # TR35 gives a rule set `NaN:` and `Inf:` rules, and a negative number
+  # takes the `-x:` rule, so -∞ is the `-x:` rule's text around the
+  # formatted ∞. TR35 does not say what a rule set without those rules
+  # writes; ICU writes the locale's NaN or infinity symbol, and a minus
+  # sign where there is no `-x:` rule, as the processor does for a
+  # negative number reaching a special rule. CLDR's `NaN:` and `Inf:`
+  # rules are plain text, and its `-x:` rules substitute with `>>`,
+  # another rule set or a decimal format.
+  defp format_non_finite(:nan, rules, _all_rule_sets, context) do
+    rule_text(rules, "NaN") || non_finite_symbol(:nan, context)
+  end
+
+  defp format_non_finite(:infinity, rules, _all_rule_sets, context) do
+    rule_text(rules, "Inf") || non_finite_symbol(:infinity, context)
+  end
+
+  defp format_non_finite(:negative_infinity, rules, all_rule_sets, context) do
+    rule = Enum.find(rules, &(&1.base_value == "-x"))
+
+    if is_nil(rule) do
+      "-" <> format_non_finite(:infinity, rules, all_rule_sets, context)
+    else
+      negative_infinity(rule, rules, all_rule_sets, context)
+    end
+  end
+
+  defp negative_infinity(rule, rules, all_rule_sets, context) do
+    case Localize.Number.Rbnf.Rule.parse(rule.definition) do
+      {:ok, parsed} ->
+        Enum.map_join(parsed, &negative_infinity_part(&1, rules, all_rule_sets, context))
+
+      {:error, _reason} ->
+        "-" <> format_non_finite(:infinity, rules, all_rule_sets, context)
+    end
+  end
+
+  defp negative_infinity_part({:literal, text}, _rules, _all_rule_sets, _context) do
+    text
+  end
+
+  defp negative_infinity_part({:modulo, nil}, rules, all_rule_sets, context) do
+    format_non_finite(:infinity, rules, all_rule_sets, context)
+  end
+
+  defp negative_infinity_part({:modulo, {:rule, name}}, rules, all_rule_sets, context) do
+    case find_rule_set(all_rule_sets, Kernel.to_string(name), context.rules_locale) do
+      {:ok, rule_set} -> format_non_finite(:infinity, rule_set.rules, all_rule_sets, context)
+      {:error, _unknown} -> format_non_finite(:infinity, rules, all_rule_sets, context)
+    end
+  end
+
+  defp negative_infinity_part({:modulo, {:format, format}}, _rules, _all_rule_sets, context) do
+    case Localize.Number.to_string(Decimal.new("Inf"), format: format, locale: context.locale) do
+      {:ok, string} -> string
+      {:error, _reason} -> non_finite_symbol(:infinity, context)
+    end
+  end
+
+  defp negative_infinity_part(_other, rules, all_rule_sets, context) do
+    format_non_finite(:infinity, rules, all_rule_sets, context)
+  end
+
+  defp rule_text(rules, base_value) do
+    rule = Enum.find(rules, &(&1.base_value == base_value))
+
+    if is_nil(rule) do
+      nil
+    else
+      rule.definition
+    end
+  end
+
+  # The locale's NaN or infinity symbol in its default number system.
+  defp non_finite_symbol(kind, context) do
+    case default_symbols(context.locale) do
+      {:ok, symbols} -> Map.fetch!(symbols, kind)
+      {:error, _no_symbols} -> fallback_symbol(kind)
+    end
+  end
+
+  defp default_symbols(locale) do
+    with {:ok, system} <- Localize.Number.System.system_name_from(:default, locale) do
+      Localize.Number.Symbol.number_symbols_for(locale, system)
+    end
+  end
+
+  defp fallback_symbol(:nan) do
+    "NaN"
+  end
+
+  defp fallback_symbol(:infinity) do
+    "∞"
   end
 
   # The rule set of this name in this locale, with the locale's whole set of

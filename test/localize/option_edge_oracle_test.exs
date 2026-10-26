@@ -12,8 +12,9 @@ defmodule Localize.OptionEdgeOracleTest do
   "034 143"), its `en` currency display names, of which these 70 carry a
   parenthesized annotation, its `en` list patterns and its length unit
   preferences (mile first for the US default usage); ICU4C 78.3 for Thai
-  digits under `-u-nu-thai` and for "NaN US dollars" and "∞ US dollars";
-  TR35's half-even default rounding, its truncation inheritance, which
+  digits under `-u-nu-thai` and for "∞ US dollars"; TR35's Special Values
+  for NaN, which takes no prefix or suffix (ICU writes "NaN US dollars",
+  TR35 is followed); TR35's half-even default rounding, its truncation inheritance, which
   drops a variant first, and its fallback to the default usage; and the
   international mile of exactly 1,609.344 meters.
 
@@ -48,7 +49,9 @@ defmodule Localize.OptionEdgeOracleTest do
   test "a currency display name for NaN and infinity" do
     options = [format: "#,##0.00 ¤¤¤", currency: :USD, locale: :en]
 
-    assert Localize.Number.to_string(Decimal.new("NaN"), options) == {:ok, "NaN US dollars"}
+    # TR35, Special Values: NaN is "the only value for which the prefixes and
+    # suffixes are not used", and `¤¤¤` here is the pattern's suffix.
+    assert Localize.Number.to_string(Decimal.new("NaN"), options) == {:ok, "NaN"}
     assert Localize.Number.to_string(Decimal.new("Infinity"), options) == {:ok, "∞ US dollars"}
   end
 

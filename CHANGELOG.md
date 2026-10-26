@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [1.4.1] — Unreleased
 
+### Changed
+
+* A `Decimal` NaN formats as the locale's NaN symbol alone, with no sign, currency symbol, percent sign or other affix, as TR35's Special Values require; it was "NaN%", "$NaN" and "+NaN" under `sign_display: :always`. Infinity keeps its affixes ("∞%", "-$∞").
+
 ### Fixed
+
+* A `Decimal` NaN or ±Infinity no longer raises in the compact formats, `:currency_long`, the RBNF formats, plural rules or an MF2 `.match`. RBNF uses the rule set's `NaN:` and `Inf:` rules or the locale's symbols, and plural rules select `other`, as ICU and ECMA-402 do.
 
 * `Localize.Number.to_string/2` formats a `Decimal` zero in a compact format (`:short`, `:long`, `:currency_short`), where 1.4.0 raised `Decimal.Error` dividing by the zero mantissa when checking for a rounding carry. Thanks to @etareduction for the report. Closes #62.
 

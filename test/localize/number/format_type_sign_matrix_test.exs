@@ -167,6 +167,107 @@ defmodule Localize.Number.FormatTypeSignMatrixTest do
     end
   end
 
+  # Results for Decimal NaN, Infinity and -Infinity. TR35, Special Values:
+  # NaN is the locale's NaN symbol with no prefix or suffix; infinity is the
+  # infinity symbol with the positive or negative prefix and suffix. An RBNF
+  # rule set writes its `NaN:` and `Inf:` rules, and -∞ through its `-x:`
+  # rule; without them, the locale's symbols (as ICU). Compact formats have
+  # no magnitude to compact (as ICU and ECMA-402).
+  @non_finite [
+    {:standard, [], ["NaN", "∞", "-∞"]},
+    {:percent, [], ["NaN", "∞%", "-∞%"]},
+    {:scientific, [], ["NaN", "∞", "-∞"]},
+    {:engineering, [], ["NaN", "∞", "-∞"]},
+    {:decimal_short, [], ["NaN", "∞", "-∞"]},
+    {:decimal_long, [], ["NaN", "∞", "-∞"]},
+    {:short, [], ["NaN", "∞", "-∞"]},
+    {:long, [], ["NaN", "∞", "-∞"]},
+    {:currency, @currency, ["NaN", "$∞", "-$∞"]},
+    {:accounting, @currency, ["NaN", "$∞", "($∞)"]},
+    {:currency_no_symbol, @currency, ["NaN", "∞", "-∞"]},
+    {:accounting_no_symbol, @currency, ["NaN", "∞", "(∞)"]},
+    {:currency_alpha_next_to_number, @currency, ["NaN", "$\u00A0∞", "-$\u00A0∞"]},
+    {:accounting_alpha_next_to_number, @currency, ["NaN", "$\u00A0∞", "($\u00A0∞)"]},
+    {:currency_short, @currency, ["NaN", "$∞", "-$∞"]},
+    # The unit pattern "{0} US dollars" is not the number pattern's affix.
+    {:currency_long, @currency, ["NaN US dollars", "∞ US dollars", "-∞ US dollars"]},
+    {:spellout, [], ["not a number", "infinity", "minus infinity"]},
+    {:spellout_numbering, [], ["not a number", "infinity", "minus infinity"]},
+    {:spellout_cardinal, [], ["not a number", "infinite", "minus infinite"]},
+    {:spellout_cardinal_verbose, [], ["not a number", "infinite", "minus infinite"]},
+    {:spellout_ordinal, [], ["NaN", "infinitieth", "minus infinitieth"]},
+    {:spellout_numbering_year, [], ["NaN", "∞", "minus ∞"]},
+    {:ordinal, [], ["NaN", "∞", "\u2212∞"]},
+    {:digits_ordinal, [], ["NaN", "∞", "\u2212∞"]},
+    {:roman_upper, [], ["NaN", "∞", "\u2212∞"]},
+    {"#,##0.00", [], ["NaN", "∞", "-∞"]}
+  ]
+
+  describe "en, NaN and infinity" do
+    for {format, extra, [nan, infinity, negative_infinity]} <- @non_finite do
+      test "#{inspect(format)}" do
+        assert format(Decimal.new("NaN"), unquote(format), unquote(extra)) == {:ok, unquote(nan)}
+
+        assert format(Decimal.new("Inf"), unquote(format), unquote(extra)) ==
+                 {:ok, unquote(infinity)}
+
+        assert format(Decimal.new("-Inf"), unquote(format), unquote(extra)) ==
+                 {:ok, unquote(negative_infinity)}
+      end
+    end
+
+    test "NaN takes no sign under any sign display" do
+      for sign_display <- [:auto, :always, :except_zero, :negative, :never] do
+        assert {:ok, "NaN"} =
+                 Localize.Number.to_string(Decimal.new("NaN"), sign_display: sign_display)
+      end
+    end
+  end
+
+  describe "NaN and infinity in other locales" do
+    for locale <- [:de, :ar, :ja, :fr] do
+      test "#{locale}: every format returns a result or an unknown rule set" do
+        for {format, extra, _expected} <- @non_finite,
+            value <- [Decimal.new("NaN"), Decimal.new("Inf"), Decimal.new("-Inf")] do
+          assert {status, _result} = format(value, format, extra, unquote(locale))
+          assert status in [:ok, :error]
+
+          if status == :error do
+            assert {:error, %Localize.UnknownRbnfRuleError{}} =
+                     format(value, format, extra, unquote(locale))
+          end
+        end
+      end
+    end
+  end
+
+  describe "plural rules for NaN and infinity" do
+    # TR35 defines plural operands for finite numbers only; ICU and
+    # ECMA-402 (`Intl.PluralRules`) select `other`.
+    alias Localize.Number.PluralRule.{Cardinal, Ordinal}
+
+    @substitutions %{one: "one", two: "two", few: "few", other: "other"}
+
+    test "cardinal and ordinal rules select other" do
+      for value <- [Decimal.new("NaN"), Decimal.new("Inf"), Decimal.new("-Inf")],
+          locale <- [:en, :ar, :fr] do
+        assert Cardinal.plural_rule(value, locale) == :other
+        assert Ordinal.plural_rule(value, locale) == :other
+        assert Cardinal.plural_rule({value, 3}, locale) == :other
+        assert Cardinal.pluralize(value, locale, @substitutions) == "other"
+        assert Ordinal.pluralize(value, locale, @substitutions) == "other"
+      end
+    end
+
+    test "an MF2 .match selects the catch-all" do
+      message = ".input {$n :number}\n.match $n\none {{one}}\n* {{other}}"
+
+      for value <- [Decimal.new("NaN"), Decimal.new("Inf"), Decimal.new("-Inf")] do
+        assert {:ok, "other"} = Localize.Message.format(message, %{"n" => value})
+      end
+    end
+  end
+
   describe "other locales" do
     for locale <- [:de, :ar] do
       test "#{locale}: every format gives one result per value, whatever its type" do

@@ -156,6 +156,13 @@ defmodule Localize.Number.PluralRule.Ordinal do
     pluralize(number, locale, substitutions)
   end
 
+  # NaN and ±Infinity select `other`, as `plural_rule/3` does, and are no
+  # exact value; `Decimal.to_float/1` below would raise on them.
+  def pluralize(%Decimal{coef: coef}, %LanguageTag{}, %{} = substitutions)
+      when coef in [:NaN, :inf] do
+    substitutions[:other] || substitutions[@default_substitution]
+  end
+
   def pluralize(%Decimal{} = number, %LanguageTag{} = locale, %{} = substitutions) do
     number
     |> Decimal.to_float()
@@ -298,6 +305,20 @@ defmodule Localize.Number.PluralRule.Ordinal do
   def plural_rule({number, e}, %LanguageTag{} = locale, rounding)
       when is_float(number) and is_integer(e) and e >= 0 do
     plural_rule_with_exponent(Decimal.from_float(number), e, locale, rounding)
+  end
+
+  # NaN and ±Infinity have no TR35 plural operands, and TR35 does not
+  # say how to select for them. ICU and ECMA-402 (`Intl.PluralRules`)
+  # select `other`, so this does too.
+  def plural_rule({%Decimal{coef: coef}, e}, %LanguageTag{}, rounding)
+      when coef in [:NaN, :inf] and is_integer(e) and e >= 0 and is_integer(rounding) and
+             rounding > 0 do
+    :other
+  end
+
+  def plural_rule(%Decimal{coef: coef}, %LanguageTag{}, rounding)
+      when coef in [:NaN, :inf] and is_integer(rounding) and rounding > 0 do
+    :other
   end
 
   def plural_rule({%Decimal{} = number, e}, %LanguageTag{} = locale, rounding)

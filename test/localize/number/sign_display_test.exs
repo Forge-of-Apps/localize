@@ -145,8 +145,10 @@ defmodule Localize.Number.SignDisplayTest do
   end
 
   describe "sign display with non-finite Decimals" do
-    test "NaN takes a plus sign only under :always" do
-      assert {:ok, "+NaN"} =
+    # TR35, Special Values: NaN takes no prefix or suffix, a sign included.
+    # ECMA-402 writes "+NaN" under `signDisplay: "always"`; TR35 is followed.
+    test "NaN takes no sign under any sign display" do
+      assert {:ok, "NaN"} =
                Localize.Number.to_string(Decimal.new("NaN"), sign_display: :always)
 
       assert {:ok, "NaN"} =
